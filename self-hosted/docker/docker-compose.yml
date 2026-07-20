@@ -1,0 +1,58 @@
+# Sentori self-hosted — one-line `docker compose up -d` stack.
+#
+# Two services: postgres + sentori-server. The server runs
+# migrations at boot + (if env vars set) provisions the first
+# Owner user.
+#
+# Usage:
+#   cp .env.example .env  # edit DB password + owner creds
+#   docker compose up -d
+#   open http://localhost:8080/healthz
+#
+# Image goals (per .claude/state/refactor-standards.md):
+#   - 30-second ready under cold `docker compose up`
+#   - server image < 80 MB
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sentori}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-sentori}
+    volumes:
+      - sentori-pgdata:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sentori}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build:
+      context: ../..
+      dockerfile: self-hosted/docker/Dockerfile
+    image: sentori-selfhosted:${SENTORI_VERSION:-0.2.0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SENTORI_DATABASE_URL: postgres://${POSTGRES_USER:-sentori}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-sentori}
+      SENTORI_BIND: 0.0.0.0:8080
+      SENTORI_BOOTSTRAP_OWNER_EMAIL: ${SENTORI_BOOTSTRAP_OWNER_EMAIL:-}
+      SENTORI_BOOTSTRAP_OWNER_PASSWORD: ${SENTORI_BOOTSTRAP_OWNER_PASSWORD:-}
+      SENTORI_SESSION_SECRET: ${SENTORI_SESSION_SECRET:-}
+      SENTORI_PUSH_WORKER_ENABLED: ${SENTORI_PUSH_WORKER_ENABLED:-1}
+      SENTORI_ATTACHMENT_STORE: ${SENTORI_ATTACHMENT_STORE:-fs:/data/blobs}
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
+    volumes:
+      - sentori-blobs:/data/blobs
+    ports:
+      - "${SENTORI_PORT:-8080}:8080"
+    restart: unless-stopped
+
+volumes:
+  sentori-pgdata:
+  sentori-blobs:

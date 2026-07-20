@@ -1,0 +1,72 @@
+# Multi-stage. Build with bun; serve the static SPA via nginx, which
+# also reverse-proxies /admin/api to the server container.
+#
+# Build context: repo root.
+#   docker build -f docker/Dockerfile.web -t sentori-web .
+#
+# Phase 31 sub-D moved web/ into the root `workspaces:` array, so
+# `bun install` from web/ alone now fails — `@goliapkg/sentori-react`
+# is referenced as `workspace:*` and only resolves when bun can see
+# the sdk/ tree alongside the root lockfile. The COPY block below
+# brings just enough of the monorepo into the image to make the
+# resolution work, while still preserving layer-cache friendliness:
+# only manifests + lockfile in the first layer, then sources.
+
+FROM oven/bun:1 AS builder
+WORKDIR /build
+# Phase 17 sub-F: dogfood build args. Vite inlines VITE_* at build
+# time, so the token has to be present here, not at runtime.
+ARG VITE_SENTORI_TOKEN
+ARG VITE_SENTORI_INGEST=https://ingest.sentori.golia.jp
+ARG VITE_GIT_SHA
+ENV VITE_SENTORI_TOKEN=$VITE_SENTORI_TOKEN \
+    VITE_SENTORI_INGEST=$VITE_SENTORI_INGEST \
+    VITE_GIT_SHA=$VITE_GIT_SHA
+
+# Manifest layer — cached unless a package.json or the lockfile changes.
+COPY package.json bun.lock ./
+COPY sdk/cli/package.json ./sdk/cli/
+COPY sdk/core/package.json ./sdk/core/
+COPY sdk/javascript/package.json ./sdk/javascript/
+COPY sdk/react/package.json ./sdk/react/
+COPY sdk/next/package.json ./sdk/next/
+COPY sdk/react-native/package.json ./sdk/react-native/
+COPY sdk/expo/package.json ./sdk/expo/
+# Phase 45 — Web SDK matrix added Vue / Svelte / Solid as workspaces.
+COPY sdk/vue/package.json ./sdk/vue/
+COPY sdk/svelte/package.json ./sdk/svelte/
+COPY sdk/solid/package.json ./sdk/solid/
+COPY web/package.json ./web/
+# apps/rn-example is a workspace member (its strict react-native pin
+# mirrors Insight's production stack — see commit b362855). bun
+# install --frozen-lockfile walks the whole workspace tree, so its
+# package.json has to be present even though the web image doesn't
+# build the example app.
+COPY apps/rn-example/package.json ./apps/rn-example/
+# bun's npm-registry CDN sometimes flakes on native binary tarballs
+# (sharp / hermes-compiler / @rolldown/binding-*-musl have all hit
+# `error: Fail extracting tarball` mid-install). Single attempt fails
+# the whole deploy. Retry 3× with exponential backoff (5s / 10s /
+# 15s) so a transient 5xx doesn't redo a 7-min Docker build push.
+RUN for i in 1 2 3; do \
+      bun install --frozen-lockfile && break || \
+      { echo "bun install attempt $i failed; sleeping $((i*5))s before retry"; sleep $((i*5)); }; \
+    done
+
+# Source layer — re-runs on any file change.
+COPY sdk ./sdk
+COPY web ./web
+# v2.20 — root VERSION file is the single source of truth (web/vite.config.ts
+# panics if web/package.json drifts). Image build context is the repo root,
+# so the file lives at /build/VERSION which is what `readFileSync(resolve(
+# import.meta.dirname, '..', 'VERSION'))` in vite.config.ts resolves to from
+# /build/web.
+COPY VERSION ./VERSION
+
+WORKDIR /build/web
+RUN bun run build
+
+FROM nginx:1.27-alpine
+COPY --from=builder /build/web/dist /usr/share/nginx/html
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80

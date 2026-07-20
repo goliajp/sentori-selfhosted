@@ -1,0 +1,27 @@
+[package]
+name = "sentori-ingest-token"
+version = "0.2.0"
+edition = "2024"
+authors = ["GOLIA K.K. <takagi@golia.jp>"]
+license = "Apache-2.0 OR MIT"
+description = "SDK ingest token (st_pk_<26 base32>) — store + parse + axum Bearer middleware."
+publish = false
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "time"] }
+axum = "0.8"
+tower = "0.5"
+http = "1"
+uuid = { version = "1", features = ["v7"] }
+time = { version = "0.3", features = ["serde"] }
+sha2 = "0.10"
+hex = "0.4"
+data-encoding = "2"
+rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+tracing = "0.1"
+
+[lib]
+path = "src/lib.rs"

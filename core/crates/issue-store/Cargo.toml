@@ -1,0 +1,83 @@
+# core/crates/issue-store — 钢筋 #5 (per cement-stone).
+#
+# Read-side + operator-triage mutations for the issues table
+# K4 event-pipeline writes to at ingest. K5 redefined scope
+# (per session of 2026-06-20): K4 owns ingest-time writes;
+# K5 owns dashboard queries + operator actions (resolve /
+# ignore / assign / priority / labels / merge / bulk-patch /
+# related-issues / releases-for-issue / events-for-issue /
+# affected-users).
+#
+# K5 owns:
+#   - migration 0004_issue_triage.sql (ALTER TABLE issues
+#     ADD assignee_user_id / priority / labels /
+#     resolved_in_release + their indexes).
+#   - `IssueStore` handle with the read + mutate methods
+#     enumerated in lib.rs.
+#   - `Cursor` keyset-pagination primitive.
+#   - `ListFilter` / `IssuePatch` / `IssueDetail` /
+#     `PaginatedIssues` / `PaginatedEvents` / `MergeOutcome`
+#     domain types.
+#
+# K5 does NOT own:
+#   - HTTP route handling (saas / self-hosted server crates).
+#   - Ingest writes (K4 event-pipeline).
+#   - Activity log / audit trail for triage actions (K13
+#     audit-event).
+#   - Notifier hooks for status flips (K11 notifier wires
+#     them off the patch outcome).
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every IssueStore method, happy
+#     + 2 error paths each (testcontainers postgres:18)
+#   - line cov > 85% (gate is CI)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe
+
+[package]
+name = "sentori-issue-store"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori issue-store — read-side + operator triage mutations over the K4-owned issues table. Cursor pagination, related-issues panel, affected-users count, merge / bulk-patch."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+sentori-event-pipeline = { path = "../event-pipeline" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+base64.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_cursor"
+path = "tests/proptest_cursor.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -1,0 +1,65 @@
+# rust
+target/
+
+# node
+node_modules/
+*.tsbuildinfo
+
+# build outputs
+dist/
+build/
+.astro/
+
+# xcode
+*.xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+# android
+.gradle/
+local.properties
+
+# react native / expo / metro
+.expo/
+.metro-cache/
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# os
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
+
+# coverage
+coverage/
+.nyc_output/
+
+# local data
+data/
+*.db
+*.sqlite
+
+# claude code transient state (rewritten by harness on each run)
+# include subdir-drift variants — handoff sometimes saves into web/.claude/ etc.
+**/.claude/handoff.md
+**/.claude/scheduled_tasks.lock
+
+# nudo tool config — per-dev workspace metadata, not product code
+.nudo.toml
+
+# transient artifacts (bug repros, throwaway notes, scratch)
+tmp/
+.claude/
+.npmrc

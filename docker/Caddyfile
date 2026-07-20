@@ -1,0 +1,84 @@
+# Sentori production Caddyfile (Phase 16 sub-A).
+#
+# Subdomain layout (mirrors ROADMAP "Subdomain 拓扑"):
+#   app.<domain>     — SPA dashboard (web container)
+#   ingest.<domain>  — public ingest endpoints + healthchecks
+#   api.<domain>     — admin/user APIs (cookie auth)
+#   <apex>           — redirect to https://www.<domain> (handled by CF Pages)
+#
+# Caddy handles TLS via ACME automatically against Let's Encrypt; the
+# `tls` directive uses the operator address for ACME notifications.
+# `import snippets` keeps headers DRY across sites.
+
+{
+	# operator address for ACME — change at deploy time via env
+	email ops@golia.jp
+
+	# Phase 16 sub-D: tighten security defaults globally
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# X-Frame-Options is redundant when CSP frame-ancestors is set,
+		# but cheap belt-and-braces for old user agents.
+		X-Frame-Options "DENY"
+		# Caddy adds Server: by default; strip it.
+		-Server
+	}
+}
+
+(server_upstreams) {
+	# Round-robin between blue/green; lb_policy keeps a flow on one
+	# server for cookie-based session affinity.
+	reverse_proxy server-blue:8080 server-green:8080 {
+		lb_policy ip_hash
+		lb_try_duration 2s
+		health_uri /v1/events/_recent
+		health_interval 10s
+		health_timeout 3s
+	}
+}
+
+# Dashboard SPA — strict CSP because we control all the bundles.
+app.{$SENTORI_DOMAIN} {
+	import security_headers
+	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://api.{$SENTORI_DOMAIN} https://ingest.{$SENTORI_DOMAIN}; font-src 'self'; frame-ancestors 'none'"
+	encode zstd gzip
+	reverse_proxy web:80
+}
+
+# Admin / user APIs (login, orgs, projects, tokens, recipients, usage…).
+api.{$SENTORI_DOMAIN} {
+	import security_headers
+	# CORS: dashboard is the only browser caller. Other callers (CLI,
+	# scripts) hit this without a browser-enforced Origin.
+	header Access-Control-Allow-Origin "https://app.{$SENTORI_DOMAIN}"
+	header Access-Control-Allow-Credentials "true"
+	header Access-Control-Allow-Methods "GET, POST, PATCH, DELETE, OPTIONS"
+	header Access-Control-Allow-Headers "Content-Type, Authorization"
+	@options method OPTIONS
+	respond @options 204
+
+	import server_upstreams
+}
+
+# Ingest — public CORS, no credentials. SDKs call this from app code.
+ingest.{$SENTORI_DOMAIN} {
+	import security_headers
+	header Access-Control-Allow-Origin "*"
+	header Access-Control-Allow-Methods "POST, OPTIONS"
+	header Access-Control-Allow-Headers "Content-Type, Authorization, Sentori-Sdk"
+	@options method OPTIONS
+	respond @options 204
+
+	import server_upstreams
+}
+
+# Apex (sentori.{tld}) is served by Cloudflare Pages → marketing site;
+# no Caddy block needed here unless we move marketing onto the VM.

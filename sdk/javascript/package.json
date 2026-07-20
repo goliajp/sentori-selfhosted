@@ -1,0 +1,63 @@
+{
+  "name": "@goliapkg/sentori-javascript",
+  "version": "1.3.0",
+  "description": "Sentori SDK for browsers and Node — error capture, breadcrumbs, distributed-tracing fetch hook (W3C traceparent), and HTTP transport.",
+  "license": "Apache-2.0 OR MIT",
+  "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",
+  "homepage": "https://sentori.golia.jp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goliajp/sentori.git",
+    "directory": "sdk/javascript"
+  },
+  "bugs": {
+    "url": "https://github.com/goliajp/sentori/issues"
+  },
+  "keywords": [
+    "sentori",
+    "error-tracking",
+    "crash-reporting",
+    "monitoring",
+    "javascript",
+    "browser",
+    "node"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./tracing": {
+      "types": "./lib/tracing-middleware.d.ts",
+      "import": "./lib/tracing-middleware.js"
+    }
+  },
+  "files": [
+    "lib/",
+    "src/",
+    "README.md"
+  ],
+  "dependencies": {
+    "@goliapkg/sentori-core": "^1.3.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepack": "bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "*",
+    "typescript": "^6"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

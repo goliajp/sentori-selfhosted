@@ -1,0 +1,87 @@
+# core/crates/workspace-identity — 钢筋 #1 (per cement-stone).
+#
+# Workspace identity model: users + workspace_members (RBAC) +
+# projects + project_user_visibility (per-project ACL) +
+# workspace_invites. Schema-equivalent across the three Sentori
+# editions (selfhosted / enterprise / saas tenant) per the D6
+# data-portability constraint (see product-architecture §08).
+#
+# This crate owns:
+#   - The SQL schema (migration 0001 in `core/migrations/`).
+#   - Typed domain models (`UserId`, `ProjectId`, `Role`,
+#     `InviteRole`, `User`, `Member`, `Project`, `Invite`,
+#     `InviteToken`).
+#   - The 5 store surfaces, exposed through one `Identity`
+#     handle: `identity.users()` / `.members()` / `.projects()`
+#     / `.visibility()` / `.invites()`.
+#   - Pure capability checks on `Role` (`can_grant_admin`, etc.)
+#     so handler code never re-derives RBAC rules.
+#
+# This crate does NOT own:
+#   - HTTP / axum types. The K2 `auth-session` crate wraps these
+#     stores in middleware + route handlers.
+#   - Session cookies. Stone `cookie-session` (S9) handles that.
+#   - Tenant routing. Stone `tenant-scoping` (K16) sets the
+#     pg search_path before identity calls run.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration test covers every endpoint, happy + 2 error
+#     paths each (testcontainers postgres:18)
+#   - line cov > 85% (gate is CI, not local — tarpaulin not
+#     installed locally as of 2026-06-20)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe (`#![forbid(unsafe_code)]` workspace-wide)
+#   - no criterion bench (bench is a stone-tier requirement)
+
+[package]
+name = "sentori-workspace-identity"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori workspace-identity — RBAC + members + projects + per-project visibility + invites (schema + typed CRUD, no HTTP)."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+sha2.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+subtle.workspace = true
+zeroize.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+serde_json.workspace = true
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_role"
+path = "tests/proptest_role.rs"
+
+[[test]]
+name = "proptest_invite_token"
+path = "tests/proptest_invite_token.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

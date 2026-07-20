@@ -1,0 +1,50 @@
+{
+  "name": "@goliapkg/sentori-core",
+  "version": "1.4.0",
+  "description": "Sentori SDK core — wire-format types (incl. Span), uuid v7, breadcrumb + span ring buffers, trace context, stack parsers shared across @goliapkg/sentori-* SDKs.",
+  "license": "Apache-2.0 OR MIT",
+  "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",
+  "homepage": "https://sentori.golia.jp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goliajp/sentori.git",
+    "directory": "sdk/core"
+  },
+  "bugs": {
+    "url": "https://github.com/goliajp/sentori/issues"
+  },
+  "keywords": [
+    "sentori",
+    "error-tracking",
+    "monitoring",
+    "core"
+  ],
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib/",
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "bench": "bun test ./src/__tests__/perf.bench.ts",
+    "build": "tsc -p tsconfig.json",
+    "prepack": "bun run build",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

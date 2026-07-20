@@ -1,0 +1,28 @@
+{
+  "name": "example",
+  "version": "1.0.9",
+  "main": "index.ts",
+  "private": true,
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "e2e:simx": "simx run __tests__/e2e/sentori-capture-error.test.ts --udid <sim-sentori-udid> --runner=auto --target-bundle com.goliapanda.sentori-example --json"
+  },
+  "dependencies": {
+    "@goliapkg/sentori-react-native": "workspace:*",
+    "expo": "~55.0.24",
+    "expo-dev-client": "~55.0.34",
+    "expo-linking": "~55.0.15",
+    "expo-status-bar": "~55.0.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-native": "0.83.6"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.0",
+    "@types/react": "~19.2.0",
+    "typescript": "~5.9.2"
+  }
+}

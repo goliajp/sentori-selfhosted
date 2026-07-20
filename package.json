@@ -1,0 +1,33 @@
+{
+  "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",
+  "name": "@goliapkg/sentori-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/rn-example",
+    "sdk/cli",
+    "sdk/core",
+    "sdk/expo",
+    "sdk/javascript",
+    "sdk/next",
+    "sdk/react",
+    "sdk/react-native",
+    "sdk/solid",
+    "sdk/svelte",
+    "sdk/vue",
+    "web"
+  ],
+  "scripts": {
+    "build:sdks": "bun run --filter '@goliapkg/sentori-core' build && bun run --filter '@goliapkg/sentori-javascript' build && bun run --filter '@goliapkg/sentori-react-native' build && bun run --filter '@goliapkg/sentori-react' build && bun run --filter '@goliapkg/sentori-next' build && bun run --filter '@goliapkg/sentori-vue' build && bun run --filter '@goliapkg/sentori-svelte' build && bun run --filter '@goliapkg/sentori-solid' build && bun run --filter '@goliapkg/sentori-expo' build && bun run --filter '@goliapkg/sentori-cli' build",
+    "test:sdks": "bun run --filter '@goliapkg/sentori-*' test",
+    "preflight": "echo '→ lockfile drift (matches CI bun install --frozen-lockfile)' && bun install --frozen-lockfile && echo '→ server cargo check (catches type errors that compile in isolation)' && (cd server && cargo check --tests --quiet) && echo '→ rfc3339 serde annotations on OffsetDateTime fields (Phase 29 sub-C CI lint)' && bash scripts/check-rfc3339.sh && echo '→ web check (tsc + eslint + prettier)' && (cd web && bun run check) && echo '→ web test' && (cd web && bun run test) && echo '→ build all SDKs (matches CI sdk job)' && bun run build:sdks && echo '→ all SDK tests' && bun run test:sdks && echo '→ key server tests (v1_compat + regression + post_event — fast, no Postgres needed)' && (cd server && cargo test --test v1_compat --test regression --test post_event --quiet) && echo '→ error-code docs (F5 gate)' && bun scripts/check-error-docs.ts && echo '✓ preflight green — safe to push'",
+    "preflight:fast": "echo '→ web check + test + sdks (skips Rust + lockfile checks for tight TS-only iterations)' && (cd web && bun run check) && (cd web && bun run test) && bun run build:sdks && bun run test:sdks && bun scripts/check-error-docs.ts && echo '✓ fast preflight green'",
+    "check:error-docs": "bun scripts/check-error-docs.ts",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "bun run build:sdks && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0"
+  }
+}

@@ -1,0 +1,9 @@
+[package]
+name = "sentori-release-store"
+version = "0.2.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+description = "Stub — releases + release_artifacts (/v1/deploys). Phase D/E port from legacy server/src/api/deploys.rs + releases.rs."
+
+[lib]
+path = "src/lib.rs"

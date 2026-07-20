@@ -1,0 +1,68 @@
+# Multi-stage. Build with the official Rust image; run on distroless cc.
+# Migrations are embedded into the binary by sqlx::migrate! at compile time
+# so the runtime image does not need them.
+#
+# Build context: repo root.
+#   docker build -f docker/Dockerfile.server -t sentori-server .
+
+# v0.8.4 — GeoIP db fetch stage. Pulls DB-IP Lite IP-to-Country
+# (CC-BY 4.0) at image build time so the resulting image self-contains
+# the geo enrichment data. No operator action required: the server
+# loads `/app/data/geo.mmdb` by default.
+#
+# Bumping months: each release CI can pass `--build-arg DBIP_VERSION=YYYY-MM`
+# to refresh; the default lags by ≤1 month, which is fine for a
+# country-level resolution that changes once per IP-block reassignment.
+#
+# Attribution required by CC-BY 4.0 lives in NOTICES.md at repo root
+# and in docs/self-hosting.md.
+FROM debian:bookworm-slim AS geoip
+ARG DBIP_VERSION=2026-07
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+WORKDIR /geoip
+RUN set -eux; \
+    base="https://download.db-ip.com/free/dbip-country-lite-${DBIP_VERSION}.mmdb.gz"; \
+    if ! curl -fsSL -o db.mmdb.gz "$base"; then \
+        # Fall back to the previous month if the requested one isn't
+        # published yet (db-ip rolls files out a few days into the
+        # month). Compute year/month one back. POSIX-only date math
+        # keeps this portable.
+        prev=$(date -d "${DBIP_VERSION}-01 -1 month" +%Y-%m); \
+        echo "DBIP_VERSION=$DBIP_VERSION not found; falling back to $prev"; \
+        curl -fsSL -o db.mmdb.gz \
+            "https://download.db-ip.com/free/dbip-country-lite-${prev}.mmdb.gz"; \
+    fi; \
+    gunzip db.mmdb.gz
+
+FROM rust:1-bookworm AS builder
+WORKDIR /build/server
+
+# Pre-fetch deps to a separate layer for better caching.
+# v2.20 — root VERSION file is the single source of truth. server/build.rs
+# panics if Cargo.toml drifts. WORKDIR is /build/server, build.rs resolves
+# `../VERSION` from CARGO_MANIFEST_DIR, so the file lands at /build/VERSION.
+# Cargo.toml + Cargo.lock + build.rs + VERSION all need to be present
+# before the layer-cache primer runs, otherwise the build script panics
+# (or, worse, doesn't run at all, weakening our drift fence).
+COPY server/Cargo.toml server/Cargo.lock server/build.rs ./
+COPY VERSION ../VERSION
+RUN mkdir -p src && echo 'fn main(){}' > src/main.rs \
+    && cargo build --release --bin sentori-server || true \
+    && rm -rf src
+
+# Real build.
+COPY server/src ./src
+COPY server/migrations ./migrations
+RUN touch src/main.rs && cargo build --release --bin sentori-server
+
+# Runtime: distroless cc (glibc + libgcc + libstdc++, no shell).
+FROM gcr.io/distroless/cc-debian12
+WORKDIR /app
+COPY --from=builder /build/server/target/release/sentori-server /app/sentori-server
+# DB-IP Lite GeoIP db. ~3 MB, loaded once at server startup,
+# referenced read-only by maxminddb::Reader.
+COPY --from=geoip /geoip/db.mmdb /app/data/geo.mmdb
+EXPOSE 8080
+ENTRYPOINT ["/app/sentori-server"]

@@ -1,0 +1,110 @@
+# Sentori production compose (Phase 16 sub-A baseline).
+#
+# Differences from the dev docker-compose.yml at the repo root:
+# - Postgres lives on a separate VM (DATABASE_URL points off-host).
+# - Caddy fronts the server + dashboard with automatic TLS via ACME.
+# - server is mounted twice (server-blue, server-green) so blue/green
+#   deploys can roll one at a time without dropping ingest. Caddy
+#   round-robins between whichever is up.
+# - Web bundle is served by Caddy directly (no nginx) from the
+#   immutable image's /usr/share/nginx/html — we extract once on boot.
+#
+# Required env (load via your secrets manager — sops + age recommended,
+# see ROADMAP Phase 16 sub-D):
+#   SENTORI_DEV_TOKEN
+#   SENTORI_ADMIN_PASSWORD
+#   SENTORI_SESSION_SECRET   (long random string, ≥ 64 bytes)
+#   DATABASE_URL             (postgres://… on the dedicated PG VM)
+#   SENTORI_BASE_URL         e.g. https://sentori.golia.jp
+#   SENTORI_SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_FROM
+#   SENTORI_DOMAIN           apex domain Caddy should manage TLS for
+#                             (e.g. sentori.golia.jp)
+#
+# Bring up (after the host is provisioned and DNS is pointing here):
+#   docker compose -f docker/production-compose.yml pull
+#   docker compose -f docker/production-compose.yml up -d
+#
+# Roll one server at a time:
+#   docker compose -f docker/production-compose.yml up -d --no-deps \
+#     --build server-blue
+#   # observe metrics for a few minutes, then:
+#   docker compose -f docker/production-compose.yml up -d --no-deps \
+#     --build server-green
+
+x-server-base: &server-base
+  image: ghcr.io/goliajp/sentori-server:${SENTORI_VERSION:-latest}
+  environment: &server-env
+    SENTORI_DEV_TOKEN: ${SENTORI_DEV_TOKEN:?required}
+    SENTORI_ADMIN_PASSWORD: ${SENTORI_ADMIN_PASSWORD:?required}
+    SENTORI_SESSION_SECRET: ${SENTORI_SESSION_SECRET:?required}
+    DATABASE_URL: ${DATABASE_URL:?required}
+    VALKEY_URL: redis://valkey:6379
+    SENTORI_DATA_DIR: /data
+    SENTORI_RATE_LIMIT_PER_MIN: ${SENTORI_RATE_LIMIT_PER_MIN:-1000}
+    SENTORI_BASE_URL: ${SENTORI_BASE_URL:?required}
+    SENTORI_SMTP_HOST: ${SENTORI_SMTP_HOST:-}
+    SENTORI_SMTP_PORT: ${SENTORI_SMTP_PORT:-587}
+    SENTORI_SMTP_USER: ${SENTORI_SMTP_USER:-}
+    SENTORI_SMTP_PASS: ${SENTORI_SMTP_PASS:-}
+    SENTORI_SMTP_FROM: ${SENTORI_SMTP_FROM:-sentori@localhost}
+    RUST_LOG: ${RUST_LOG:-info,sentori_server=info}
+  restart: unless-stopped
+  depends_on:
+    valkey:
+      condition: service_started
+
+services:
+  valkey:
+    image: valkey/valkey:8-alpine
+    volumes:
+      - valkey-data:/data
+    restart: unless-stopped
+    # bind to localhost only — only the in-network server reaches it
+    expose:
+      - "6379"
+
+  server-blue:
+    <<: *server-base
+    container_name: sentori-server-blue
+    volumes:
+      - server-data:/data
+    expose:
+      - "8080"
+
+  server-green:
+    <<: *server-base
+    container_name: sentori-server-green
+    volumes:
+      - server-data:/data
+    expose:
+      - "8080"
+
+  web:
+    image: ghcr.io/goliajp/sentori-web:${SENTORI_VERSION:-latest}
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      SENTORI_DOMAIN: ${SENTORI_DOMAIN:?required}
+    depends_on:
+      - server-blue
+      - server-green
+      - web
+
+volumes:
+  valkey-data:
+  server-data:
+  caddy-data:
+  caddy-config:

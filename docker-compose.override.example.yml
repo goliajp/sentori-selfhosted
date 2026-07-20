@@ -1,0 +1,28 @@
+# Optional overrides for docker-compose.yml.
+# Copy to docker-compose.override.yml and customize.
+#
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+#   $EDITOR docker-compose.override.yml
+#
+# The override file is auto-merged by `docker compose up`.
+
+services:
+  server:
+    environment:
+      # Email notifications on new issues
+      SENTORI_SMTP_HOST: smtp.example.com
+      SENTORI_SMTP_PORT: "587"
+      SENTORI_SMTP_USER: alerts@example.com
+      SENTORI_SMTP_PASS: ${SENTORI_SMTP_PASS:-}
+      SENTORI_SMTP_FROM: Sentori <alerts@example.com>
+
+      # Per-token rate limit (requests / minute / token; default 1000)
+      SENTORI_RATE_LIMIT_PER_MIN: "5000"
+
+      # More verbose logging
+      RUST_LOG: debug,sentori_server=debug,tower_http=debug
+
+  web:
+    ports:
+      # Override the public port (default 8000).
+      - "8080:80"

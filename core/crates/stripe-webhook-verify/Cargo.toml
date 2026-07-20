@@ -1,0 +1,72 @@
+# core/crates/stripe-webhook-verify — 石头 #5 (per cement-stone).
+#
+# Stripe webhook signature verification, written against Stripe's
+# documented signing scheme directly so the crate does NOT pull in
+# `async-stripe` (which would drag in tokio, hyper-rustls, and the
+# full Stripe domain model — fine for the saas 水泥 layer, but heavy
+# for a stone meant to live next to license-jwt and privacy-salt).
+#
+# Used by:
+#  - saas/server/src/handlers/billing.rs (水泥) — validates inbound
+#    Stripe events before consuming them.
+#  - Anything else that needs to verify a Stripe webhook signature
+#    out-of-band (e.g. a dedicated webhook relay, dogfood replay
+#    tools).
+#
+# Design ref:
+#  - `.claude/state/sprint-0/S5-stripe-poc.md` — the saas-side use.
+#  - https://docs.stripe.com/webhooks/signatures — the v1 scheme.
+#
+# Algorithm (locked, v1 of Stripe's scheme):
+#   header_format = "t=<unix_sec>,v1=<hex_sha256_hmac>[,v1=<hex>...]"
+#   signed_payload = <t> || b"." || raw_body
+#   expected      = HMAC-SHA256(secret, signed_payload)
+#   accept        = ConstantTimeEq(expected, any v1=<hex> in header)
+#                  && |now - t| <= tolerance
+#
+# Multiple `v1=` entries appear during webhook secret rotation; we
+# accept the first match. The freshness window defaults to 5 minutes
+# (Stripe's recommendation) and is configurable per call.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2): build/test/
+# clippy/fmt/doc green, criterion bench, proptest property tests,
+# full rustdoc, 0 unsafe.
+
+[package]
+name = "sentori-stripe-webhook-verify"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori Stripe webhook signature verifier — HMAC-SHA256 over the v1 scheme, constant-time compare, freshness window."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+hmac.workspace = true
+sha2.workspace = true
+hex.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "verify"
+harness = false
+
+[[test]]
+name = "proptest_verify"
+path = "tests/proptest_verify.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

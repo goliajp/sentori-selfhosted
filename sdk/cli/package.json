@@ -1,0 +1,50 @@
+{
+  "name": "@goliapkg/sentori-cli",
+  "version": "0.6.0",
+  "description": "Sentori CLI — upload source maps so dashboard stack traces resolve to your original source.",
+  "license": "Apache-2.0 OR MIT",
+  "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",
+  "homepage": "https://sentori.golia.jp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goliajp/sentori.git",
+    "directory": "sdk/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/goliajp/sentori/issues"
+  },
+  "keywords": [
+    "sentori",
+    "cli",
+    "sourcemaps",
+    "error-tracking"
+  ],
+  "type": "module",
+  "bin": {
+    "sentori-cli": "./lib/index.js"
+  },
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "files": [
+    "lib/",
+    "src/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepack": "bun run build"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "*",
+    "typescript": "^6"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

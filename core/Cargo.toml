@@ -1,0 +1,248 @@
+# v0.1 Fresh Start — core/ workspace root.
+#
+# 跨 saas + self-hosted 共享的 石头 + 钢筋 crate。
+# Per `.claude/state/refactor-standards.md` §1 cement-stone:
+#   - 石头: 业务无关, 跨项目可用, semver 严格 (license-jwt, privacy-salt 等)
+#   - 钢筋: 业务领域感知不绑死业务流 (workspace-identity, event-pipeline 等)
+#
+# 完全 fresh — 不引用 legacy server/* code。 legacy 仅作 ref。
+# 数据库 / mock 全新。 ceiling-first: 石头 cov > 95% + bench + fuzz, 钢筋 cov > 85%。
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/license-jwt",
+    "crates/privacy-salt",
+    "crates/issue-fingerprint",
+    "crates/event-ringbuffer",
+    "crates/stripe-webhook-verify",
+    "crates/sourcemap-resolver",
+    "crates/dwarf-resolver",
+    "crates/proguard-resolver",
+    "crates/cookie-session",
+    "crates/rate-limiter",
+    "crates/geoip-reader",
+    "crates/secrets-vault",
+    "crates/argon2-password",
+    "crates/ingest-token",
+    "crates/workspace-identity",
+    "crates/auth-session",
+    "crates/attachment-store",
+    "crates/event-pipeline",
+    "crates/issue-store",
+    "crates/span-store",
+    "crates/push-provider",
+    "crates/replay-store",
+    "crates/runtime-metrics",
+    "crates/cert-monitor",
+    "crates/notifier",
+    "crates/integration-traits",
+    "crates/audit-event",
+    "crates/alert-rule",
+    "crates/saved-view",
+    "crates/tenant-scoping",
+    "crates/billing",
+    # Phase 1 石头 13/13 (S13 argon2-password added 2026-06-20 per user
+    # decision: bcrypt (S9) and argon2 are not interchangeable — callers
+    # pick by use case). Note: workspace member listing order is
+    # alphabetical-ish + ship-order mixed; the real ordering is the S/K
+    # number suffix in Section B of v0.1-execution-plan.md.
+    # Phase 2 钢筋 已开工: K1 workspace-identity
+    # Phase 2 钢筋 依次加入: workspace-identity, auth-session, attachment-store,
+    # event-pipeline, issue-store, span-store, push-provider, replay-store,
+    # runtime-metrics, cert-monitor, notifier, integration-traits, audit-event,
+    # alert-rule, saved-view, tenant-scoping, billing
+]
+
+[workspace.package]
+edition = "2024"
+authors = ["GOLIA K.K. <takagi@golia.jp>"]
+license = "Apache-2.0 OR MIT"
+publish = false
+rust-version = "1.97"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "warn"
+todo = "deny"
+unimplemented = "deny"
+
+[workspace.dependencies]
+# 共享 dep 版本固定在这, 各 crate 用 `<dep>.workspace = true`
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v7", "serde"] }
+time = { version = "0.3", features = ["serde-well-known", "macros"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "time", "json"] }
+
+# Concurrency primitives — battle-tested lock-free queues. Keeps our
+# crates `forbid(unsafe_code)` while the underlying atomics live inside
+# crossbeam.
+crossbeam-queue = "0.3"
+crossbeam-utils = "0.8"
+
+# 加密 / JWT (per sprint-0 S4 PoC 决策: Ed25519)
+# aws_lc_rs backend instead of rust_crypto: skips the `rsa` crate (we
+# only use EdDSA) and dodges RUSTSEC-2023-0071 (Marvin attack timing
+# sidechannel in the rsa crate). aws-lc-rs builds across linux/glibc,
+# linux/musl, macOS, and Windows via the upstream sys crate.
+jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs", "use_pem"] }
+ed25519-dalek = { version = "2", features = ["rand_core", "pkcs8", "pem"] }
+sha2 = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+aes-gcm = "0.10"
+hex = "0.4"
+base64 = "0.22"
+zeroize = { version = "1", features = ["derive"] }
+subtle = "2"
+
+# Stripe (per sprint-0 S5)
+async-stripe = { version = "0.41", default-features = false, features = ["runtime-tokio-hyper-rustls", "billing", "webhook-events", "checkout", "customer-portal"] }
+
+# JS sourcemap parsing + LRU cache (stone S6 sourcemap-resolver).
+# `sourcemap` is the same upstream crate Sentry, Datadog, and the
+# Rust mozilla ecosystem use; LRU is a thin `LinkedHashMap` wrapper
+# with O(1) get/put — both crates are tiny and dep-light.
+sourcemap = "9"
+lru = "0.18"
+
+# Native (DWARF / Mach-O) symbolication (stone S7 dwarf-resolver).
+# All three are the Rust binary-tooling reference implementations,
+# co-developed in the gimli-rs org:
+#  - `object` — unified Mach-O / ELF / PE / WASM reader + writer.
+#  - `gimli`  — DWARF reader + writer (used by addr2line internally
+#               for the read side; we use the write side at test
+#               time to synthesise platform-agnostic Mach-O+DWARF
+#               fixtures, no `dsymutil` / clang dependency).
+#  - `addr2line` — high-level address → (function, file:line, inlined
+#               chain) lookup. Composed from object + gimli.
+# `ouroboros` powers a safe self-referential struct so we can hold
+# the raw Mach-O bytes alongside the borrowed Context — pure in-
+# memory, no temp files leaking out of the stone.
+object = { version = "0.39", default-features = false, features = ["read", "write", "std"] }
+gimli = { version = "0.33", default-features = false, features = ["read", "write", "std"] }
+addr2line = { version = "0.26", default-features = false, features = ["std", "loader", "rustc-demangle", "cpp_demangle", "fallible-iterator", "smallvec"] }
+ouroboros = "0.18"
+
+# Android ProGuard / R8 mapping parser (stone S8 proguard-resolver).
+# Sentry-maintained upstream — the canonical Rust parser for
+# ProGuard / R8 mapping.txt files (`com.x.Y -> a.b.c:` grammar plus
+# R8's inline-method expansion `1:5:void inlined():100:104 -> c`).
+# BSD-3-Clause, license-compatible with our Apache-2.0 OR MIT dual.
+# `uuid` feature enables `ProguardMapping::uuid()` so callers can
+# content-address mappings by R8's `# pg_map_id` header.
+proguard = { version = "5.10", default-features = false, features = ["uuid"] }
+
+# Cookie / password / CSRF primitives (stone S9 cookie-session).
+# `bcrypt` is the RustCrypto-style pure-Rust impl of OpenBSD's
+# bcrypt(5) algorithm — what every battle-tested Rust web stack
+# (axum, actix, rocket) recommends for password hashing in v0.1.
+# We get HMAC-SHA256 + AES-256-GCM + subtle (constant-time) +
+# base64 from the already-registered workspace deps; getrandom
+# powers the CSRF token CSPRNG without dragging in `rand`'s full
+# distribution / SIMD surface.
+bcrypt = { version = "0.19", default-features = false, features = ["std"] }
+getrandom = "0.2"
+
+# MaxMind .mmdb reader (stone S11 geoip-reader). The canonical
+# Rust parser maintained by Olaf Schwald — ISC licensed,
+# compatible with our Apache-2.0 OR MIT dual. Default features
+# stripped because we accept bytes via `Reader::from_source`
+# rather than memory-mapping a file path (file I/O is a K-tier
+# concern). `maxminddb-writer` is dev-only — synthesises tiny
+# fixture .mmdb files at test time so no committed binary blob.
+maxminddb = { version = "0.28", default-features = false }
+maxminddb-writer = "0.1"
+
+# Argon2 password hash (stone S13 argon2-password). RustCrypto-stewarded
+# pure-Rust impl of the password-hashing competition winner. We pull
+# the umbrella `password-hash` crate too so callers don't have to
+# re-derive the PHC-format helpers. Both Apache-2.0 OR MIT.
+argon2 = { version = "0.5", default-features = false, features = ["std", "password-hash"] }
+password-hash = { version = "0.5", default-features = false }
+
+# Axum + extras (steel K2 auth-session). Pinned at latest stable
+# 0.8 line; matches gateway/server crate expectations. axum-extra
+# carries the cookie + Json extractors we wire into the session
+# middleware. `tower` is the request/response service abstraction
+# every axum middleware composes through.
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "tower-log", "tracing", "macros"] }
+axum-extra = { version = "0.10", default-features = false, features = ["cookie", "typed-header"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tower-http = { version = "0.6", default-features = false }
+http = "1"
+http-body-util = "0.1"
+
+# K2 re-exports K1 identity types + S9 cookie-session primitives
+# + S13 argon2 password hash via path deps; the workspace registers
+# them above so multiple crates share one version.
+
+# Test
+proptest = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+# testcontainers — async API by default (no `blocking` feature) so
+# K-tier integration tests can drive postgres straight from `#[tokio::test]`.
+# `testcontainers-modules` ships the canonical `Postgres` image
+# wrapper (image name pinned, sane ready-condition), saving us a
+# hand-rolled `GenericImage` recipe per K crate.
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15" }
+rand = "0.8"
+# tempfile — used by K3 attachment-store integration tests for
+# isolated filesystem fixtures (each test creates its own
+# tempdir, dropped at scope end).
+tempfile = "3"
+# async-trait — K7 push-provider uses dyn Provider for the
+# vendor-impl registry (APNs/FCM/Web Push/HCM/MiPush all
+# different concrete types). Rust 1.75 async-fn-in-trait
+# isn't object-safe; async-trait macro fills the gap until
+# the stable dyn-async-fn lands.
+async-trait = "0.1"
+# regex — K8 replay-store scrubber uses it for PII redaction
+# (OWASP common patterns + per-project extras). `unicode-perl`
+# feature enables \d / \w semantics matching Unicode (e.g. an
+# emoji-quoted email shouldn't false-negative).
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl"] }
+# flate2 — K8 gzip-compresses scrubbed NDJSON before handing to
+# K3 blob store. `rust_backend` feature picks the pure-Rust miniz
+# impl (no system zlib needed; matches the static-link prod goal).
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# reqwest — K10 cert-monitor polls public CT logs (crt.sh).
+# `rustls-tls` keeps the binary statically linkable (no
+# system OpenSSL); `json` parses crt.sh's response inline;
+# `gzip` because crt.sh's payloads can be > 1 MB on common
+# domains. async-Tokio runtime per K10 design lock.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "webpki-roots", "json", "gzip", "http2", "charset"] }
+# urlencoding — RFC 3986 percent-encoding helper for query
+# strings. Tiny dep, no transitives.
+urlencoding = "2"
+# lettre — K11 EmailTransport. Async SMTP (Tokio + rustls)
+# with builder API. `smtp-transport` brings AsyncSmtpTransport
+# + STARTTLS/Plain modes; `tokio1-rustls-tls` swaps in rustls
+# so we avoid the native-tls / OpenSSL dep tree (same
+# rationale as K10's reqwest). `builder` gives Message::builder
+# for type-safe `from`/`to`/`subject`. K11 stays in the
+# transport layer; vendor adapters (Slack/Linear/Jira) live
+# in K12. async-trait powers the dyn-safe `Transport` trait.
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "builder"] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"

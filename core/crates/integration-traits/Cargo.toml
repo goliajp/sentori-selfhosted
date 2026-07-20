@@ -1,0 +1,80 @@
+# core/crates/integration-traits — 钢筋 #12 (per cement-stone).
+#
+# Per K12 design (autonomous, 2026-06-21):
+#   - K12 ships `IntegrationAdapter` trait + `IntegrationService`
+#     + 2 tables + Slack reference adapter + MockAdapter.
+#   - K12.1-K12.4 = Linear / Jira / GitHub / GitLab vendor
+#     impls. Each is its own OAuth flow + API client + payload
+#     shape; doing them all in K12 would be ~3000 LOC and
+#     impossible to review cohesively. K7 split precedent
+#     (trait + scaffolding + reference + follow-ups) applies.
+#   - Slack adapter validates the trait end-to-end:
+#     `ConnectMode::Manual` (no OAuth) + incoming-webhook
+#     POST + status update via thread reply.
+#
+# Owns: 2 tables in migration 0011
+#   - integrations           (per-project adapter config)
+#   - issue_integration_links (Sentori issue ↔ upstream item)
+#
+# Out of scope:
+#   - HTTP route handling (api layer wires OAuth callback +
+#     webhook ingest routes; K12 just exposes the trait + the
+#     verify-webhook hook each adapter implements).
+#   - Background scheduler — caller `tokio::spawn`s any
+#     reconciliation loop.
+#   - K12.1-K12.4 vendor impls (deferred to follow-ups).
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every IntegrationService method +
+#     full Slack happy / regression / resolved cycle
+#   - in-process mock HTTP server tests the Slack POST path
+#     without binding to the real Slack API
+#   - 0 unsafe
+
+[package]
+name = "sentori-integration-traits"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori integration-traits — IntegrationAdapter trait + dispatcher + Slack reference impl. Linear/Jira/GitHub/GitLab as K12.1-K12.4 follow-ups."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_link"
+path = "tests/proptest_link.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
