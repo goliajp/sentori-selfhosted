@@ -1,0 +1,99 @@
+# self-hosted/server — Sentori OSS axum binary (standalone workspace).
+#
+# Cement-tier crate per cement-stone. Composes the 17 K
+# crates + 13 S stones from core/ into a single-workspace
+# HTTP server. Standalone Cargo workspace so this crate can
+# be built independently of core/ (e.g. inside a thin
+# docker layer).
+#
+# Image size goal: < 80 MB (distroless cc + strip).
+# Startup goal: ready in 30s under `docker compose up`.
+
+[workspace]
+
+[package]
+name = "sentori-server"
+version = "1.9.2"
+edition = "2024"
+authors = ["GOLIA K.K. <takagi@golia.jp>"]
+license = "Apache-2.0 OR MIT"
+publish = false
+rust-version = "1.97"
+description = "Sentori self-hosted axum server — single-workspace OSS binary composing core/ K crates."
+
+[[bin]]
+name = "sentori-server"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "warn"
+
+[dependencies]
+# K-tier composition. Path deps into core/.
+sentori-workspace-identity = { path = "../../core/crates/workspace-identity" }
+sentori-auth-session       = { path = "../../core/crates/auth-session" }
+sentori-attachment-store   = { path = "../../core/crates/attachment-store" }
+sentori-event-pipeline     = { path = "../../core/crates/event-pipeline" }
+sentori-identity-fingerprint = { path = "../../core/crates/identity-fingerprint" }
+sentori-sourcemap-resolver = { path = "../../core/crates/sourcemap-resolver" }
+sentori-issue-store        = { path = "../../core/crates/issue-store" }
+sentori-span-store         = { path = "../../core/crates/span-store" }
+sentori-replay-store       = { path = "../../core/crates/replay-store" }
+sentori-runtime-metrics    = { path = "../../core/crates/runtime-metrics" }
+sentori-notifier           = { path = "../../core/crates/notifier" }
+sentori-integration-traits = { path = "../../core/crates/integration-traits" }
+sentori-audit-event        = { path = "../../core/crates/audit-event" }
+sentori-alert-rule         = { path = "../../core/crates/alert-rule" }
+sentori-saved-view         = { path = "../../core/crates/saved-view" }
+sentori-tenant-scoping     = { path = "../../core/crates/tenant-scoping" }
+sentori-billing            = { path = "../../core/crates/billing" }
+sentori-argon2-password    = { path = "../../core/crates/argon2-password" }
+sentori-cookie-session     = { path = "../../core/crates/cookie-session" }
+sentori-ingest-token       = { path = "../../core/crates/ingest-token" }
+sentori-push-provider      = { path = "../../core/crates/push-provider" }
+sentori-cert-monitor       = { path = "../../core/crates/cert-monitor" }
+sentori-stripe-webhook-verify = { path = "../../core/crates/stripe-webhook-verify" }
+
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "multipart", "query", "tokio", "tower-log", "tracing", "macros"] }
+axum-extra = { version = "0.10", default-features = false, features = ["cookie"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", default-features = false }
+tower-http = { version = "0.6", default-features = false, features = ["fs"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "uuid", "time", "json", "migrate"] }
+uuid = { version = "1", features = ["v7", "serde"] }
+time = { version = "0.3", features = ["serde-well-known", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+http = "1"
+hex = "0.4"
+hmac = "0.12"
+sha2 = "0.10"
+hkdf = "0.12"
+aes-gcm = "0.10"
+p256 = { version = "0.13", features = ["ecdh"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+futures = { version = "0.3", default-features = false }
+tokio-stream = { version = "0.1", features = ["sync"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "http2", "form"] }
+jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs", "use_pem"] }
+base64 = "0.22"
+url = "2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"

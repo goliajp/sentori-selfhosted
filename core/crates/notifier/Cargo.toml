@@ -1,0 +1,86 @@
+# core/crates/notifier — 钢筋 #11 (per cement-stone).
+#
+# Generic outbound notification transport. Per K11 design
+# lock 2026-06-21:
+#   - Owns the `Notifier` trait + 3 transports + delivery_log;
+#     vendor adapters (Slack/Linear/Jira/GitHub/GitLab) live
+#     in K12 (next ship).
+#   - lettre 0.11 for SMTP. STARTTLS + Plain modes; rustls
+#     TLS backend (no system OpenSSL).
+#   - Generic `Notification { subject, body, recipient,
+#     metadata }` — K11 stays in transport, not in business
+#     event shape (avoids coupling to every notify-able
+#     business event in the codebase).
+#   - delivery_log records every dispatch with dedup_key +
+#     status + retries + error from day one.
+#
+# Owns: 1 table in migration 0010 (delivery_log).
+#
+# Out of scope:
+#   - HTTP route handling.
+#   - Background scheduler — caller `tokio::spawn`s retry
+#     loop over `list_pending` + `retry_one`.
+#   - Vendor-specific payload shaping (Slack Block Kit,
+#     Linear GraphQL, Jira issue JSON, etc.) — K12 territory.
+#   - Email rendering / templating — caller assembles
+#     `subject` + `body` before calling K11.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every NotifierService method
+#     (testcontainers postgres:18 + MockTransport)
+#   - EmailTransport unit-tested via lettre's Message::builder
+#     (avoid binding a real SMTP testcontainer to keep CI fast)
+#   - WebhookTransport integration-tested via in-process mock
+#     HTTP server (same pattern as K10 cert-monitor)
+#   - line cov > 85% (gate is CI)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe
+
+[package]
+name = "sentori-notifier"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori notifier — Email + Webhook + Mock transports + delivery_log with dedup/retry semantics. Vendor adapters (Slack/Linear/Jira) defer to K12."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+async-trait.workspace = true
+lettre.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_dedup"
+path = "tests/proptest_dedup.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

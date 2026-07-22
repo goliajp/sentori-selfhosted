@@ -1,0 +1,53 @@
+# core/crates/license-jwt — 石头 #1 (per cement-stone).
+#
+# JWT license signer + verifier + grace period + jti-based revoke.
+# 跨 saas + selfhosted 共用; saas 签发 + 校验, selfhosted 不 enable (per OSS Community tier 永久 unlock).
+#
+# 设计 ref: `.claude/state/sprint-0/S4-license-jwt-poc.md` (sprint 0 PoC).
+# 工艺 ceiling-first: cov > 95% line + branch > 90% + cargo-mutants > 85% caught +
+# criterion bench baseline + 完整 rustdoc + doctest + fuzz target.
+#
+# Ed25519 algorithm 锁定 (per S4 决策): 跟 sentori SDK 加密栈一致, 32B key, 最快。
+
+[package]
+name = "sentori-license-jwt"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori license JWT — Ed25519 signer + verifier + grace + jti-based revoke."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+jsonwebtoken.workspace = true
+ed25519-dalek.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+rand.workspace = true
+
+[[bench]]
+name = "sign_verify"
+harness = false
+
+[[test]]
+name = "proptest_round_trip"
+path = "tests/proptest_round_trip.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -1,0 +1,75 @@
+# core/crates/billing — 钢筋 #17 (per cement-stone).
+#
+# Workspace-level plan + per-project usage counters + quota
+# check API. Per K17 autonomous design (2026-06-21):
+#   - Singleton workspace_billing row (v0.1 K1 single-
+#     workspace) with plan + stripe_customer_id slot +
+#     status + period_end.
+#   - usage_counters per (project, period_yyyymm,
+#     counter_kind). Atomic UPSERT increments — no Valkey
+#     hot path in v0.1 (defer to K17.1 if observed traffic
+#     warrants it).
+#   - 3 counter kinds: events / spans / replays.
+#   - Plan enum (Free / Pro / Enterprise) with limits as
+#     code constants.
+#   - Quota check returns Decision::{Allow, AtLimit,
+#     OverLimit} so callers shape their 429 vs warn UI.
+#   - Stripe webhook ingest is K17.1 — needs S5 stripe-
+#     webhook-verify stone + HTTP handler at saas/server.
+#
+# Owns: 2 tables in migration 0015.
+#
+# Out of scope:
+#   - Stripe webhook handler (K17.1).
+#   - Stripe API calls (K17.1).
+#   - Valkey hot-path increment (K17.x — observed traffic).
+#   - HTTP route handling.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover plan CRUD + every quota path
+#   - 0 unsafe
+
+[package]
+name = "sentori-billing"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori billing — workspace plan + per-project usage counters + quota check API. Stripe webhook ingest deferred to K17.1."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+
+serde.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_period"
+path = "tests/proptest_period.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

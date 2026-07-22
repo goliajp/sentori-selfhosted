@@ -1,0 +1,77 @@
+# core/crates/cert-monitor — 钢筋 #10 (per cement-stone).
+#
+# Certificate Transparency log monitoring via crt.sh poll.
+# Per K10 design lock 2026-06-21:
+#   - Mirror legacy `cert_monitor.rs` behaviour (CT log poll
+#     for rogue-issuance defence), NOT TLS expiry watch.
+#   - reqwest async HTTP client (matches K7's future vendor
+#     impls and K11/K12 webhook dispatcher).
+#   - Sync `poll_once` / `poll_domain` methods; caller spawns
+#     the cron loop (per K7-K9 consistency).
+#
+# Owns: 2 tables in migration 0009 (cert_watch_domains +
+# cert_observations).
+#
+# Out of scope:
+#   - TLS expiry watch (connect-and-extract; different
+#     feature, deferred).
+#   - HTTP route handling.
+#   - Background scheduler / cron — caller `tokio::spawn`s
+#     the 10-minute tick over `poll_once`.
+#   - Notifier fan-out — K11 notifier reads new-observation
+#     outcomes from `poll_once`'s return value.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every method (testcontainers
+#     postgres:18 + mock crt.sh via injected `base_url`)
+#   - line cov > 85% (gate is CI)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe
+
+[package]
+name = "sentori-cert-monitor"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori cert-monitor — Certificate Transparency (crt.sh) poll + observation storage. Defends against rogue-issuance against watched domains."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+reqwest.workspace = true
+urlencoding.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_parse"
+path = "tests/proptest_parse.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

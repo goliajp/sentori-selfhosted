@@ -1,0 +1,91 @@
+# core/crates/push-provider — 钢筋 #7 (per cement-stone).
+#
+# Push notification trait + dispatcher + tokens + credentials
+# + quarantine. 5 real provider impls (APNs / FCM / Web Push /
+# HCM / MiPush) ship as K7.1-K7.5 follow-ups per user decision
+# 2026-06-20 — the trait + scaffolding are testable today via
+# `MockProvider`, and each vendor impl is a focused 600-1000
+# LOC follow-up that doesn't touch K7's surface.
+#
+# Owns:
+#   - Migration 0006 (push_tokens + push_credentials).
+#   - `PushProvider` async trait (dyn-dispatchable via
+#     `async-trait` since the registry holds heterogeneous
+#     vendor impls behind `Arc<dyn PushProvider>`).
+#   - Domain types: `ProviderKind`, `NativeMessage`,
+#     `Credential`, `SendOutcome`, `ProviderResult`,
+#     `ValidateOutcome`, `DeviceToken`, etc.
+#   - `MockProvider` (in-process; test-only by default but
+#     `pub` so consumer integration tests can wire it).
+#   - `DeviceTokenStore` (register / lookup / invalidate /
+#     quarantine over the push_tokens table).
+#   - `CredentialStore` (CRUD over push_credentials,
+#     decryption via S12 secrets-vault).
+#   - `PushDispatcher` composing the trait + tokens +
+#     credentials + S10 rate-limiter + quarantine in a
+#     `dispatch(project, kind, msg, target)` call.
+#
+# Out of scope (per user decision 2026-06-20):
+#   - All 5 real vendor impls — K7.1-K7.5 follow-ups.
+#   - L2 per-project + L3 global rate-limit tiers — single
+#     L1 per-(project, provider) is K7 minimum.
+#   - Health metric / blacklist early-warning — separate K
+#     later, computed from quarantine + send logs.
+#   - HTTP route handling (saas / self-hosted server bins).
+#   - Schedule / cron (dispatch_cron) — caller drives.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every method, happy + 2 error
+#     paths each (testcontainers postgres:18)
+#   - line cov > 85% (gate is CI)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe
+
+[package]
+name = "sentori-push-provider"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori push-provider — trait + dispatcher + tokens + credentials. 5 vendor impls (APNs/FCM/Web Push/HCM/MiPush) ship as K7.1-K7.5 follow-ups."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+sentori-rate-limiter = { path = "../rate-limiter" }
+sentori-secrets-vault = { path = "../secrets-vault" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_outcome"
+path = "tests/proptest_outcome.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

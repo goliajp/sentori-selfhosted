@@ -1,0 +1,72 @@
+# Prometheus alert rules for Sentori (Phase 16 sub-B).
+#
+# Routes via Alertmanager → Better Stack on-call. Thresholds match the
+# ROADMAP "告警规则" section. PG pool / Valkey latency rules are stubs
+# that fire only when the corresponding metrics are added in Phase 16+.
+
+groups:
+  - name: sentori-ingest
+    interval: 30s
+    rules:
+      - alert: SentoriIngestErrorRateHigh
+        expr: |
+          (
+            sum(rate(sentori_ingest_total{status=~"rejected|quota_exceeded"}[5m]))
+            / clamp_min(sum(rate(sentori_ingest_total[5m])), 1)
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: sentori
+        annotations:
+          summary: "Sentori ingest error rate above 1% for 5 minutes"
+          description: "Mix of validation rejections + quota-exceeded responses. Check `sentori_ingest_total` by status in the overview dashboard."
+
+      - alert: SentoriIngestStalled
+        expr: rate(sentori_ingest_total[5m]) == 0
+        for: 15m
+        labels:
+          severity: warning
+          team: sentori
+        annotations:
+          summary: "Sentori has accepted zero events for 15 minutes"
+          description: "Either the SDK is broken at the edge or the server is wedged. Check `sentori.golia.jp/main` health, Valkey, and recent deploys."
+
+  - name: sentori-host
+    interval: 60s
+    rules:
+      - alert: HostDiskFreeLow
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.20
+        for: 10m
+        labels:
+          severity: warning
+          team: sentori
+        annotations:
+          summary: "Disk free below 20% on {{ $labels.instance }}"
+
+  - name: sentori-pg
+    interval: 60s
+    rules:
+      - alert: PgPoolNearSaturation
+        # PG pool gauge will be exposed in a follow-up commit; until then
+        # this is documented intent.
+        expr: sentori_pg_pool_in_use / sentori_pg_pool_max > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          team: sentori
+        annotations:
+          summary: "PG pool above 80% in use for 5 minutes"
+
+  - name: sentori-valkey
+    interval: 60s
+    rules:
+      - alert: ValkeyP99HighLatency
+        # Valkey latency histogram likewise to be added in a follow-up.
+        expr: histogram_quantile(0.99, rate(sentori_valkey_command_duration_seconds_bucket[5m])) > 0.010
+        for: 5m
+        labels:
+          severity: warning
+          team: sentori
+        annotations:
+          summary: "Valkey p99 latency above 10ms for 5 minutes"

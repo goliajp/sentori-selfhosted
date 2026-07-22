@@ -1,0 +1,9 @@
+[package]
+name = "sentori-analytics-store"
+version = "0.2.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+description = "Stub — track events (/v1/track:batch). Phase D/E port from legacy server/src/api/track.rs."
+
+[lib]
+path = "src/lib.rs"

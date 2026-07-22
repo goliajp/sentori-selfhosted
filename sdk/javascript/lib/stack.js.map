@@ -1,0 +1,1 @@
+{"version":3,"file":"stack.js","sourceRoot":"","sources":["../src/stack.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,UAAU,IAAI,cAAc,EAAE,MAAM,wBAAwB,CAAA;AAIrE;;;;;GAKG;AACH,MAAM,UAAU,UAAU,CAAC,KAAyB;IAClD,OAAO,cAAc,CAAC,KAAK,EAAE,EAAE,cAAc,EAAE,IAAI,EAAE,CAAC,CAAA;AACxD,CAAC"}

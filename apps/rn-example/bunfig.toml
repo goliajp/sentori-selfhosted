@@ -1,0 +1,9 @@
+# rn-example needs the hoisted linker so Expo's transitive iOS / Android
+# native pods can find files under direct node_modules paths
+# (`node_modules/expo-file-system/ios/...`). The default isolated linker
+# only symlinks direct deps; xcodebuild then breaks on missing input
+# files. See [[reference-android-verify-rig]] memory for the equivalent
+# Android failure mode (which doesn't hit because gradle resolves via
+# autolinking config, but iOS Pods reference paths directly).
+[install]
+linker = "hoisted"

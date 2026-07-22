@@ -1,0 +1,68 @@
+# core/crates/privacy-salt — 石头 #2 (per cement-stone).
+#
+# HKDF-SHA256 → HMAC-SHA256 per-tenant, per-purpose hasher for PII the
+# server-side stack must persist but never see in plaintext (email, IP,
+# device_id, push_token, etc.).
+#
+# Used by:
+#  - sentori-saas — per-tenant_id, per-purpose hashing of event PII.
+#  - sentori-selfhosted — same crate, but uses a workspace-scoped salt
+#    instead of multi-tenant.
+#  - downstream Sentori SDK envelope normalizer, when it strips PII
+#    before send (planned v0.3+).
+#
+# Algorithm (locked, post-S2 / S14 review):
+#   subkey   = HKDF-SHA256(ikm = master_secret,
+#                          salt = tenant_id_uuid_bytes,
+#                          info = "sentori-privacy-salt:v1:" || purpose,
+#                          okm_len = 32)
+#   hash     = HMAC-SHA256(subkey, value)  → 32-byte tag → hex
+#
+# Why HKDF + per-purpose subkey:
+#  - HKDF gives a real KDF (avoid HMAC's "key as salt" anti-pattern).
+#  - Per-purpose subkey means a leaked email-hash table cannot be
+#    correlated against an IP-hash table even within the same tenant.
+#  - Per-tenant salt means a leaked cross-tenant table cannot be
+#    correlated across tenants.
+
+[package]
+name = "sentori-privacy-salt"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori PII hasher — HKDF-SHA256 + HMAC-SHA256 per-tenant per-purpose subkey derivation."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+hmac.workspace = true
+sha2.workspace = true
+hkdf.workspace = true
+hex.workspace = true
+uuid.workspace = true
+zeroize.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "hash"
+harness = false
+
+[[test]]
+name = "proptest_isolation"
+path = "tests/proptest_isolation.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

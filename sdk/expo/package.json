@@ -1,0 +1,70 @@
+{
+  "name": "@goliapkg/sentori-expo",
+  "version": "9.0.1",
+  "description": "Expo adapter for Sentori \u2014 Config Plugin marker, expo-application auto-config, EAS post-build helper. Built on @goliapkg/sentori-react-native.",
+  "license": "Apache-2.0 OR MIT",
+  "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",
+  "homepage": "https://sentori.golia.jp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goliajp/sentori.git",
+    "directory": "sdk/expo"
+  },
+  "bugs": {
+    "url": "https://github.com/goliajp/sentori/issues"
+  },
+  "keywords": [
+    "sentori",
+    "error-tracking",
+    "expo",
+    "react-native",
+    "config-plugin"
+  ],
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./app.plugin.js": "./app.plugin.js",
+    "./eas-post-build": "./scripts/eas-post-build.mjs"
+  },
+  "files": [
+    "lib/",
+    "src/",
+    "app.plugin.js",
+    "scripts/",
+    "templates/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepack": "bun run build"
+  },
+  "peerDependencies": {
+    "@goliapkg/sentori-react-native": ">=4.0.0",
+    "expo": ">=56.0.0",
+    "expo-application": ">=56.0.0",
+    "react-native": ">=0.82.0"
+  },
+  "peerDependenciesMeta": {
+    "expo-application": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@expo/config-plugins": "^57.0.5"
+  },
+  "devDependencies": {
+    "@goliapkg/sentori-react-native": "workspace:*",
+    "@types/bun": "latest",
+    "typescript": "^7"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

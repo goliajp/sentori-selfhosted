@@ -1,0 +1,78 @@
+# Sentori self-hosted v0.1.0 — single-host docker-compose.
+#
+# Required env (put in .env or your shell):
+#   SENTORI_DEV_TOKEN          (e.g. st_pk_<26 base32 chars>)
+#   SENTORI_ADMIN_PASSWORD
+#   SENTORI_SESSION_SECRET     (long random string)
+#   SENTORI_PG_PASSWORD        (postgres password)
+#
+# Optional env: see docker-compose.override.example.yml for SMTP, rate
+# limit, etc.
+#
+# Bring up:
+#   docker compose up -d
+# Then visit http://localhost:8000 and log in with SENTORI_ADMIN_PASSWORD.
+
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_USER: sentori
+      POSTGRES_PASSWORD: ${SENTORI_PG_PASSWORD:?required}
+      POSTGRES_DB: sentori
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentori -d sentori"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  valkey:
+    image: valkey/valkey:9.1-alpine
+    volumes:
+      - valkey-data:/data
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.server
+    environment:
+      SENTORI_DEV_TOKEN: ${SENTORI_DEV_TOKEN:?required}
+      SENTORI_ADMIN_PASSWORD: ${SENTORI_ADMIN_PASSWORD:?required}
+      SENTORI_SESSION_SECRET: ${SENTORI_SESSION_SECRET:?required}
+      DATABASE_URL: postgres://sentori:${SENTORI_PG_PASSWORD}@postgres:5432/sentori
+      VALKEY_URL: redis://valkey:6379
+      SENTORI_DATA_DIR: /data
+      SENTORI_RATE_LIMIT_PER_MIN: ${SENTORI_RATE_LIMIT_PER_MIN:-1000}
+      RUST_LOG: ${RUST_LOG:-info,sentori_server=info,tower_http=info}
+    volumes:
+      - server-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+      # Phase 48 sub-D — VITE_GIT_SHA inlines into the dashboard's
+      # version badge (web/src/version.ts). SENTORI_VERSION is the
+      # deploy-time sha env var the workflow writes into .env.
+      args:
+        VITE_GIT_SHA: ${SENTORI_VERSION:-dev}
+    ports:
+      - "${SENTORI_WEB_PORT:-8000}:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  valkey-data:
+  server-data:

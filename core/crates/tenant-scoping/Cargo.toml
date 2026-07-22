@@ -1,0 +1,70 @@
+# core/crates/tenant-scoping — 钢筋 #16 (per cement-stone).
+#
+# Per-project ACL gate composing K1 workspace-identity
+# primitives (workspace_members.role + project_user_visibility).
+#
+# K16 owns:
+#   - Permission enum + Role × Permission matrix.
+#   - TenantGuard handle with role-aware question + assert
+#     methods (`can_view_project`, `assert_can_perform`,
+#     `visible_projects`).
+#   - Role-checked wrappers over K1 visibility CRUD
+#     (`grant_visibility` / `revoke_visibility` self-gate
+#     on Owner/Admin role).
+#
+# K16 does NOT:
+#   - Own any tables — composes K1.
+#   - Provide HTTP middleware — that's saas/server's
+#     translation layer. K16 provides the question API the
+#     middleware calls (`assert_can_perform(actor, project,
+#     perm)` → Result<(), TenantError>`).
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover Role × Permission matrix
+#     exhaustively + every guard method
+#   - 0 unsafe
+
+[package]
+name = "sentori-tenant-scoping"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori tenant-scoping — per-project ACL gate over K1 workspace_members + project_user_visibility. Role × Permission matrix + can_/assert_ API."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+
+serde.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+serde_json.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_matrix"
+path = "tests/proptest_matrix.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

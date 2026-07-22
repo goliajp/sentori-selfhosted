@@ -1,0 +1,80 @@
+# core/crates/runtime-metrics — 钢筋 #9 (per cement-stone).
+#
+# Time-series metrics ingest + cascading rollups + per-day
+# partition lifecycle.
+#
+# K9 is the 3rd consumer of the partition-lifecycle pattern
+# (K6 spans monthly + K9 metrics daily + future K4-events
+# retro). Per K9 design lock 2026-06-20, K9 copies K6's
+# `PartitionLifecycle` and adapts to day grain; the shared
+# abstraction is deferred to a stone (S14
+# `partition-lifecycle`) when retro-K4 lands. Comment in
+# `src/partitions.rs` flags the TODO.
+#
+# Owns: 5 tables in migration 0008
+#   - runtime_metrics_raw       (RANGE-partitioned, daily, 90d retention)
+#   - runtime_metrics_1m / _1h / _1d  (flat materialized aggregates)
+#   - runtime_metrics_dropped   (per-day per-reason accounting)
+#
+# Out of scope:
+#   - HTTP route handling.
+#   - Background scheduler / cron — caller `tokio::spawn`s the
+#     loop driving `roll_raw_to_1m` / `roll_1m_to_1h` /
+#     `roll_1h_to_1d` and `partitions().ensure_future` /
+#     `drop_before`.
+#   - Custom-metric ingest path (legacy v0.8 recordMetric);
+#     v0.1 unifies on the runtime-metrics shape.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every MetricsStore method + the
+#     3 rollup tier transitions (testcontainers postgres:18)
+#   - line cov > 85% (gate is CI)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe
+
+[package]
+name = "sentori-runtime-metrics"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori runtime-metrics — time-series metric ingest, cascading 1m / 1h / 1d rollups, per-day partition lifecycle."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_tags_hash"
+path = "tests/proptest_tags_hash.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

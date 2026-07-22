@@ -1,0 +1,9 @@
+[package]
+name = "sentori-privacy-scrubber"
+version = "0.2.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+description = "Stub — PII scan + scrub (pii_findings, pii_scan_cursor). Phase D/E port from legacy server/src/pii/*.rs."
+
+[lib]
+path = "src/lib.rs"

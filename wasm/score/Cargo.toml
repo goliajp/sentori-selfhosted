@@ -1,0 +1,21 @@
+[package]
+name = "sentori-score"
+version = "0.1.0"
+edition = "2021"
+authors = ["GOLIA K.K. <takagi@golia.jp>"]
+license = "Apache-2.0 OR MIT"
+publish = false
+description = "Trust score kernel — Rust → WebAssembly. Mirrors the math in server/src/api/trust_score.rs::score_from_counts so the dashboard's signal-explorer slider can re-score live without a server round trip."
+
+[lib]
+crate-type = ["cdylib"]
+
+# `no_std` + `panic = abort` keep the artefact small (< 4 KB).
+# Reasonable to commit alongside the source so CI doesn't need a
+# wasm-pack toolchain in its build matrix.
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
+codegen-units = 1

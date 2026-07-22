@@ -1,0 +1,40 @@
+{
+  "name": "@goliapkg/sentori-cli",
+  "version": "0.5.3",
+  "description": "Sentori CLI — upload source maps + other release artifacts to a Sentori server. Thin wrapper that downloads the matching prebuilt Rust binary at install time.",
+  "license": "MIT",
+  "homepage": "https://sentori.golia.jp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goliajp/sentori.git",
+    "directory": "cli/npm"
+  },
+  "bugs": {
+    "url": "https://github.com/goliajp/sentori/issues"
+  },
+  "keywords": [
+    "sentori",
+    "cli",
+    "sourcemap",
+    "error-tracking"
+  ],
+  "bin": {
+    "sentori-cli": "bin/sentori-cli.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js || echo 'sentori-cli postinstall failed — run `npx @goliapkg/sentori-cli` once you have network'"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": ["darwin", "linux"],
+  "cpu": ["x64", "arm64"],
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,70 @@
+# core/crates/saved-view — 钢筋 #15 (per cement-stone).
+#
+# Operator-saved filter view storage. Per K15 design
+# (autonomous, 2026-06-21):
+#   - 2 scopes shipped (personal / workspace); legacy's
+#     team scope dropped because v0.1 K1 has no teams table.
+#   - 5 targets shipped from day one matching K-tier
+#     surfaces: issues / events / spans / replays / metrics.
+#   - project_id is a top-level column (not in payload) so
+#     per-project lookups are index-served.
+#   - Payload is opaque JSONB — K15 doesn't validate shape
+#     (would couple to every business filter DSL).
+#
+# Owns: 1 table in migration 0014 (saved_views).
+#
+# Out of scope:
+#   - HTTP route handling.
+#   - Filter DSL semantics — caller owns the payload schema.
+#   - Notification of view changes — operator UI is the only
+#     consumer; no cross-K crate fan-out.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every SavedViewService method
+#   - 0 unsafe
+
+[package]
+name = "sentori-saved-view"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori saved-view — operator-saved filter snapshot storage. 2 scopes (personal / workspace) × 5 targets (issues / events / spans / replays / metrics)."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_visibility"
+path = "tests/proptest_visibility.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

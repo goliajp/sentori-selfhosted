@@ -1,0 +1,131 @@
+/*
+ * Sentori dashboard — the local CSS layer.
+ *
+ * Colour, elevation, radius and both modes come from
+ * @goliapkg/gds: the same design system golia.jp and the legacy
+ * dashboard run on, so the three surfaces are one product rather
+ * than three houses with similar paint. The blue accent, the
+ * greys, the light-mode derivation — all of it arrives with the
+ * tokens; nothing here re-invents a palette.
+ *
+ * What this file owns: the type scale, the spacing rhythm, and the
+ * few role names Sentori uses that GDS spells differently.
+ */
+@import '@goliapkg/gds/tokens.css';
+@import '@goliapkg/gds/theme.css';
+@import '@goliapkg/gds/fonts.css';
+@import 'tailwindcss';
+
+/* Tailwind v4 only scans src/ by default, so utility classes that
+ * exist solely inside GDS's compiled components never reach the
+ * bundle and those components render as unstyled skeletons. */
+@source '../../node_modules/@goliapkg/gds/dist/**/*.js';
+
+/*
+ * Role names Sentori uses that GDS spells differently, plus the two
+ * severities it names in full. Declared after the GDS import so
+ * these win.
+ *
+ * The `fg` ramp is three steps on purpose — primary, secondary,
+ * faint — because a crash page leans on exactly that: the frame you
+ * wrote, the file it lives in, and the line number beside it. GDS
+ * calls the middle step `fg-secondary`; Sentori calls it `fg-muted`
+ * and keeps `fg-subtle` for the faintest.
+ */
+@theme inline {
+  /*
+   * The page canvas — what a card sits *on*.
+   *
+   * Elevation runs in opposite directions in the two modes: in dark a
+   * card lifts by getting lighter than the page, in light it lifts by
+   * staying white while the page steps back to grey. GDS gives both
+   * values but has no single name for "the thing behind the cards",
+   * so one is defined here and flipped by mode below. Without it,
+   * light mode put white cards on a white page and nothing lifted at
+   * all — the borders were doing the entire job.
+   */
+  --color-canvas: var(--gds-canvas);
+  --color-raised: var(--gds-bg-tertiary);
+  --color-fg-muted: var(--gds-fg-secondary);
+  --color-fg-subtle: var(--gds-fg-muted);
+  --color-warn: var(--gds-warning);
+  --color-ok: var(--gds-success);
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  /* Reserved for the wordmark. A display face earns its place on a
+     name, not on every section heading — in a tool read at speed,
+     hierarchy is the job of size, weight and colour. */
+  --font-display: 'Roboto Flex', 'Inter', sans-serif;
+}
+
+/*
+ * The canvas replay player cannot read Tailwind utilities, so it
+ * samples these directly off the document.
+ */
+:root {
+  --s-bg: var(--gds-bg);
+  --s-surface: var(--gds-surface);
+  --s-border-strong: var(--gds-border-strong);
+  --s-fg-muted: var(--gds-fg-secondary);
+
+  --gds-canvas: var(--gds-bg);
+
+  /* GDS's compact density sets body text to 13px. Raise its own
+     token rather than overriding the rule it feeds — otherwise the
+     two declarations sit in the cascade waiting for one of them to
+     move. See the note on the body rule below for why 14. */
+  --gds-text-body: 14px;
+}
+
+:root[data-theme='light'] {
+  --gds-canvas: var(--gds-bg-secondary);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/*
+ * 14px base, not 13.
+ *
+ * The dashboard had drifted to a 10–13px world: `text-[10px]`
+ * timestamps, 11px labels, 12px body. It read as cramped rather
+ * than dense — dense is an information-per-screen property, and you
+ * get it from tight spacing and short rows, not from shrinking type
+ * past comfortable reading. 14px body with a 12px floor keeps the
+ * same row heights while making the thing legible at arm's length,
+ * which is where a dashboard on a second monitor actually lives.
+ */
+body {
+  margin: 0;
+  background-color: var(--gds-canvas);
+  color: var(--gds-fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Numerals in tables, timestamps and counters must not reflow as
+   they tick. */
+.tabular-nums,
+table,
+time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Anyone who asked their OS to stop animating things means it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

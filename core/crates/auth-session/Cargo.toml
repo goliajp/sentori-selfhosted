@@ -1,0 +1,99 @@
+# core/crates/auth-session — 钢筋 #2 (per cement-stone).
+#
+# Session lifecycle + email verification + password reset, composed
+# on top of:
+#   - K1 sentori-workspace-identity (users + members CRUD)
+#   - S9 sentori-cookie-session (SignedCookie wrapping session_id)
+#   - S13 sentori-argon2-password (Argon2id hash/verify)
+#
+# What this crate owns:
+#   - Three SQL tables (migration 0002): auth_sessions +
+#     email_verifications + password_resets.
+#   - `AuthService` — one handle wrapping `Identity` + `SecretKey`
+#     + the three stores, exposing high-level register/login/
+#     verify/forgot/reset/change orchestration methods.
+#   - `Session`, `MintedSession`, `EmailVerifyToken`,
+#     `PasswordResetToken` domain types (Zeroize-on-Drop where
+#     they carry plaintext).
+#   - axum module: `require_user` middleware, `CurrentUser`
+#     extractor, `build_session_cookie` helper. Hard axum dep
+#     (per user decision 2026-06-20).
+#
+# What this crate does NOT own:
+#   - HTTP route bodies / JSON shapes (those live in
+#     saas/server/handlers/ and self-hosted/server/handlers/).
+#   - Email sending (the K11 notifier crate dispatches the
+#     verify/reset links).
+#   - Quota / billing checks (K17).
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration test covers every public method, happy + 2
+#     error paths each (testcontainers postgres:18)
+#   - axum middleware unit-tested via tower::ServiceExt::oneshot
+#   - line cov > 85% (gate is CI)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe
+
+[package]
+name = "sentori-auth-session"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori auth-session — session lifecycle + email verify + password reset, axum middleware on top of K1 identity + S9 cookies + S13 argon2."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+sentori-cookie-session = { path = "../cookie-session" }
+sentori-argon2-password = { path = "../argon2-password" }
+
+serde.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+sha2.workspace = true
+base64.workspace = true
+getrandom.workspace = true
+subtle.workspace = true
+zeroize.workspace = true
+tracing.workspace = true
+
+# axum hard dep — see Cargo.toml header.
+axum.workspace = true
+axum-extra.workspace = true
+tower.workspace = true
+http.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+serde_json.workspace = true
+http-body-util.workspace = true
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "axum_middleware"
+path = "tests/axum_middleware.rs"
+
+[[test]]
+name = "proptest_token"
+path = "tests/proptest_token.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -1,0 +1,82 @@
+# core/crates/span-store — 钢筋 #6 (per cement-stone).
+#
+# Distributed tracing storage + partition lifecycle.
+#
+# K6 is the FIRST K crate in v0.1 to ship a partitioned table
+# (spans RANGE-partitioned by received_at). The partition
+# lifecycle primitives surface here (`PartitionLifecycle`
+# sub-handle) so future partitioned tables (K9 metrics, K4
+# events retro-partition) reuse the same recipe before it
+# graduates to a shared stone.
+#
+# Owns: 2 tables (spans + traces) in migration 0005.
+# Re-exports K5 [`Cursor`] for the trace-list pagination so
+# wire format is consistent across the dashboard.
+#
+# Out of scope:
+#   - HTTP / axum (saas/server, self-hosted/server bins wire).
+#   - SDK ingest format (callers receive an SDK shape, map
+#     it to `SpanInput`, then call `ingest_span`).
+#   - Symbolicated stack frames (spans don't carry stacks —
+#     errors do; see K4).
+#   - Trace search by tag (post-MVP — current `list` filters
+#     by op/release/env only; tag GIN search is a follow-up).
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every SpanStore method
+#     (happy + 2 error paths each) + partition lifecycle
+#     (testcontainers postgres:18)
+#   - line cov > 85% (gate is CI)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe
+
+[package]
+name = "sentori-span-store"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori span-store — distributed tracing storage (RANGE-partitioned spans + rollup traces) + partition lifecycle. K6 introduces the partition pattern; K9 + K4-followup reuse it."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+sentori-issue-store = { path = "../issue-store" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "partitions"
+path = "tests/partitions.rs"
+
+[[test]]
+name = "proptest_span"
+path = "tests/proptest_span.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

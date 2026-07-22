@@ -1,0 +1,91 @@
+# core/crates/replay-store — 钢筋 #8 (per cement-stone).
+#
+# Wireframe session-replay storage. Composes:
+#   - K3 attachment-store (CAS for the gzipped scrubbed bytes)
+#   - K4 event-pipeline   (FK to events.id — replay always
+#                          attaches to an event)
+#   - K1 workspace-identity (ProjectId)
+#
+# Owns: 1 table (replay_sessions) in migration 0007. The
+# replay BLOBs themselves live in K3, addressed by SHA-256.
+#
+# What ships in K8:
+#   - `ReplayStore` handle with store / fetch / list_for_event
+#     / delete.
+#   - `Scrubber` with built-in OWASP PII patterns (email /
+#     phone / credit-card / SSN) + per-instance extras.
+#   - Write-time scrub + gzip pipeline: caller hands raw
+#     NDJSON, K8 redacts in-place over text nodes, gzip-
+#     compresses, content-hashes, stores via K3.
+#
+# Out of scope:
+#   - SDK-side encoding (keyframe + delta) — already done by
+#     the React Native + iOS / Android SDKs.
+#   - Player UI — dashboard concern (saas / self-hosted web).
+#   - Cross-session deduplication — K3's content-addressing
+#     handles it transparently.
+#   - Re-scrub of historical sessions when regex updates —
+#     write-time scrub means historical bytes are immutable.
+#     Caller can re-fetch + re-scrub + re-store if needed;
+#     not a K8 method.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every ReplayStore method, happy
+#     + 2 error paths each (testcontainers postgres:18)
+#   - line cov > 85% (gate is CI)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe
+
+[package]
+name = "sentori-replay-store"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori replay-store — wireframe session-replay storage with write-time PII scrub + gzip + K3 content-addressed blob persistence."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+sentori-attachment-store = { path = "../attachment-store" }
+sentori-event-pipeline = { path = "../event-pipeline" }
+# K5 supplies the opaque Cursor + CursorParseError K8 re-exports
+# for project-paginated session lists. Same shape as K6's reuse.
+sentori-issue-store = { path = "../issue-store" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+regex.workspace = true
+flate2.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+tempfile.workspace = true
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_scrubber"
+path = "tests/proptest_scrubber.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

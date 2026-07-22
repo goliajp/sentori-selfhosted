@@ -1,0 +1,75 @@
+# core/crates/alert-rule — 钢筋 #14 (per cement-stone).
+#
+# Alert rule storage + filter eval + atomic throttle claim.
+#
+# Per K14 design (autonomous, 2026-06-21):
+#   - K14 owns rule CRUD + filter eval + throttle claim.
+#   - K14 does NOT own the data query for event_count /
+#     crash_free_drop — that would couple K14 to K4 events /
+#     K9 metrics, violating 不绑死业务流. Caller queries
+#     K4 / K9 directly + invokes `try_claim` per matched rule.
+#   - `try_fire_for_event(ctx)` handles new_issue / regression
+#     synchronously: pure in-process filter match + atomic
+#     throttle UPDATE. Caller dispatches via K11 Notifier.
+#   - Channels stay opaque JSONB — caller maps to K11
+#     Notifications at dispatch time. K14 doesn't constrain
+#     the channel shape.
+#
+# Owns: 1 table in migration 0013 (alert_rules).
+#
+# Out of scope:
+#   - Notification dispatch — K11 territory.
+#   - event_count / crash_free aggregate queries — caller's
+#     business logic over K4 / K9.
+#   - HTTP route handling.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every AlertRuleService method
+#     including the atomic throttle race
+#   - 0 unsafe
+
+[package]
+name = "sentori-alert-rule"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori alert-rule — rule CRUD + filter eval + atomic throttle claim. Caller drives count/crash_free aggregates and notification dispatch."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_filter"
+path = "tests/proptest_filter.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -1,0 +1,9 @@
+{
+  "name": "sentori-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sentori/react-native": "file:../sdk/react-native"
+  }
+}
