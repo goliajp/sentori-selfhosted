@@ -1,0 +1,81 @@
+# core/crates/event-pipeline — 钢筋 #4 (per cement-stone).
+#
+# Event ingest pipeline. Validates an inbound event, fingerprints
+# it (S3 issue-fingerprint), upserts the owning issue row with
+# atomic regression detection, then persists the event row.
+# Composes:
+#   - K1 sentori-workspace-identity (ProjectId types)
+#   - S3 sentori-issue-fingerprint  (fingerprint algorithm)
+#   - S4 sentori-event-ringbuffer   (bounded buffer)
+#
+# Owns: 2 tables (events + issues) in migration 0003, plus the
+# `IngestService` handle.
+#
+# Out of scope:
+#   - HTTP route handling (saas/server, self-hosted/server wire it).
+#   - Notifier dispatch (K11 notifier).
+#   - Integration dispatch (K12 integration-traits).
+#   - Alert rule evaluation (K14 alert-rule).
+#   - Quota check (K17 billing).
+#   - Symbolication — caller resolves stacks via S6/S7/S8 BEFORE
+#     handing the event to K4. Per user decision 2026-06-20 the
+#     K4 keeps the symbolicator out so its scope stays focused.
+#   - Background flusher task — K4 ships `try_enqueue` + `flush`
+#     and lets the caller (saas/self-hosted server) own the
+#     `tokio::spawn` loop. Per user decision 2026-06-20 for
+#     testability + no surprise tokio task lifecycles.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every IngestService method, happy
+#     + 2 error paths each (testcontainers postgres:18)
+#   - line cov > 85% (gate is CI)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe
+
+[package]
+name = "sentori-event-pipeline"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori event-pipeline — validate / fingerprint / upsert-issue / persist for one inbound event. Pure-domain (no HTTP, no notifications)."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+sentori-issue-fingerprint = { path = "../issue-fingerprint" }
+sentori-event-ringbuffer = { path = "../event-ringbuffer" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_event"
+path = "tests/proptest_event.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

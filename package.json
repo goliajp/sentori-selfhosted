@@ -1,0 +1,25 @@
+{
+  "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",
+  "name": "@goliapkg/sentori-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/rn-example",
+    "sdk/cli",
+    "sdk/core",
+    "sdk/expo",
+    "sdk/react-native"
+  ],
+  "scripts": {
+    "build:sdks": "bun run --filter '@goliapkg/sentori-core' build && bun run --filter '@goliapkg/sentori-react-native' build && bun run --filter '@goliapkg/sentori-expo' build && bun run --filter '@goliapkg/sentori-cli' build",
+    "test:sdks": "bun run --filter '@goliapkg/sentori-*' test",
+    "preflight": "echo '→ lockfile drift (matches CI bun install --frozen-lockfile)' && bun install --frozen-lockfile && echo '→ github workflow lint (actionlint)' && bash scripts/check-workflows.sh && echo '→ core fmt + clippy + check (the v1 server surface)' && (cd core && cargo fmt --check && cargo clippy --all-targets --quiet -- -D warnings && cargo check --tests --quiet) && echo '→ server fmt + clippy + check' && (cd self-hosted/server && cargo fmt --check && cargo clippy --all-targets --quiet -- -D warnings && cargo check --tests --quiet) && echo '→ rfc3339 serde annotations on OffsetDateTime fields' && bash scripts/check-rfc3339.sh && echo '→ orphan modules (written-but-never-compiled guard)' && bash scripts/check-orphan-modules.sh && echo '→ webapp check (tsc + eslint + i18n + hardcoded-text)' && (cd webapp && bun install --frozen-lockfile && bun run check) && echo '→ build all SDKs (matches CI sdk job)' && bun run build:sdks && echo '→ all SDK tests' && bun run test:sdks && echo '→ SDK size budget (iron-rule dim 4)' && bash scripts/check-sdk-size.sh && echo '→ server unit tests (no Postgres needed)' && (cd self-hosted/server && cargo test --bins --quiet) && echo '✓ preflight green — safe to push'",
+    "preflight:fast": "echo '→ webapp check + sdks (skips Rust for tight TS-only iterations)' && (cd webapp && bun run check) && bun run build:sdks && bun run test:sdks && echo '✓ fast preflight green'",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "bun run build:sdks && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^0.7.0",
+    "@changesets/cli": "^2.31.0"
+  }
+}

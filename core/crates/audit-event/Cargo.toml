@@ -1,0 +1,76 @@
+# core/crates/audit-event — 钢筋 #13 (per cement-stone).
+#
+# Append-only admin-action audit trail.
+#
+# Owns the `audit_logs` table read/write surface (table created
+# in K1 migration 0001; K13 migration 0012 adds the actor +
+# action + target indexes for operator dashboard queries).
+#
+# Per K13 design (autonomous, 2026-06-21):
+#   - K13 ships `AuditService` with `record` (append-only) +
+#     `query(filter)` + `count` + `find` + `find_recent`.
+#   - Action strings are free-form `&str` (legacy precedent —
+#     no enum coercion that would couple K13 to every business
+#     event).
+#   - K-tier-stable action constants exposed via `actions::`
+#     module; caller (saas/server) adds its own constants.
+#   - Append-only: no UPDATE / DELETE in the API. Operator
+#     erasure of audit rows is a separate compliance ask
+#     deferred to K13.1.
+#
+# Out of scope:
+#   - HTTP route handling.
+#   - Background reaper / retention — caller cron drives the
+#     `purge_before` if it wants to (K13 v0.1 has no purge
+#     because legacy never purged — "audit gaps are
+#     acceptable, double-write is not" is the legacy stance).
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration tests cover every AuditService method
+#   - 0 unsafe
+
+[package]
+name = "sentori-audit-event"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori audit-event — append-only admin-action audit log writer + query DSL. Owns the audit_logs table surface."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sentori-workspace-identity = { path = "../workspace-identity" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid = { workspace = true }
+time = { workspace = true }
+sqlx = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true }
+proptest.workspace = true
+testcontainers.workspace = true
+testcontainers-modules = { workspace = true, features = ["postgres"] }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "proptest_query"
+path = "tests/proptest_query.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

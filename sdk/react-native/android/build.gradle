@@ -1,0 +1,71 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+group = 'com.sentori'
+version = rootProject.hasProperty('sentoriPackageVersion')
+    ? rootProject.sentoriPackageVersion
+    : '0.0.0'
+
+android {
+    namespace 'com.sentori'
+    compileSdk rootProject.hasProperty('compileSdkVersion') ? rootProject.compileSdkVersion : 35
+
+    defaultConfig {
+        minSdk rootProject.hasProperty('minSdkVersion') ? rootProject.minSdkVersion : 24
+        targetSdk rootProject.hasProperty('targetSdkVersion') ? rootProject.targetSdkVersion : 35
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'src/main/AndroidManifest.xml'
+            java.srcDirs = ['src/main/java']
+        }
+    }
+
+    testOptions {
+        unitTests {
+            // Robolectric needs the real android.jar rather than the
+            // stub that throws on every call.
+            includeAndroidResources = true
+            returnDefaultValues = true
+        }
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation project(':expo-modules-core')
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:${rootProject.ext.kotlinVersion ?: '2.0.21'}"
+
+    // v2.10 — Firebase Cloud Messaging. `compileOnly` so non-push
+    // hosts aren't forced to ship Firebase. Hosts that want push add
+    // `com.google.firebase:firebase-messaging` themselves (plus
+    // `google-services.json` + the gradle plugin) — the SDK's
+    // `SentoriPushNotifications` code then sees the FCM classes on
+    // the runtime classpath and proceeds. Hosts without those deps
+    // see the SDK no-op cleanly via the runtime Class.forName probe.
+    compileOnly 'com.google.firebase:firebase-messaging:24.0.3'
+    // androidx.core for ContextCompat.checkSelfPermission +
+    // ActivityCompat.requestPermissions (Android 13+ POST_NOTIFICATIONS).
+    implementation 'androidx.core:core:1.13.1'
+
+    // The two Robolectric suites under src/test have been in the repo
+    // since Phase 29 and could never compile: the module declared no
+    // test dependencies at all, so every `org.junit` import was an
+    // unresolved reference. Nothing noticed because nothing ran them —
+    // the CI job that was supposed to had been failing for months on a
+    // missing Gradle wrapper.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.13'
+    testImplementation 'androidx.test:core:1.6.1'
+    // The suites mix kotlin.test.assert* with JUnit's runner.
+    testImplementation "org.jetbrains.kotlin:kotlin-test:${rootProject.ext.kotlinVersion ?: '2.0.21'}"
+}

@@ -1,0 +1,9 @@
+[package]
+name = "sentori-security-engine"
+version = "0.2.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+description = "Stub — trust score + federation (/v1/security/*). Phase D/E port from legacy server/src/api/security.rs + federation.rs."
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,9 @@
+[package]
+name = "sentori-session-store"
+version = "0.2.0"
+edition = "2024"
+license = "Apache-2.0 OR MIT"
+description = "Stub — crash-free-session pings (/v1/sessions). Phase D/E port from legacy server/src/api/sessions.rs."
+
+[lib]
+path = "src/lib.rs"
