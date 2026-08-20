@@ -1,0 +1,5 @@
+# Custom self-hosted runner labels used by deploy.yml. Without this,
+# actionlint flags `lx64` as an unknown runner label.
+self-hosted-runner:
+  labels:
+    - lx64
