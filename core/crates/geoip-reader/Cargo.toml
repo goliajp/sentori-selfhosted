@@ -1,0 +1,76 @@
+# core/crates/geoip-reader — 石头 #11 (per cement-stone).
+#
+# Pure in-memory MaxMind .mmdb (GeoIP2 / GeoLite2 / DB-IP Lite)
+# reader. Wraps `maxminddb` (the canonical Rust parser, ISC) with:
+#
+#   1. **A typed surface** — `Country`, `City`, `Asn` structs
+#      with owned `String` fields and `Option`-everywhere so
+#      callers can stash records directly into typed event
+#      structs without lifetime ceremony.
+#   2. **Bytes-in only** — `MmdbReader::from_bytes(Vec<u8>)`.
+#      File I/O / memory-mapping lives in the 钢筋 layer; the
+#      stone never touches a `Path` (matches the same shape S7
+#      `dwarf-resolver` and S8 `proguard-resolver` settled on).
+#   3. **Three lookup methods** — `lookup_country` /
+#      `lookup_city` / `lookup_asn`. Each returns `None` on
+#      unmapped IPs (private ranges, multicast, "not in this db")
+#      rather than synthesising an error — geo enrichment is
+#      best-effort by convention.
+#
+# Design ref:
+#  - `server/src/geoip.rs` — legacy implementation. Same upstream
+#    crate, but the legacy code mixed `Arc<Reader>` construction,
+#    DB-path env vars, and `Event.geo` mutation in one file. The
+#    stone keeps to the parse + lookup primitive.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2):
+#  - build / test / clippy / fmt / doc green
+#  - criterion bench baseline for `lookup` hot path
+#  - proptest property tests across the typed-record extraction
+#  - full rustdoc, 0 unsafe (`#![forbid(unsafe_code)]`)
+#  - **fixture synthesised in tests via `maxminddb-writer`** —
+#    no committed binary blob, no GeoLite2 EULA snag, runs
+#    identical on Linux CI and macOS dev. Same approach S7 took
+#    for Mach-O+DWARF via `gimli::write` + `object::write`.
+
+[package]
+name = "sentori-geoip-reader"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori MaxMind .mmdb (GeoIP2 / GeoLite2 / DB-IP Lite) reader — pure in-memory typed-record extraction with no file I/O surface."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+maxminddb.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+maxminddb-writer.workspace = true
+
+[[bench]]
+name = "bench"
+harness = false
+
+[[test]]
+name = "proptest_lookup"
+path = "tests/proptest_lookup.rs"
+
+[[test]]
+name = "fixtures"
+path = "tests/fixtures.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
