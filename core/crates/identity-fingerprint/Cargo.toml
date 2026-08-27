@@ -1,0 +1,26 @@
+# core/crates/identity-fingerprint — 石头 (per cement-stone).
+#
+# Scope-salted fingerprints for cross-project user lookup. An operator
+# types a real email; Sentori never receives one. The SDK hashes it on
+# device, the server salts that digest per identity scope, and only the
+# result is stored.
+#
+# The formula is locked to the v1 stack byte for byte: production holds
+# fingerprints written by that server, and a different digest would
+# silently stop a person matching their own history.
+
+[package]
+name = "sentori-identity-fingerprint"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori identity fingerprint — scope-salted SHA-256 for PII-free cross-project user lookup."
+
+[dependencies]
+sha2.workspace = true
+
+[dev-dependencies]
+hex = "0.4"
