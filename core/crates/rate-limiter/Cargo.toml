@@ -1,0 +1,74 @@
+# core/crates/rate-limiter — 石头 #10 (per cement-stone).
+#
+# Backend-agnostic sliding-window rate limit primitives:
+#
+#   1. `Policy` — typed (max_requests, window) pair with input
+#      validation at construction time.
+#   2. `Clock` trait + `SystemClock` + `MockClock` — pluggable
+#      time source. The `MockClock` is exposed in the public
+#      surface (not gated behind a feature flag) so callers can
+#      write deterministic tests against `Limiter` without a
+#      `criterion::black_box`-style hack.
+#   3. `RateBackend` trait — storage abstraction. Stones can't
+#      take a network dep, so a Valkey / Redis backend lives in
+#      the 钢筋 `auth-session` crate. The stone ships
+#      `MemoryBackend` (sliding-window log, single-process).
+#   4. `Limiter<B, C>` — composes a backend + clock + policy
+#      into a one-call API `check(key) -> Verdict`.
+#
+# Design ref:
+#  - `server/src/rate_limit.rs` — legacy fixed-window-minute
+#    impl over Valkey. The stone goes ceiling-first with
+#    **sliding window log** (precise, not approximate; pays
+#    O(N) memory per key where N = window's max throughput) and
+#    abstracts the backend so the Valkey path can share the
+#    `Policy` + `Verdict` + `Limiter` types in v0.2.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2):
+#  - build / test / clippy / fmt / doc green
+#  - criterion bench baseline for `Limiter::check` hot path
+#  - proptest property tests for sliding-window correctness
+#    (rate never exceeds limit; allowed requests over W seconds
+#    equal exactly `max`)
+#  - full rustdoc, 0 unsafe (`#![forbid(unsafe_code)]`)
+#  - zero new workspace deps; uses std-only primitives
+#    (Instant, Duration, HashMap, VecDeque, Mutex)
+
+[package]
+name = "sentori-rate-limiter"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori rate-limiter — backend-agnostic sliding-window rate limit primitives with a pluggable clock + in-memory backend."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "bench"
+harness = false
+
+[[test]]
+name = "proptest_windowing"
+path = "tests/proptest_windowing.rs"
+
+[[test]]
+name = "fixtures"
+path = "tests/fixtures.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
