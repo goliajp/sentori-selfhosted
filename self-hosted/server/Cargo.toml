@@ -1,0 +1,110 @@
+# self-hosted/server — Sentori OSS axum binary (standalone workspace).
+#
+# Cement-tier crate per cement-stone. Composes the 17 K
+# crates + 13 S stones from core/ into a single-workspace
+# HTTP server. Standalone Cargo workspace so this crate can
+# be built independently of core/ (e.g. inside a thin
+# docker layer).
+#
+# Image size goal: < 80 MB (distroless cc + strip).
+# Startup goal: ready in 30s under `docker compose up`.
+
+[workspace]
+
+[package]
+name = "sentori-server"
+version = "3.14.0"
+edition = "2024"
+authors = ["GOLIA K.K. <takagi@golia.jp>"]
+license = "Apache-2.0 OR MIT"
+publish = false
+rust-version = "1.97"
+description = "Sentori self-hosted axum server — single-workspace OSS binary composing core/ K crates."
+
+[[bin]]
+name = "sentori-server"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "warn"
+panic = "warn"
+
+[dependencies]
+# gzip-transparent artifact uploads: dSYMs for RN apps run hundreds
+# of MB raw but ~3:1 compressed; the CLI gzips, we inflate.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# K-tier composition. Path deps into core/.
+sentori-attachment-store   = { path = "../../core/crates/attachment-store" }
+sentori-identity-fingerprint = { path = "../../core/crates/identity-fingerprint" }
+sentori-sourcemap-resolver = { path = "../../core/crates/sourcemap-resolver" }
+sentori-proguard-resolver  = { path = "../../core/crates/proguard-resolver" }
+sentori-dwarf-resolver     = { path = "../../core/crates/dwarf-resolver" }
+sentori-issue-fingerprint  = { path = "../../core/crates/issue-fingerprint" }
+sentori-notifier           = { path = "../../core/crates/notifier" }
+sentori-argon2-password    = { path = "../../core/crates/argon2-password" }
+sentori-cookie-session     = { path = "../../core/crates/cookie-session" }
+sentori-ingest-token       = { path = "../../core/crates/ingest-token" }
+sentori-push-provider      = { path = "../../core/crates/push-provider" }
+
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "multipart", "query", "tokio", "tower-log", "tracing", "macros"] }
+axum-extra = { version = "0.12", default-features = false, features = ["cookie"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", default-features = false }
+# `catch-panic` is load-bearing, not defensive. A handler that
+# panics without it kills the tokio worker and drops the socket:
+# the client gets `curl: (52) Empty reply from server` — no
+# status, no body, nothing to branch on. Twice now a backend
+# whose Describe under-reported columns turned `Row::get` into
+# exactly that, on two different endpoints. The layer does not
+# make the panic correct; it makes it answerable.
+tower-http = { version = "0.7", default-features = false, features = ["catch-panic", "fs"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "uuid", "time", "json", "migrate"] }
+rand = "0.10"
+uuid = { version = "1", features = ["v7", "serde"] }
+time = { version = "0.3", features = ["serde-well-known", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+http = "1"
+hex = "0.4"
+data-encoding = "2"
+hmac = "0.13"
+sha2 = "0.11"
+hkdf = "0.13"
+aes-gcm = "0.11"
+p256 = { version = "0.14", features = ["ecdh"] }
+futures = { version = "0.3", default-features = false }
+tokio-stream = { version = "0.1", features = ["sync"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "http2", "form"] }
+jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs", "use_pem"] }
+base64 = "0.23"
+url = "2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+# NOT `panic = "abort"`.
+#
+# It was, and that made `CatchPanicLayer` inert in the only build
+# anyone runs. The layer was added in 3.3.0 with a commit message
+# saying a handler panic is answerable; in the shipped binary it was
+# not — abort kills the process before any unwinding handler sees it,
+# so a panic stayed what it had been: a dropped socket, `curl: (52)
+# Empty reply from server`, and a container restart.
+#
+# The cost of unwinding is a slightly larger binary. The thing bought
+# is that one bad request cannot take down a self-hosted customer's
+# whole instance. `check-panic-strategy` in the server's tests fails
+# if this line comes back.
