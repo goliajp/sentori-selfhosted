@@ -1,0 +1,258 @@
+/*
+ * Sentori dashboard — the whole design token layer, self-owned.
+ *
+ * No design-system dependency: two hand-tuned palettes (dark is the
+ * native one; light is re-inked to Jira-calibre contrast), the
+ * GOLIA Lab blue as the single accent, and the five-kind hues
+ * doing double duty as the status colours — one concept model,
+ * everywhere. Type is the Jira posture: the platform's own UI
+ * fonts, 14px base, dense but never cramped.
+ *
+ * Components speak only the semantic Tailwind names mapped below
+ * (`bg-surface`, `text-fg-muted`, `border-border`, `text-kind-*`);
+ * nothing outside this file may name a hex.
+ */
+@import 'tailwindcss';
+
+:root {
+  /* ── dark (native) ── */
+  --sn-bg: #101014;
+  --sn-canvas: #101014;
+  --sn-surface: #17171c;
+  --sn-raised: #23232b;
+  --sn-fg: #e7e7ec;
+  --sn-fg-muted: #a3a3ae;
+  --sn-fg-subtle: #767681;
+  --sn-border: #2a2a32;
+  --sn-border-strong: #3d3d47;
+
+  /* GOLIA Lab ink — the family blue (#155dfc, shared with the
+   * hourglass and tiktoken marks), lifted on dark so it carries on
+   * #17171c. Purple deliberately vacated the accent slot: it means
+   * `assert` in the five-kind palette, and an accent that shared
+   * that hue blurred the concept model. */
+  --sn-accent: #3d7dff;
+  --sn-accent-hover: #5b8cff;
+  --sn-accent-fg: #ffffff;
+
+  /* The five-kind hues. The signal timeline borrows them
+   * (nav=trace, tap=warn, http=assert, trace-signal=probe,
+   * freeze=error), and the status roles below alias them — the
+   * palette keeps teaching the same model. */
+  --s-kind-error: #ff5d5d;
+  --s-kind-warn: #ffb340;
+  --s-kind-trace: #7fa7c9;
+  --s-kind-assert: #b18cff;
+  --s-kind-probe: #4cd97b;
+
+  /* the canvas replay player samples these off the document */
+  --s-bg: var(--sn-bg);
+  --s-surface: var(--sn-surface);
+  --s-border-strong: var(--sn-border-strong);
+  --s-fg-muted: var(--sn-fg-muted);
+  --sn-mono-ink: var(--sn-fg-muted);
+}
+
+:root[data-theme='light'] {
+  /* ── light, Jira-calibre ink: hairlines that exist, secondary
+   * text that reads. The four grey levels are deliberately far
+   * apart — canvas clearly grey, chrome a step lighter, cards pure
+   * white, hover/selection clearly darker than a card — so the
+   * stacking order reads at a glance. ── */
+  --sn-bg: #f3f4f7;
+  --sn-canvas: #e9ebef;
+  --sn-surface: #ffffff;
+  --sn-raised: #e2e5ea;
+  --sn-fg: #1c2128;
+  --sn-fg-muted: #404854;
+  --sn-fg-subtle: #68707e;
+  --sn-border: #d5d9e0;
+  --sn-border-strong: #aab1bc;
+
+  --sn-accent: #155dfc;
+  --sn-accent-hover: #0a4ad9;
+  --sn-accent-fg: #ffffff;
+
+  /* the same five hues, re-inked for white paper */
+  --s-kind-error: #c93838;
+  --s-kind-warn: #9a6700;
+  --s-kind-trace: #3d6e99;
+  --s-kind-assert: #6f42c1;
+  --s-kind-probe: #1a7f4b;
+}
+
+@theme inline {
+  --color-bg: var(--sn-bg);
+  --color-canvas: var(--sn-canvas);
+  --color-surface: var(--sn-surface);
+  --color-raised: var(--sn-raised);
+  --color-fg: var(--sn-fg);
+  --color-fg-muted: var(--sn-fg-muted);
+  --color-fg-subtle: var(--sn-fg-subtle);
+  --color-border: var(--sn-border);
+  --color-border-strong: var(--sn-border-strong);
+  --color-accent: var(--sn-accent);
+  --color-accent-hover: var(--sn-accent-hover);
+  --color-accent-fg: var(--sn-accent-fg);
+
+  /* status = kind: one concept model */
+  --color-danger: var(--s-kind-error);
+  --color-warn: var(--s-kind-warn);
+  --color-ok: var(--s-kind-probe);
+  --color-kind-error: var(--s-kind-error);
+  --color-kind-warn: var(--s-kind-warn);
+  --color-kind-trace: var(--s-kind-trace);
+  --color-kind-assert: var(--s-kind-assert);
+  --color-kind-probe: var(--s-kind-probe);
+
+  /* Atlassian's own stack (platform faces, no downloads), with the
+   * CJK faces appended so 中文/日本語 pick a matching grotesque.
+   * Mono is reserved for code and identifiers — prose never sets it. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
+    'Fira Sans', 'Droid Sans', 'Helvetica Neue', 'Hiragino Sans',
+    'Noto Sans CJK JP', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/*
+ * 14px base. Dense is an information-per-screen property — you get
+ * it from tight spacing and short rows, not from shrinking type
+ * past comfortable reading.
+ */
+body {
+  margin: 0;
+  /* The app is absolutely positioned into the viewport; the page
+   * itself must never scroll — every scroll area is an explicit
+   * interior region. */
+  overflow: hidden;
+  background-color: var(--sn-canvas);
+  color: var(--sn-fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Numerals in tables, timestamps and counters must not reflow as
+   they tick. */
+.tabular-nums,
+table,
+time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scrollbars are furniture: thin, theme-inked, invisible until
+   needed. The default chrome bar reads as a foreign object on both
+   palettes. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sn-border-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background-color: var(--sn-border-strong);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--sn-fg-subtle);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Text selection carries the brand, softly. */
+::selection {
+  background-color: color-mix(in srgb, var(--sn-accent) 28%, transparent);
+}
+
+/* Keyboard focus is always visible. Components that draw their own
+   ring (inputs, buttons) override this with their utility classes;
+   everything else — queue rows, chips, ticks — gets the accent ring
+   for free. */
+:focus-visible {
+  outline: 2px solid var(--sn-accent);
+  outline-offset: 1px;
+}
+
+/* Anyone who asked their OS to stop animating things means it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Syntax colour.
+ *
+ * highlight.js emits class names; the hues are ours. The five kind
+ * colours already have a light and a dark ink and are already
+ * borrowed by the signal timeline and the status roles, so a snippet
+ * costs no new colour and inherits the light/dark/system trio the
+ * whole app is themed with.
+ *
+ * Deliberately few. A grammar can label thirty things; a reader of a
+ * stack frame needs to tell a comment from a string from a name, and
+ * thirty colours tell them nothing. Everything unlisted stays the
+ * body colour.
+ */
+.hljs-comment,
+.hljs-quote {
+  color: var(--sn-fg-subtle);
+  font-style: italic;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-meta .hljs-string {
+  color: var(--s-kind-probe);
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-built_in {
+  color: var(--s-kind-assert);
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--s-kind-warn);
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section,
+.hljs-name {
+  color: var(--s-kind-trace);
+}
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-params {
+  color: var(--sn-fg);
+}
+.hljs-meta,
+.hljs-punctuation,
+.hljs-operator {
+  color: var(--sn-fg-muted);
+}
+.hljs-deletion {
+  color: var(--s-kind-error);
+}

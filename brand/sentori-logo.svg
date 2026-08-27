@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Sentori — the watching gate. 鳥居 marks a threshold: what passes
+       through is seen. Kasagi (top rail), nuki (tie beam), two battered
+       posts — all straight cuts, miter joins, in the GOLIA Lab plate. -->
+  <rect width="32" height="32" rx="7" fill="#155dfc"/>
+  <path d="M6 10 H26 M9 15 H23 M12 10 L10.5 26 M20 10 L21.5 26"
+        fill="none" stroke="#fff" stroke-width="2.7" stroke-linejoin="miter" stroke-linecap="butt"/>
+</svg>
