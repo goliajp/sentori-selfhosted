@@ -1,0 +1,41 @@
+{
+  "name": "@sentori/webapp",
+  "version": "3.48.0",
+  "private": true,
+  "description": "Sentori v0.1 minimal dashboard shell. Imports from self-hosted/web + saas/web.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "typecheck": "tsc -b --noEmit",
+    "check": "tsc -b --noEmit && eslint . && node devtools/check-i18n.mjs && node devtools/check-hardcoded-text.mjs && node devtools/check-error-format.mjs && node devtools/check-cjk-punctuation.mjs && node devtools/check-unreferenced.mjs && bun devtools/check-highlight.mjs && bun devtools/check-byte-format.mjs && bun devtools/check-timeline-labels.mjs && node --experimental-strip-types devtools/check-credential-recognition.mjs && node --experimental-strip-types devtools/check-release-lights.mjs && node devtools/check-release-format.mjs",
+    "mock": "node devtools/mock-api.mjs",
+    "sweep": "node devtools/sweep.mjs",
+    "check:i18n": "node devtools/check-i18n.mjs",
+    "check:text": "node devtools/check-hardcoded-text.mjs"
+  },
+  "dependencies": {
+    "highlight.js": "^11.12.0",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.4",
+    "globals": "^17.11.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.67.0",
+    "vite": "^8.2.1"
+  }
+}
