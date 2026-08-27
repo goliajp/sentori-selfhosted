@@ -1,0 +1,52 @@
+# cargo-deny config for the Sentori v0.1 core workspace.
+#
+# Run: cd core && cargo deny check
+#
+# Policy:
+# - All workspace crates ship under Apache-2.0 OR MIT, and we only allow
+#   transitive deps under common permissive licences. Anything copyleft
+#   (GPL / AGPL / LGPL) is denied — surfaces a real licensing conflict
+#   for our OSS-mirrored crates.
+# - Advisories: fail on every known vulnerability and yanked crate. No
+#   `ignore = [...]` allow-listing without an explicit, dated comment.
+# - Sources: only crates.io. No git or local registry deps.
+
+[graph]
+all-features = false
+no-default-features = false
+
+[advisories]
+version = 2
+db-urls = ["https://github.com/RustSec/advisory-db"]
+ignore = []
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "Unicode-DFS-2016",
+    "OpenSSL",
+]
+confidence-threshold = 0.93
+exceptions = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
