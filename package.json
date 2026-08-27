@@ -1,0 +1,27 @@
+{
+  "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",
+  "name": "@goliapkg/sentori-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/rn-example",
+    "sdk/cli",
+    "sdk/core",
+    "sdk/expo",
+    "sdk/react-native"
+  ],
+  "scripts": {
+    "build:sdks": "bun run --filter '@goliapkg/sentori-core' build && bun run --filter '@goliapkg/sentori-react-native' build && bun run --filter '@goliapkg/sentori-expo' build && bun run --filter '@goliapkg/sentori-cli' build",
+    "test:sdks": "bun run --filter '@goliapkg/sentori-*' test",
+    "preflight": "echo '→ lockfile drift (matches CI bun install --frozen-lockfile)' && bun install --frozen-lockfile && echo '→ github workflow lint (actionlint)' && bash scripts/check-workflows.sh && echo '→ core fmt + clippy + check (the v1 server surface)' && (cd core && cargo fmt --check && cargo clippy --all-targets --quiet -- -D warnings && cargo check --tests --quiet) && echo '→ server fmt + clippy + check' && (cd self-hosted/server && cargo fmt --check && cargo clippy --all-targets --quiet -- -D warnings && cargo check --tests --quiet) && echo '→ the public mirror ships the docs and none of the internal ones' && node scripts/check-mirror-docs.mjs && echo '→ docs name only APIs and packages that exist' && node scripts/check-docs-api-truth.mjs && echo '→ the OpenAPI document matches the router' && node scripts/gen-openapi.mjs --check && echo '→ the error reference matches the handlers' && node scripts/gen-error-reference.mjs --check && echo '→ every markdown code fence closes' && node scripts/check-md-fences.mjs && echo '→ relative links in docs resolve' && node scripts/check-doc-links.mjs && echo '→ SDK reference documents the options InitConfig has' && node scripts/check-sdk-doc-options.mjs && echo '→ imports shown in the native docs resolve to real code' && node scripts/check-doc-imports.mjs && echo '→ wire unions agree across the SDK/server boundary' && node scripts/check-wire-contracts.mjs && echo '→ every project-scoped admin endpoint authorises the caller' && node scripts/check-admin-authorisation.mjs && echo '→ SQL columns balance and are selected' && node scripts/check-sql-inserts.mjs && echo '→ the server snippets name the route the server serves' && node scripts/check-push-snippets.mjs && echo '→ one casing on the v1 wire' && node scripts/check-wire-case.mjs && echo '→ compose healthchecks are exec form (a scratch image has no shell)' && node scripts/check-compose-healthchecks.mjs && echo '→ no text ordering the operators image decides' && node scripts/check-text-ordering.mjs && echo '→ rfc3339 serde annotations on OffsetDateTime fields' && bash scripts/check-rfc3339.sh && echo '→ orphan modules (written-but-never-compiled guard)' && bash scripts/check-orphan-modules.sh && echo '→ webapp check (tsc + eslint + i18n + hardcoded-text + unreferenced)' && (cd webapp && bun install --frozen-lockfile && bun run check) && echo '→ build all SDKs (matches CI sdk job)' && bun run build:sdks && echo '→ all SDK tests' && bun run test:sdks && echo '→ the native version is not one already published' && node scripts/check-native-version-tag.mjs && echo '→ the Android artifact is complete enough for Maven Central' && node scripts/check-maven-artifact.mjs && echo '→ identity vectors match sdk/core/src/identity.ts' && node scripts/gen-identity-vectors.mjs --check && echo '→ the RN native mirror matches sdk/native' && node scripts/sync-native-core.mjs --check && echo '→ public options are read by the code' && node scripts/check-dead-options.mjs && echo '→ peer ranges contain the versions we build against' && node scripts/check-peer-ranges.mjs && echo '→ every advertised entry point exists' && node scripts/check-package-entrypoints.mjs && echo '→ SDK size budget (iron-rule dim 4)' && bash scripts/check-sdk-size.sh && echo '→ server unit tests (no Postgres needed)' && (cd self-hosted/server && cargo test --bins --quiet) && echo '✓ preflight green — safe to push'",
+    "preflight:fast": "echo '→ webapp check + sdks (skips Rust for tight TS-only iterations)' && (cd webapp && bun run check) && bun run build:sdks && bun run test:sdks && echo '✓ fast preflight green'",
+    "e2e": "bash self-hosted/tests/e2e/smoke.sh",
+    "changeset": "changeset",
+    "version-packages": "changeset version && node scripts/sync-sdk-version.mjs",
+    "release": "bun run build:sdks && changeset publish",
+    "check:published-readme": "node scripts/check-published-readme.mjs"
+  },
+  "devDependencies": {
+    "@changesets/changelog-github": "^1.0.0",
+    "@changesets/cli": "^3.0.0"
+  }
+}

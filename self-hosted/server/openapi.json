@@ -1,0 +1,757 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Sentori",
+    "version": "3.6.0",
+    "summary": "Self-hosted crash and error reporting for mobile apps.",
+    "description": "Its own wire protocol — not Sentry-compatible, and there is no DSN. Generated from the router by scripts/gen-openapi.mjs; the path list cannot drift from the server."
+  },
+  "servers": [
+    {
+      "url": "{instance}",
+      "variables": {
+        "instance": {
+          "default": "https://sentori.example.com"
+        }
+      }
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A token from Settings ▸ Tokens: `st_` plus 26 characters. Scope `ingest` writes; scope `api` reads."
+      }
+    },
+    "schemas": {
+      "WireEvent": {
+        "type": "object",
+        "required": [
+          "kind",
+          "occurredAt",
+          "platform"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warn",
+              "trace",
+              "assert",
+              "probe"
+            ]
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339. No alias — `timestamp` is dropped as unknown and the request then fails as a missing field."
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "javascript",
+              "ios",
+              "android"
+            ]
+          },
+          "release": {
+            "type": "string",
+            "default": ""
+          },
+          "environment": {
+            "type": "string",
+            "default": ""
+          },
+          "userKey": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "surface": {
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional; supply one only to deduplicate your own retries."
+          },
+          "payload": {
+            "type": "object",
+            "default": {},
+            "description": "Everything else about the event — error, device, app, and any data you attach."
+          }
+        }
+      },
+      "Receipt": {
+        "type": "object",
+        "required": [
+          "eventId",
+          "issueId",
+          "isNewIssue",
+          "regressed"
+        ],
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The machine-readable receipt: assert on this rather than opening the dashboard."
+          },
+          "isNewIssue": {
+            "type": "boolean"
+          },
+          "regressed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Stable code. Branch on this."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Prose. Changes without notice."
+          },
+          "hint": {
+            "type": "string",
+            "description": "Prose. Changes without notice."
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    }
+  },
+  "paths": {
+    "/api/issues": {
+      "get": {
+        "summary": "GET /api/issues",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/api/issues/{issue_id}/bundle": {
+      "get": {
+        "summary": "GET /api/issues/{issue_id}/bundle",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/api/issues/{issue_id}/notes": {
+      "post": {
+        "summary": "POST /api/issues/{issue_id}/notes",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/api/issues/{issue_id}/resolve": {
+      "post": {
+        "summary": "POST /api/issues/{issue_id}/resolve",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/api/probes:sync": {
+      "post": {
+        "summary": "POST /api/probes:sync",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "summary": "Liveness and version. No auth.",
+        "responses": {
+          "200": {
+            "description": "ok",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "db": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/livez": {
+      "get": {
+        "summary": "GET /livez",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "GET /openapi.json",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "summary": "GET /readyz",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/deploys": {
+      "post": {
+        "summary": "POST /v1/deploys",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "post": {
+        "summary": "Ingest one event",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WireEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`invalid_payload` — parsed, but a value is not acceptable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Deserialisation failed. **Body is plain text**, not this error shape — it names the field, e.g. `missing field `occurredAt``.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`, with `retryAfterMs`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events:batch": {
+      "post": {
+        "summary": "Ingest up to 200 events",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "events"
+                ],
+                "properties": {
+                  "events": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                      "$ref": "#/components/schemas/WireEvent"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "401": {
+            "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`batch_too_large` — more than 200 events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events/{event_id}/attachments/{kind}": {
+      "post": {
+        "summary": "POST /v1/events/{event_id}/attachments/{kind}",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/events/validate": {
+      "post": {
+        "summary": "Does this body parse? No token required.",
+        "description": "Parses exactly what ingest parses and answers whether it would have been accepted. Touches no database, names no project, stores nothing, and says nothing about whether a token would work. Rate-limited per IP.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WireEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Parses. `parsed` echoes what was understood, so a field silently dropped as unknown is visible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "parsed": {
+                      "type": "object"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Does not parse. `field` names the offending key where serde identified one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "field": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "hint": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate_limited`."
+          }
+        }
+      }
+    },
+    "/v1/push/audience/count": {
+      "post": {
+        "summary": "POST /v1/push/audience/count",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/deliveries/{delivery_id}": {
+      "get": {
+        "summary": "GET /v1/push/deliveries/{delivery_id}",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/deliveries/{delivery_id}/ack": {
+      "post": {
+        "summary": "POST /v1/push/deliveries/{delivery_id}/ack",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/devices": {
+      "post": {
+        "summary": "POST /v1/push/devices",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/devices/{sp_token}": {
+      "delete": {
+        "summary": "DELETE /v1/push/devices/{sp_token}",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/devices/{sp_token}/topics": {
+      "post": {
+        "summary": "POST /v1/push/devices/{sp_token}/topics",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/devices/{sp_token}/topics/{topic}": {
+      "delete": {
+        "summary": "DELETE /v1/push/devices/{sp_token}/topics/{topic}",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/expo-compat/receipts/{delivery_id}": {
+      "get": {
+        "summary": "GET /v1/push/expo-compat/receipts/{delivery_id}",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/expo-compat/send": {
+      "post": {
+        "summary": "POST /v1/push/expo-compat/send",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/sends": {
+      "post": {
+        "summary": "POST /v1/push/sends",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/sends/{send_id}": {
+      "get": {
+        "summary": "GET /v1/push/sends/{send_id}",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/sends/{send_id}/deliveries": {
+      "get": {
+        "summary": "GET /v1/push/sends/{send_id}/deliveries",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/users/{user_key}/preferences": {
+      "get": {
+        "summary": "GET /v1/push/users/{user_key}/preferences",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/users/{user_key}/preferences/{category}": {
+      "put": {
+        "summary": "PUT /v1/push/users/{user_key}/preferences/{category}",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/releases/{release}/artifacts": {
+      "get": {
+        "summary": "GET /v1/releases/{release}/artifacts",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    }
+  }
+}
