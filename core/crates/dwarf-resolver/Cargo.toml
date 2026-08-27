@@ -1,0 +1,85 @@
+# core/crates/dwarf-resolver — 石头 #7 (per cement-stone).
+#
+# Resolves a static instruction-pointer offset (`PC - image_base`,
+# i.e. the binary's static address after ASLR slide is subtracted)
+# back to its original `(function, file, line[, column])` plus any
+# inlined-call chain, using DWARF debug info embedded in a Mach-O
+# slice. The slice is the contents of a dSYM bundle's inner Mach-O
+# (`Foo.dSYM/Contents/Resources/DWARF/Foo`) or a non-stripped
+# executable; this stone has no opinion on how the caller produces
+# those bytes.
+#
+# Companion `MachoSlicer` extracts a single-arch slice from a fat
+# Mach-O (universal binary) so callers needn't pull `object` in
+# directly just to find the arm64 slice in a universal dSYM.
+#
+# Used by:
+#  - K-tier `event-pipeline` (ingest-time native frame symbolication
+#    before `issue-fingerprint`, for iOS / macOS / Catalyst frames).
+#  - K-tier `attachment-store` symbol-window endpoint (operator
+#    clicks a native frame in the dashboard → resolve on demand).
+#
+# Design ref:
+#  - `server/src/symbolicate_ios.rs` — legacy implementation we are
+#    cleanly re-writing. The legacy code dumped Mach-O bytes to
+#    `/tmp/sentori-dsyms/<key>` and held an `addr2line::Loader`
+#    per cached entry (file-backed mmap). This stone goes pure in-
+#    memory via an `ouroboros` self-referential struct holding the
+#    raw bytes alongside the borrowed `addr2line::Context` — no
+#    `/tmp` pollution, no double-store (caller's bytes + on-disk
+#    copy), and no surprise behavior when the temp dir is wiped
+#    between requests.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2):
+#  - build / test / clippy / fmt / doc green
+#  - criterion bench baseline for hot paths (open + resolve)
+#  - proptest property tests across the slicer + cache primitives
+#  - full rustdoc, 0 unsafe (`#![forbid(unsafe_code)]` — ouroboros'
+#    internal unsafe lives behind a vetted proc-macro)
+#  - fixture is synthesised at test time via `gimli::write` +
+#    `object::write`: no committed binary blob, no `dsymutil` /
+#    clang requirement, works identically on Linux CI and macOS dev.
+
+[package]
+name = "sentori-dwarf-resolver"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori native (DWARF / Mach-O) symbolicator — pure in-memory address → (function, file:line, inlined) lookup with fat-binary arch slicing and LRU caching."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+object.workspace = true
+gimli.workspace = true
+addr2line.workspace = true
+ouroboros.workspace = true
+lru.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "resolve"
+harness = false
+
+[[test]]
+name = "proptest_cache"
+path = "tests/proptest_cache.rs"
+
+[[test]]
+name = "roundtrip"
+path = "tests/roundtrip.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
