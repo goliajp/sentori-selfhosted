@@ -1,0 +1,122 @@
+# Sentori
+
+> Self-hosted crash and error reporting for mobile apps, React Native
+> first. One Rust binary plus PostgreSQL. Its own wire protocol — it is
+> not Sentry-compatible, there is no DSN, and a Sentry SDK cannot talk
+> to it.
+
+This file exists because the only thing a developer usually hands an
+agent is the instance URL. Everything needed to send a first event is
+below; the links are for detail, not for the basics.
+
+## Integrate (React Native)
+
+```
+npm install @goliapkg/sentori-react-native
+```
+
+```ts
+import { sentori } from '@goliapkg/sentori-react-native'
+
+sentori.init({
+  token: 'st_…',                       // required — Settings → Tokens, scope `ingest`
+  ingestUrl: 'https://your-instance',  // required — the instance root, no path
+  release: 'myapp@1.0.0+123',          // optional but needed for symbolication
+  environment: __DEV__ ? 'dev' : 'prod',
+})
+```
+
+Report from code with the verbs. There is no `captureError`, no
+`captureException`, no `setUser`, no `startSpan` — if you have seen
+those, they are from a pre-v1 page or from Sentry.
+
+```ts
+sentori.error(new Error('boom'), { feature: 'checkout' })  // → event id
+sentori.warn('slow-checkout', { ms: 1200 })
+sentori.trace('cart.opened')
+sentori.assert('cart.total-matches', total === expected)
+sentori.probe('checkout-double-charge')
+```
+
+The five kinds are `error`, `warn`, `trace`, `assert`, `probe`. Every
+verb returns the event id and never throws: a failure inside Sentori
+must never reach the host app.
+
+## Send an event without the SDK
+
+```
+POST {instance}/v1/events
+Authorization: Bearer st_…
+Content-Type: application/json
+```
+
+```json
+{
+  "kind": "error",
+  "occurredAt": "2026-08-27T00:00:00.000Z",
+  "platform": "javascript",
+  "release": "myapp@1.0.0+123",
+  "environment": "prod",
+  "payload": { "error": { "type": "TypeError", "message": "boom" } }
+}
+```
+
+`kind`, `occurredAt` and `platform` are required. `occurredAt` is
+RFC 3339 and has no alias — sending `timestamp` fails with
+`422 missing field occurredAt`, and the 422 body is plain text, not
+the JSON error shape. Everything else about the event goes inside
+`payload`.
+
+Success is `202` with the receipt:
+
+```json
+{"eventId":"01a0…","issueId":"01a0…","isNewIssue":true,"regressed":false}
+```
+
+`POST {instance}/v1/events:batch` takes `{"events":[…]}`, at most 200.
+
+## Verify it arrived
+
+`issueId` from the `202` is the machine-readable receipt. An
+`ingest`-scope token can only write; reading issues back needs a token
+with scope `api`, and then `GET {instance}/api/issues`.
+
+## When it fails
+
+Errors are `{"error":"<code>","detail":"…"}`. Branch on `error`;
+`detail` and `hint` are prose and change. A `401` carries a `hint`
+naming which check failed — wrong prefix, wrong length, unknown token,
+or wrong scope. The full generated list is in the error reference
+below.
+
+## Probing this instance
+
+The dashboard is a single-page app and its server answers **every**
+unknown path with the app's HTML shell and `200`. `/openapi.json`,
+`/.well-known/…`, `/docs/anything` all look like they exist. Do not
+treat a `200` as proof a resource is there — check the content type,
+or that the body is not `<!doctype html>`.
+
+The paths that are real:
+
+- `GET /healthz` — `{"status":"ok","version":"3.4.1",…}`, no auth
+- `GET /llms.txt` — this file
+- `POST /v1/events`, `POST /v1/events:batch` — ingest
+- `GET /api/issues` — read issues, needs an `api`-scope token
+
+## Docs
+
+- [Getting started](https://github.com/goliajp/sentori/blob/master/docs/getting-started.md): install, first event, and a curl that works
+- [React Native quickstart](https://github.com/goliajp/sentori/blob/master/docs/getting-started/react-native.md): the SDK path end to end
+- [Protocol reference](https://github.com/goliajp/sentori/blob/master/docs/protocol.md): full wire schema, batching, sourcemap upload, token format
+- [Error reference](https://github.com/goliajp/sentori/blob/master/docs/errors.md): every code this server sends, generated from the handlers
+- [Self-hosting](https://github.com/goliajp/sentori/blob/master/docs/self-hosting.md): environment variables, backup, restore
+- [Troubleshooting](https://github.com/goliajp/sentori/blob/master/docs/troubleshooting.md): the failure modes people actually hit
+- [SDK reference](https://www.npmjs.com/package/@goliapkg/sentori-react-native): the current API surface, shipped with the package
+
+## Optional
+
+- [Source maps and native symbols](https://github.com/goliajp/sentori/blob/master/docs/recipes/sourcemap-upload.md): making stacks readable
+- [Release versioning](https://github.com/goliajp/sentori/blob/master/docs/recipes/release-versioning.md): what `release` should contain
+- [Self-hosted mirror](https://github.com/goliajp/sentori-selfhosted): source to build and run your own instance
+- [Archive](https://github.com/goliajp/sentori/tree/master/docs/archive): pages describing versions and features that no longer exist. Do not integrate from these.
