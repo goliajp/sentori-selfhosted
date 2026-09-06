@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Ink-following variant: inherits the surrounding text colour, for
+       in-product chrome (sidebar, status bar) where the mark must not
+       fight the UI accent. -->
+  <path d="M6 10 H26 M9 15 H23 M12 10 L10.5 26 M20 10 L21.5 26"
+        fill="none" stroke="currentColor" stroke-width="2.7" stroke-linejoin="miter" stroke-linecap="butt"/>
+</svg>

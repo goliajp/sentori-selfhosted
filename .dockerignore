@@ -1,0 +1,15 @@
+**/node_modules/
+**/.git/
+**/target/
+**/dist/
+**/build/
+**/.next/
+**/.expo/
+**/.gradle/
+**/DerivedData/
+**/*.xcuserdata/
+**/*.tsbuildinfo
+**/.astro/
+**/.cache/
+**/coverage/
+.DS_Store

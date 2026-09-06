@@ -1,0 +1,97 @@
+# rust
+target/
+
+# node
+node_modules/
+*.tsbuildinfo
+
+# build outputs
+dist/
+build/
+.astro/
+
+# xcode
+*.xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+# android
+.gradle/
+local.properties
+
+# react native / expo / metro
+.expo/
+.metro-cache/
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+# Key material that has to outlive a session. `tmp/` is swept and
+# was never the place for the only copy of a signing key — the one
+# that signs `jp.golia.sentori:sentori` lived there for a day.
+.secrets/
+*.pem
+
+# editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# os
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
+
+# coverage
+coverage/
+.nyc_output/
+
+# local data
+data/
+*.db
+*.sqlite
+
+# claude code transient state (rewritten by harness on each run)
+# include subdir-drift variants — handoff sometimes saves into web/.claude/ etc.
+**/.claude/handoff.md
+**/.claude/scheduled_tasks.lock
+
+# nudo tool config — per-dev workspace metadata, not product code
+.nudo.toml
+
+# transient artifacts (bug repros, throwaway notes, scratch)
+tmp/
+.claude/
+.npmrc
+
+# Credentials kept next to the project for convenience. Untracked is
+# not enough on its own: this repo is mirrored to a public one, and a
+# single `git add -A` would push live keys there irreversibly.
+.keys
+.keys.*
+*.pem
+
+# Swift package build output
+sdk/native/ios/.build/
+sdk/native/ios/*.xcodeproj/
+
+# Written by scripts/ios-live-ingest.sh for one test run
+sdk/native/fixtures/live-server.json
+
+# Gradle build output for the standalone Android package
+sdk/native/android/build/
+sdk/native/android/.gradle/
+
+# Gradle output for the Android consumer gate
+apps/android-consumer/build/
+apps/android-consumer/app/build/
+apps/android-consumer/.gradle/
+
+# e2e writes one per run and removes it on a clean exit; an
+# interrupted run leaves it behind.
+.env.e2e.*
+self-hosted/docker/.env.e2e.*

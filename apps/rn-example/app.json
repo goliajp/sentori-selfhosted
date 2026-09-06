@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "sentori-example",
+    "slug": "sentori-example",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.goliapanda.sentori-example"
+    },
+    "android": {
+      "package": "com.goliapanda.sentoriexample"
+    },
+    "plugins": ["expo-dev-client"]
+  }
+}

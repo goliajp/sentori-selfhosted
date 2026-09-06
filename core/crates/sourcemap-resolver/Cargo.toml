@@ -1,0 +1,86 @@
+# core/crates/sourcemap-resolver — 石头 #6 (per cement-stone).
+#
+# Resolves JS minified `(file, line, column)` positions back to their
+# original-source `(file, line, column, function?, source-window)`
+# using Source Map V3 (the same JSON format every modern JS bundler
+# emits). Wraps the upstream `sourcemap` crate (the canonical Rust
+# parser, shared by Sentry, Datadog, Mozilla) with:
+#
+#   1. **A typed, allocation-light `Resolution`** — no `serde_json`
+#      knobs leak from the parser; callers get plain `Option<String>`
+#      fields they can copy straight into a stack frame struct.
+#   2. **A bounded LRU cache (`ResolverCache<K>`)** — the legacy
+#      `server/src/symbolicate.rs` used a `HashMap<Uuid, …>` with a
+#      "clear-everything when full" strategy that intentionally
+#      churned every release. Real LRU is O(1) per access and
+#      respects locality (the same release tends to be looked up for
+#      a burst of frames in the same event).
+#   3. **Source-context windowing** — `±N` lines around the resolved
+#      position pulled out of `sourcesContent`, so a 20-frame stack
+#      can be enriched without a per-frame fetch.
+#
+# `SourceMapIndex` (split-files maps) is auto-flattened at parse
+# time. Hermes (RN bytecode) maps are *intentionally* refused — they
+# need a different lookup path with the raw `(bytecode_offset, …)`
+# tuple and will get their own stone alongside `dwarf-resolver`.
+#
+# Used by:
+#  - K-tier `event-pipeline` (ingest-time JS frame rewriting before
+#    `issue-fingerprint`).
+#  - K-tier `attachment-store` source-window endpoint (operator
+#    clicks a frame in the dashboard → fetch the wider `±N` window).
+#
+# Design ref:
+#  - `server/src/symbolicate.rs` — legacy implementation we are
+#    cleanly re-writing, NOT copying. The legacy code mixed DB
+#    fetching, JSON mutation, and Event-typed mutation in one file;
+#    we keep this stone purely about the *resolve* primitive and
+#    leave DB/typed-event coupling to the 钢筋 layer.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2):
+#  - build / test / clippy / fmt / doc green
+#  - criterion bench baseline for hot paths (parse + lookup)
+#  - proptest property tests across the cache + lookup primitives
+#  - full rustdoc, 0 unsafe (`#![forbid(unsafe_code)]`)
+#  - no allocator hidden behind a `Box<dyn Trait>`; concrete types only
+
+[package]
+name = "sentori-sourcemap-resolver"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori JS source map resolver — parse, lookup, and LRU-cache Source Map V3 files for minified-frame symbolication."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sourcemap.workspace = true
+lru.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "resolve"
+harness = false
+
+[[test]]
+name = "proptest_cache"
+path = "tests/proptest_cache.rs"
+
+[[test]]
+name = "fixtures"
+path = "tests/fixtures.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

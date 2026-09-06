@@ -1,0 +1,51 @@
+# Phase 16 sub-C: Sentori log pipeline.
+# journald (docker stdout via systemd) → vector → Grafana Cloud Loki.
+#
+# Runs as a systemd unit on the app VM:
+#   /etc/vector/vector.toml — this file, with secrets templated in
+#   /etc/vector/.env       — LOKI_ENDPOINT / LOKI_USER / LOKI_PASSWORD
+
+[sources.journald]
+type = "journald"
+# Limit to the units that actually emit Sentori log lines, so we don't
+# pay (or page) on unrelated host noise.
+include_units = [
+    "docker.service",
+    "caddy.service",
+]
+# Read everything from boot the first time; checkpoint after.
+since_now = false
+
+[transforms.parse]
+type = "remap"
+inputs = ["journald"]
+# tracing-subscriber emits one JSON object per line under
+# `RUST_LOG_FORMAT=json`. When present, lift those fields up; otherwise
+# keep the raw text in `.message`.
+source = '''
+parsed, err = parse_json(.message)
+if err == null && is_object(parsed) {
+  . = merge!(., parsed)
+}
+'''
+
+[sinks.loki]
+type = "loki"
+inputs = ["parse"]
+endpoint = "${LOKI_ENDPOINT}"
+auth.strategy = "basic"
+auth.user     = "${LOKI_USER}"
+auth.password = "${LOKI_PASSWORD}"
+
+# Static labels: service / env. Resist the urge to label per-event-id —
+# Loki cardinality matters.
+labels.service = "sentori"
+labels.env     = "${SENTORI_ENV:-prod}"
+labels.unit    = "{{ _SYSTEMD_UNIT }}"
+
+encoding.codec = "json"
+
+# 5 MB / 5 s flush — keep latency low; Loki ingest charges by bytes,
+# not by request count.
+batch.max_bytes      = 5_000_000
+batch.timeout_secs   = 5
