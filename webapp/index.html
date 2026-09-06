@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The browser chrome follows the app's own canvas, per theme —
+         a single hardcoded value paints the notch black on a light
+         dashboard. Values mirror --sn-canvas in styles/index.css. -->
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101014" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e9ebef" />
+    <title>Sentori</title>
+  </head>
+  <!-- No palette utilities on <body>: a class beats the `body {}` rule
+       in the token sheet, so `bg-zinc-950` (a GDS-era leftover) kept
+       the ground near-black even in light mode. Colour belongs to the
+       tokens. -->
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

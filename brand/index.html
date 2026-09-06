@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Sentori — 品牌标识 · 定稿</title>
+<link rel="icon" href="sentori-logo.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; box-sizing:border-box }
+  body { background:#fcfbf8; color:#17161a; font-family:'Archivo',sans-serif; padding:64px 72px; max-width:1200px }
+  h1 { font-size:30px; letter-spacing:-0.02em }
+  .sub { color:#5c5a63; font-size:14.5px; margin:8px 0 44px; max-width:660px; line-height:1.6 }
+  h2 { font-size:15px; font-weight:600; border-top:2px solid #17161a; padding-top:12px; margin:36px 0 20px }
+  .row { display:flex; align-items:center; gap:40px; flex-wrap:wrap }
+  .cell { display:flex; flex-direction:column; align-items:center; gap:9px }
+  .cap { font-family:'IBM Plex Mono',monospace; font-size:11px; color:#8a8894 }
+  .dark { background:#17161a; border-radius:12px; padding:22px 28px; display:flex; align-items:center; gap:28px }
+  .lockup { display:flex; align-items:center; gap:13px }
+  .lockup b { font-weight:700; font-size:26px; letter-spacing:.02em }
+  .tab { background:#3a3a3e; border-radius:8px; padding:7px 14px; display:flex; align-items:center; gap:8px; color:#ddd; font:12.5px -apple-system,sans-serif }
+  .spec { font-family:'IBM Plex Mono',monospace; font-size:12.5px; line-height:1.9; color:#3a3842;
+          background:#f4f2ec; border:1px solid #e4e0d8; border-radius:6px; padding:16px 20px; max-width:660px }
+  .spec b { color:#155dfc; font-weight:500 }
+  .family { display:flex; align-items:center; gap:26px }
+  .family .cap { margin-top:6px }
+</style>
+</head>
+<body>
+<h1>Sentori — 守望之門</h1>
+<div class="sub">鳥居标记的是一道界:穿过它的都被看见。笠木、贯、两根收分柱 —— 全直线、全尖角。
+监测产品的本分正是守在界上:平时静默,越界才出声;<b>沉默的探针就是修复保持的证明</b>。</div>
+
+<h2>标准版(蓝块)</h2>
+<div class="row">
+  <span class="cell"><img src="sentori-logo.svg" width="16" height="16"><span class="cap">16</span></span>
+  <span class="cell"><img src="sentori-logo.svg" width="32" height="32"><span class="cap">32</span></span>
+  <span class="cell"><img src="sentori-logo.svg" width="64" height="64"><span class="cap">64</span></span>
+  <span class="cell"><img src="sentori-logo.svg" width="128" height="128"><span class="cap">128</span></span>
+  <span class="cell"><img src="sentori-logo.svg" width="256" height="256"><span class="cap">256</span></span>
+</div>
+
+<h2>线条版 · 深底 · 词标锁定</h2>
+<div class="row">
+  <span class="cell"><img src="sentori-mark.svg" width="128" height="128"><span class="cap">线条版(浅底文档)</span></span>
+  <span class="cell"><span class="dark"><img src="sentori-mark.svg" width="64" height="64" style="filter:brightness(2.2)"><span class="tab"><img src="sentori-logo.svg" width="16" height="16"> Sentori — insight-mobile</span></span><span class="cap">深底 + 浏览器标签</span></span>
+  <span class="cell"><span class="lockup"><img src="sentori-logo.svg" width="44" height="44"><b>sentori</b></span><span class="cap">词标锁定</span></span>
+</div>
+
+<h2>品牌家族</h2>
+<div class="family">
+  <span class="cell">
+    <svg viewBox="0 0 32 32" width="56" height="56"><circle cx="16" cy="16" r="16" fill="#155dfc"/><text x="16" y="22" text-anchor="middle" fill="#fff" font-family="Archivo,sans-serif" font-weight="700" font-size="17">G</text></svg>
+    <span class="cap">GOLIA · 圆</span>
+  </span>
+  <span class="cell">
+    <svg viewBox="0 0 32 32" width="56" height="56"><rect width="32" height="32" rx="7" fill="#155dfc"/><path d="M9 8 H23 L9 24 H23 Z" fill="none" stroke="#fff" stroke-width="2.6" stroke-linejoin="miter" stroke-linecap="butt"/></svg>
+    <span class="cap">Golia Lab · 沙漏</span>
+  </span>
+  <span class="cell">
+    <svg viewBox="0 0 32 32" width="56" height="56"><rect width="32" height="32" rx="7" fill="#155dfc"/><path d="M15 7.5 V18.5 Q15 22.5 19 22.5 H20.5 M10.5 12 H21" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/></svg>
+    <span class="cap">tiktoken · 方 t</span>
+  </span>
+  <span class="cell">
+    <img src="sentori-logo.svg" width="56" height="56">
+    <span class="cap">sentori · 鳥居</span>
+  </span>
+</div>
+
+<h2>几何规格</h2>
+<div class="spec">
+viewBox   <b>0 0 32 32</b><br>
+底块      <b>rect rx=7 fill=#155dfc</b>(与家族同圆角同蓝)<br>
+图形      <b>M6 10 H26 M9 15 H23 M12 10 L10.5 26 M20 10 L21.5 26</b><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;笠木 y=10 通宽 · 贯 y=15 内收 · 双柱收分(上窄下宽)<br>
+描边      <b>2.7 / miter join / butt cap</b>(全尖角,无圆头)<br>
+色值      蓝 <b>#155dfc</b> · 白 <b>#fff</b> · 深底亮蓝 <b>#5b8cff</b><br>
+文件      sentori-logo.svg(蓝块)· sentori-mark.svg(线条)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;sentori-mark-ink.svg(随文字墨色,产品内用)· PNG 16–512<br>
+产品内    侧栏/状态栏/登录页用<b>墨色线条版</b>(React <b>SentoriMark</b>),
+不与 UI 强调色抢色;<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;蓝块版只做 favicon / 应用图标 / 对外物料。
+</div>
+</body>
+</html>

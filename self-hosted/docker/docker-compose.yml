@@ -1,0 +1,94 @@
+# Sentori self-hosted — the one entry point (design.md §10).
+#
+#   cp .env.example .env      # set the three required values
+#   docker compose up -d
+#   docker compose logs sentori | grep password   # if you let it generate one
+#   open http://localhost:8080
+#
+# Two services: the app image (server + bundled webapp) and
+# postgres. TLS stays with your reverse proxy — point it at :8080
+# and put the https origin in SENTORI_BASE_URL.
+#
+# Locked out? `docker compose exec sentori sentori-server
+# reset-password you@example.com` prints a fresh password — no
+# SMTP needed.
+
+services:
+  sentori:
+    image: ghcr.io/goliajp/sentori/sentori-server:${SENTORI_VERSION:-latest}
+    # Building from a source checkout instead:
+    #   docker compose build sentori
+    build:
+      context: ../..
+      dockerfile: self-hosted/docker/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SENTORI_DATABASE_URL: postgres://sentori:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/sentori
+      SENTORI_OWNER_EMAIL: ${SENTORI_OWNER_EMAIL:?set SENTORI_OWNER_EMAIL in .env}
+      SENTORI_OWNER_PASSWORD: ${SENTORI_OWNER_PASSWORD:-}
+      SENTORI_BASE_URL: ${SENTORI_BASE_URL:-http://localhost:8080}
+      SENTORI_ATTACHMENT_STORE: fs:/data/blobs
+      SENTORI_SMTP_HOST: ${SENTORI_SMTP_HOST:-}
+      SENTORI_SMTP_PORT: ${SENTORI_SMTP_PORT:-587}
+      SENTORI_SMTP_USER: ${SENTORI_SMTP_USER:-}
+      SENTORI_SMTP_PASS: ${SENTORI_SMTP_PASS:-}
+      SENTORI_SMTP_FROM: ${SENTORI_SMTP_FROM:-}
+      SENTORI_SMTP_TLS: ${SENTORI_SMTP_TLS:-starttls}
+      # Documented in docs/protocol.md and previously unreachable from
+      # here: a self-hoster could neither tune the limiter nor turn it
+      # off, whatever the reference said.
+      # Retention. Documented in self-hosting.md, and its checklist
+      # tells an operator to set the first one — which they could not.
+      SENTORI_EVENT_RETENTION_DAYS: ${SENTORI_EVENT_RETENTION_DAYS:-90}
+      SENTORI_ARTIFACT_KEEP_RELEASES: ${SENTORI_ARTIFACT_KEEP_RELEASES:-20}
+      SENTORI_ARCHIVE_INTERVAL_SEC: ${SENTORI_ARCHIVE_INTERVAL_SEC:-86400}
+      SENTORI_RATELIMIT_PER_TOKEN_RPS: ${SENTORI_RATELIMIT_PER_TOKEN_RPS:-100}
+      SENTORI_RATELIMIT_WINDOW_SEC: ${SENTORI_RATELIMIT_WINDOW_SEC:-1}
+      SENTORI_RATELIMIT_DISABLED: ${SENTORI_RATELIMIT_DISABLED:-}
+      SENTORI_AUTH_RATELIMIT_PER_IP: ${SENTORI_AUTH_RATELIMIT_PER_IP:-10}
+      SENTORI_AUTH_RATELIMIT_WINDOW_SEC: ${SENTORI_AUTH_RATELIMIT_WINDOW_SEC:-300}
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
+    volumes:
+      - sentori-data:/data
+    ports:
+      - "${SENTORI_PORT:-8080}:8080"
+    restart: unless-stopped
+
+  db:
+    # Overridable so the stack can be pointed at another build of
+    # Postgres — a distribution package, a managed image, or a
+    # drop-in — without editing this file. The default is what we
+    # test and ship.
+    image: ${SENTORI_PG_IMAGE:-postgres:18-alpine}
+    environment:
+      POSTGRES_USER: sentori
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: sentori
+    volumes:
+      # postgres:18 images mount the parent dir (data lands in a
+      # subdirectory) — /var/lib/postgresql/data refuses to init.
+      - sentori-db:/var/lib/postgresql
+    healthcheck:
+      # Exec form, not CMD-SHELL: an image built on scratch has
+      # pg_isready but no /bin/sh, and CMD-SHELL needs a shell. The
+      # stack then never starts, because the server waits on a
+      # health condition the database cannot answer.
+      test: ["CMD", "pg_isready", "-U", "sentori"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      # Retries alone give 50s, and a first `docker compose up` spends
+      # longer than that in initdb on a slow disk — the stack then
+      # fails with "container db-1 is unhealthy" for a database that
+      # is merely still being created, which is the first thing a
+      # self-hoster sees. During start_period a failing check does not
+      # count against retries, so the window only costs time when the
+      # database really is broken.
+      start_period: 120s
+    restart: unless-stopped
+
+volumes:
+  sentori-db:
+  sentori-data:
