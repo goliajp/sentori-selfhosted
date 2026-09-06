@@ -1,0 +1,54 @@
+name: SentoriShowcase
+options:
+  bundleIdPrefix: jp.golia.sentori
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    # Swift 5 language mode keeps the SDK's pre-Swift-6 static
+    # mutable state compatible without rewriting it. The showcase
+    # app code itself reads cleanly under either mode.
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    SWIFT_STRICT_CONCURRENCY: minimal
+
+packages:
+  Sentori:
+    path: ../../sdk/native/ios
+
+targets:
+  SentoriShowcase:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: SentoriShowcase
+    # The published package, by path — not a list of source files.
+    #
+    # This used to name seven files under `sdk/react-native/ios`, and
+    # they moved when the native core became a package of its own. The
+    # showcase had been broken since, and nothing noticed because no
+    # CI job built it: a demo that does not compile is worse than no
+    # demo, because it is the front door.
+    #
+    # A local path rather than the git URL so a change to the SDK is
+    # visible here in the same commit. The published artifact has its
+    # own gate — the mirror workflow builds it from a clean checkout.
+    dependencies:
+      - package: Sentori
+        product: Sentori
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: jp.golia.sentori.showcase
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: SentoriShowcase/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"

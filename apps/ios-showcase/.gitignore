@@ -1,0 +1,7 @@
+# xcodegen regenerates this — keep project.yml as the source of truth.
+SentoriShowcase.xcodeproj/
+
+build/
+DerivedData/
+*.xcuserdata
+*.xcworkspace/xcuserdata/

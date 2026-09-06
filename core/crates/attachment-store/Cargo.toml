@@ -1,0 +1,87 @@
+# core/crates/attachment-store — 钢筋 #3 (per cement-stone).
+#
+# Content-addressed blob store. Trait + two in-tree impls
+# (local-fs, in-memory). S3 / object_store-backed impls are
+# follow-ups (per user decision 2026-06-20: `aws-sdk-s3` is a
+# 50-dep tree pulled in for a use case v0.1 self-hosted +
+# saas don't hit yet — both run local-fs on a beefy disk).
+#
+# What this crate owns:
+#   - `BlobHash` newtype (SHA-256 of payload).
+#   - `BlobStore` async trait — narrow surface: put / get /
+#     exists / len / delete.
+#   - `LocalFsBlobStore` (2-char prefix fanout under a root
+#     directory).
+#   - `MemoryBlobStore` (HashMap-backed; for tests + the
+#     "noop fallback when no config given" case).
+#
+# What this crate does NOT own:
+#   - DB index linking blobs to owning rows. Consumers
+#     (K4 event-pipeline, K8 replay-store, etc.) own their
+#     own `<owner>_blobs(owner_id, blob_hash, …)` tables and
+#     decide when to call `BlobStore::delete`.
+#   - GC of orphan blobs. The consumer crate / a janitor
+#     binary walks the union of (refs in all owner tables) vs
+#     (hashes in store) and deletes the diff.
+#   - Streaming. v0.1 round-trips `Vec<u8>`. The day K8
+#     replay-store needs to stream multi-MB blobs we'll add a
+#     `put_stream` / `get_stream` pair behind a feature; for
+#     now the multipart-upload HTTP ceiling caps body size.
+#   - S3 / GCS / Azure backends. Trait shape leaves room.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 钢筋 tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - integration test covers each impl, happy + 2 error paths
+#   - line cov > 85% (gate is CI)
+#   - full module-level rustdoc on lib.rs
+#   - 0 unsafe (`#![forbid(unsafe_code)]` workspace-wide)
+#   - no criterion bench mandated (steel tier)
+
+[package]
+name = "sentori-attachment-store"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori attachment-store — content-addressed blob store (trait + local-fs + in-memory impls). S3 backend is a follow-up."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+sha2.workspace = true
+tokio = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true }
+
+[[test]]
+name = "local_fs"
+path = "tests/local_fs.rs"
+
+[[test]]
+name = "memory"
+path = "tests/memory.rs"
+
+[[test]]
+name = "trait_compliance"
+path = "tests/trait_compliance.rs"
+
+[[test]]
+name = "proptest_hash"
+path = "tests/proptest_hash.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

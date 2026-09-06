@@ -1,0 +1,70 @@
+# core/crates/event-ringbuffer — 石头 #4 (per cement-stone).
+#
+# Bounded lock-free MPMC ring buffer with drop-oldest overflow policy
+# and atomic drop telemetry, used as the ingest hand-off between
+# Sentori's HTTP handlers (producers) and the persistence drainer
+# (consumer).
+#
+# Design (locked):
+#  - Wrap `crossbeam-queue::ArrayQueue` — battle-tested, lock-free,
+#    bounded MPMC primitive used by Tokio's internals. Keeps our
+#    crate `forbid(unsafe_code)` while the atomics live inside the
+#    well-audited upstream.
+#  - When the buffer is full, evict the oldest queued item and push
+#    the new one. Sentori's ingest path is a "live tail" — newer
+#    events are more valuable than the oldest waiting one. The
+#    eviction is best-effort: under heavy contention another producer
+#    can fill the just-freed slot, in which case we drop the new item
+#    instead. Either path increments the drop counter.
+#  - Drop counter is `AtomicU64` so observability code (CLAUDE.md
+#    "Sentori 几乎不能造成 host app 的性能抖动" — drop semantics
+#    must be visible) can read it without locking the producer path.
+#
+# Used by:
+#  - sentori-saas / sentori-selfhosted ingest pipeline (planned
+#    钢筋 `event-pipeline`) — HTTP handlers push, drainer pops.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2): cov > 95% line +
+# branch > 90% + criterion bench baseline + 完整 rustdoc + doctest +
+# proptest property tests + concurrent stress test.
+
+[package]
+name = "sentori-event-ringbuffer"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori event ring buffer — bounded lock-free MPMC with drop-oldest overflow + atomic drop telemetry."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+crossbeam-queue.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+crossbeam-utils.workspace = true
+
+[[bench]]
+name = "ring"
+harness = false
+
+[[test]]
+name = "proptest_ring"
+path = "tests/proptest_ring.rs"
+
+[[test]]
+name = "concurrent_stress"
+path = "tests/concurrent_stress.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

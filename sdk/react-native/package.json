@@ -1,0 +1,90 @@
+{
+  "name": "@goliapkg/sentori-react-native",
+  "version": "7.0.0",
+  "description": "Sentori SDK for React Native — JS-layer error capture, native crash handlers (iOS / Android), batched transport, fetch + react-navigation tracing.",
+  "license": "Apache-2.0 OR MIT",
+  "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",
+  "homepage": "https://sentori.golia.jp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goliajp/sentori.git",
+    "directory": "sdk/react-native"
+  },
+  "bugs": {
+    "url": "https://github.com/goliajp/sentori/issues"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "error-tracking",
+    "crash-reporting",
+    "monitoring",
+    "sentori"
+  ],
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "sentori-rn-upload-source-bundle": "bin/sentori-rn-upload-source-bundle.cjs"
+  },
+  "files": [
+    "MIGRATION.md",
+    "lib/",
+    "src/",
+    "bin/",
+    "android/src/",
+    "android/build.gradle",
+    "ios/",
+    "expo-module.config.json",
+    "SentoriReactNative.podspec",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepack": "bun run build"
+  },
+  "peerDependencies": {
+    "expo-modules-core": ">=57.0.0",
+    "react": ">=19",
+    "react-native": ">=0.86.0"
+  },
+  "peerDependenciesMeta": {
+    "@react-native-async-storage/async-storage": {
+      "optional": true
+    },
+    "@react-native-community/netinfo": {
+      "optional": true
+    },
+    "expo-modules-core": {
+      "optional": true
+    },
+    "expo-sensors": {
+      "optional": true
+    },
+    "expo-updates": {
+      "optional": true
+    },
+    "react-native-code-push": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19",
+    "typescript": "^7"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@goliapkg/sentori-core": "^3.0.0"
+  }
+}

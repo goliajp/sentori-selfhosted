@@ -1,0 +1,583 @@
+//! Turning a minified frame back into a line of source.
+//!
+//! A JS stack from a shipped bundle points at
+//! `index.android.bundle:1:284913`, which tells nobody anything. The
+//! build that produced that bundle also produced a source map; upload
+//! it against the release and this rewrites the frame to
+//! `src/screens/CheckoutScreen.tsx:142:27`, with the function name the
+//! developer wrote.
+//!
+//! Both halves shipped separately and were never joined:
+//! `sourcemap-resolver` has had tests and benchmarks since before the
+//! v0.2 cutover, `release_artifacts` has had a table, and ingest had
+//! `frame: None` behind a TODO.
+//!
+//! ## Where this runs
+//!
+//! At ingest, on the event's own payload, before it is stored. The
+//! alternative — symbolicating on read — means every dashboard load
+//! re-does the work and an artifact uploaded later cannot fix events
+//! already captured. Storing the resolved frame makes a crash readable
+//! forever, at the cost of one parse per release per process.
+//!
+//! Original coordinates are kept alongside the rewritten ones. A wrong
+//! source map is a real failure mode, and without the raw line an
+//! operator has no way to tell "the map is stale" from "the code is
+//! confusing".
+//!
+//! ## Best effort, always
+//!
+//! No map, an unparseable map, a frame the map does not cover — all
+//! leave the frame as it arrived. A crash report is worth more than the
+//! prettiness of its frames, and failing an ingest because a build
+//! forgot to upload a map would lose the very report that reveals the
+//! problem.
+
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+
+use sentori_sourcemap_resolver::{ParsedMap, ResolverCache};
+use serde_json::Value;
+use sqlx::{PgPool, Row};
+use tracing::warn;
+use uuid::Uuid;
+
+/// Parsed maps, keyed by content hash.
+///
+/// Keyed by hash rather than by release so a re-upload of identical
+/// bytes reuses the parse, and a changed map evicts itself by getting a
+/// different key. Capacity is small because the working set is "the
+/// releases currently crashing", not "every release ever shipped".
+pub type MapCache = ResolverCache<String>;
+
+/// 16 parsed maps. A large React Native map parses to a few tens of MB.
+const CACHE_CAPACITY: usize = 16;
+
+#[must_use]
+pub fn new_cache() -> MapCache {
+    ResolverCache::new(NonZeroUsize::new(CACHE_CAPACITY).unwrap_or(NonZeroUsize::MIN))
+}
+
+/// Rewrite every JS frame in this payload that a map can resolve.
+///
+/// Returns the number of frames rewritten, for the ingest log — zero on
+/// a release with no map is normal and not worth a warning, but zero on
+/// a release that *has* one means the map does not match the bundle,
+/// which is worth knowing.
+pub async fn symbolicate_payload(
+    pool: &PgPool,
+    attachments: &crate::blob_store::AttachmentStore,
+    cache: &MapCache,
+    project_id: Uuid,
+    release: &str,
+    payload: &mut Value,
+) -> usize {
+    if release.is_empty() {
+        return 0;
+    }
+    let maps = maps_for_release(pool, attachments, cache, project_id, release).await;
+    if maps.is_empty() {
+        return 0;
+    }
+    let mut rewritten = 0;
+    if let Some(error) = payload.get_mut("error") {
+        rewritten += walk_causes(&maps, error);
+    }
+    rewritten
+}
+
+/// One candidate map: the artifact's name, so a frame can be matched
+/// to the bundle it came from, and the parse.
+struct Candidate {
+    name: String,
+    map: Arc<ParsedMap>,
+}
+
+/// `index.android.bundle` out of `http://10.0.2.2:8081/index.android.bundle?platform=android`.
+fn bundle_basename(file: &str) -> &str {
+    let no_query = file.split(['?', '#']).next().unwrap_or(file);
+    no_query.rsplit('/').next().unwrap_or(no_query)
+}
+
+/// Candidates for a frame, best first.
+///
+/// A React Native app ships two bundles and therefore two maps, and
+/// before this the server took whichever artifact was uploaded last
+/// and used it for everything. In production that meant one platform
+/// resolved and the other silently did not: 3 of 3 iOS crashes on
+/// insight's release read as source while 66 of 66 Android ones
+/// stayed `index.android.bundle:1:289430`, with a matching map
+/// sitting in the same release.
+///
+/// Name match first — the artifact is usually uploaded under the
+/// bundle's own filename — then the rest by recency, because names
+/// are a convention and not a contract. A map that cannot resolve a
+/// frame simply reports nothing, so trying the next one is safe;
+/// what is not safe is trying only one and calling the result "no
+/// map covers this".
+fn ranked<'a>(maps: &'a [Candidate], frame_file: &str) -> Vec<&'a Arc<ParsedMap>> {
+    let want = bundle_basename(frame_file);
+    let matches = |c: &Candidate| {
+        let n = bundle_basename(&c.name);
+        n == want || n.strip_suffix(".map") == Some(want) || want.strip_suffix(".map") == Some(n)
+    };
+    let mut out: Vec<&Arc<ParsedMap>> =
+        maps.iter().filter(|c| matches(c)).map(|c| &c.map).collect();
+    out.extend(maps.iter().filter(|c| !matches(c)).map(|c| &c.map));
+    out
+}
+
+/// Symbolicate an error and every link in its `cause` chain.
+///
+/// Recursive rather than iterative because a chain is a tree walk and
+/// the borrow checker follows it naturally that way; an explicit loop
+/// over `&mut` links needs the two borrows to overlap. Depth is bounded
+/// by what an SDK can construct, which is a handful.
+fn walk_causes(maps: &[Candidate], error: &mut Value) -> usize {
+    let mut n = 0;
+    if let Some(frames) = error.get_mut("stack").and_then(Value::as_array_mut) {
+        for frame in frames {
+            let file = frame
+                .get("minifiedFile")
+                .or_else(|| frame.get("file"))
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            for map in ranked(maps, &file) {
+                if rewrite_frame(map, frame) {
+                    n += 1;
+                    break;
+                }
+            }
+        }
+    }
+    // A cause chain is where the useful frame usually lives — the throw
+    // site is often several `wrap and rethrow` layers above the code
+    // that actually broke.
+    if let Some(cause) = error.get_mut("cause")
+        && !cause.is_null()
+    {
+        n += walk_causes(maps, cause);
+    }
+    n
+}
+
+/// Rewrite one frame in place. `true` if the map covered it.
+fn rewrite_frame(map: &ParsedMap, frame: &mut Value) -> bool {
+    let Some(obj) = frame.as_object_mut() else {
+        return false;
+    };
+    // A frame carrying source context has been through this once.
+    if obj.contains_key("preContext") {
+        return false;
+    }
+    // A frame symbolicated before source context existed (pre-2.4.0)
+    // keeps its minified coordinates — resolve from those, so a
+    // retro pass upgrades old events with the reading window instead
+    // of skipping them forever.
+    let already = obj.get("symbolicated").and_then(Value::as_bool) == Some(true);
+    let (line_key, col_key) = if already {
+        ("minifiedLine", "minifiedColumn")
+    } else {
+        ("line", "column")
+    };
+    let (Some(line), Some(column)) = (
+        obj.get(line_key).and_then(Value::as_u64),
+        obj.get(col_key).and_then(Value::as_u64),
+    ) else {
+        return false;
+    };
+    let (Ok(line), Ok(column)) = (u32::try_from(line), u32::try_from(column)) else {
+        return false;
+    };
+    let Some(res) = map.resolve(line, column) else {
+        // A frame this pass symbolicated before, that no longer
+        // resolves, is carrying coordinates from a resolution that
+        // should never have been one — sixty-six production crashes
+        // read `InternalBytecode.js:4294967295` before the resolver
+        // learned to refuse a source-less token. Put the minified
+        // position back and drop the claim.
+        if already {
+            let minified_line = obj.get("minifiedLine").cloned();
+            let minified_col = obj.get("minifiedColumn").cloned();
+            if let (Some(l), Some(c)) = (minified_line, minified_col) {
+                obj.insert("line".into(), l);
+                obj.insert("column".into(), c);
+                obj.remove("symbolicated");
+                obj.remove("minifiedLine");
+                obj.remove("minifiedColumn");
+                obj.remove("minifiedFile");
+                return true;
+            }
+        }
+        return false;
+    };
+
+    // Keep where it pointed before. A stale map produces confident
+    // nonsense, and this is the only way to notice.
+    obj.insert("minifiedLine".into(), Value::from(line));
+    obj.insert("minifiedColumn".into(), Value::from(column));
+    if let Some(f) = obj.get("file").cloned() {
+        obj.insert("minifiedFile".into(), f);
+    }
+
+    obj.insert("line".into(), Value::from(res.line));
+    obj.insert("column".into(), Value::from(res.column));
+    if let Some(file) = res.file {
+        // `inApp` is what the crash view colours on, and a resolved
+        // path is the first point at which we can tell the reader's own
+        // code from a dependency.
+        let in_app = !file.contains("node_modules/");
+        obj.insert("file".into(), Value::from(file));
+        obj.insert("inApp".into(), Value::from(in_app));
+    }
+    if let Some(function) = res.function {
+        obj.insert("function".into(), Value::from(function));
+    }
+    // Source context: metro/expo maps embed sourcesContent, so the
+    // reader can see the failing line without the server ever
+    // touching a repository. ±CONTEXT_LINES around the hit; absent
+    // sourcesContent (some bundlers strip it) just means no window.
+    if res.line > 0
+        && let Some(win) = map.source_window(res.src_id, (res.line - 1) as usize, CONTEXT_LINES)
+    {
+        obj.insert("preContext".into(), context_lines_json(&win.before));
+        obj.insert("contextLine".into(), Value::from(clip_line(&win.at)));
+        obj.insert("postContext".into(), context_lines_json(&win.after));
+    }
+    obj.insert("symbolicated".into(), Value::from(true));
+    true
+}
+
+/// ±5, the industry-standard reading window: enough to see the
+/// statement in its surroundings, small enough that a 30-frame
+/// stack stays a few KB of payload.
+const CONTEXT_LINES: usize = 11;
+
+/// A single source line is clipped so a generated/minified original
+/// (or a data-URI literal) cannot balloon the event payload.
+const MAX_CONTEXT_LINE_CHARS: usize = 300;
+
+fn clip_line(line: &str) -> String {
+    if line.chars().count() <= MAX_CONTEXT_LINE_CHARS {
+        return line.to_owned();
+    }
+    let clipped: String = line.chars().take(MAX_CONTEXT_LINE_CHARS).collect();
+    format!("{clipped}…")
+}
+
+fn context_lines_json(lines: &[String]) -> Value {
+    Value::from(
+        lines
+            .iter()
+            .map(|l| Value::from(clip_line(l)))
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// Load and parse the source map for a release, via the cache.
+/// Every sourcemap artifact on the release, parsed, newest first.
+///
+/// Bounded: a release with a runaway number of uploaded maps should
+/// cost a bounded amount of work per event, and in practice a React
+/// Native app has two (one per platform) plus the occasional
+/// re-upload.
+const MAX_MAPS_PER_RELEASE: i64 = 8;
+
+async fn maps_for_release(
+    pool: &PgPool,
+    attachments: &crate::blob_store::AttachmentStore,
+    cache: &MapCache,
+    project_id: Uuid,
+    release: &str,
+) -> Vec<Candidate> {
+    let Ok(rows) = sqlx::query(
+        "SELECT a.name, a.content_hash \
+         FROM release_artifacts a \
+         JOIN releases r ON r.id = a.release_id \
+         WHERE r.project_id = $1 AND r.name = $2 AND a.kind = 'sourcemap' \
+         ORDER BY a.created_at DESC LIMIT $3",
+    )
+    .bind(project_id)
+    .bind(release)
+    .bind(MAX_MAPS_PER_RELEASE)
+    .fetch_all(pool)
+    .await
+    else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let name: String = row.get("name");
+        let hash: String = row.get("content_hash");
+        if let Some(hit) = cache.get(&hash) {
+            out.push(Candidate { name, map: hit });
+            continue;
+        }
+        let Some(parsed) = load_map(attachments, &hash, release).await else {
+            continue;
+        };
+        cache.insert(hash, Arc::clone(&parsed));
+        out.push(Candidate { name, map: parsed });
+    }
+    out
+}
+
+async fn load_map(
+    attachments: &crate::blob_store::AttachmentStore,
+    hash: &str,
+    release: &str,
+) -> Option<Arc<ParsedMap>> {
+    let bytes = attachments
+        .get(&hash.parse().ok()?)
+        .await
+        .inspect_err(|e| warn!(error = %e, %release, "symbolicate: blob read failed"))
+        .ok()?;
+    // Not every artifact filed as a sourcemap is one — a bundle
+    // uploaded under `kind=sourcemap` parses to nothing. Skipping it
+    // is right; before, being the newest upload made it the only
+    // candidate and the whole release went unsymbolicated.
+    let parsed = ParsedMap::parse(&bytes)
+        .inspect_err(|e| warn!(error = %e, %release, "symbolicate: map unparseable"))
+        .ok()?;
+    Some(Arc::new(parsed))
+}
+
+#[cfg(test)]
+// A fixture that will not parse is a broken test, not a runtime path.
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A map that resolves nothing, so the tests below exercise the
+    /// walking and the guards rather than the resolver (which has its
+    /// own suite in `sourcemap-resolver`).
+    fn empty_map() -> ParsedMap {
+        ParsedMap::parse(br#"{"version":3,"sources":[],"names":[],"mappings":""}"#)
+            .expect("a minimal source map parses")
+    }
+
+    /// The candidate list `walk_causes` now takes. One entry, so the
+    /// chain-walk tests keep testing the walk rather than the ranking.
+    fn one(map: ParsedMap) -> Vec<Candidate> {
+        vec![Candidate {
+            name: "index.android.bundle".into(),
+            map: Arc::new(map),
+        }]
+    }
+
+    #[test]
+    fn a_frame_picks_the_map_named_after_its_own_bundle() {
+        // The production failure, in miniature: a release carries a
+        // map per platform, and before this the newest upload was
+        // used for every frame. insight's Android crashes stayed
+        // `index.android.bundle:1:289430` with the matching map in
+        // the same release.
+        let maps = vec![
+            Candidate {
+                name: "main.jsbundle.map".into(),
+                map: Arc::new(empty_map()),
+            },
+            Candidate {
+                name: "index.android.bundle.map".into(),
+                map: Arc::new(empty_map()),
+            },
+        ];
+        let order = ranked(&maps, "index.android.bundle");
+        assert!(
+            Arc::ptr_eq(order[0], &maps[1].map),
+            "the android map must be tried first for an android frame",
+        );
+        // and the other one is still tried — names are a convention,
+        // not a contract, and a frame the named map cannot resolve
+        // must not be given up on.
+        assert_eq!(order.len(), 2);
+    }
+
+    #[test]
+    fn a_frame_that_stops_resolving_gets_its_minified_position_back() {
+        // The repair path. A frame carrying a resolution the resolver
+        // would no longer make must not keep the coordinates from it:
+        // `InternalBytecode.js:4294967295` is worse than the honest
+        // bundle offset it replaced.
+        let map = empty_map();
+        let mut frame = json!({
+            "file": "index.android.bundle",
+            "line": 4_294_967_295u32,
+            "column": 0,
+            "symbolicated": true,
+            "minifiedFile": "index.android.bundle",
+            "minifiedLine": 1,
+            "minifiedColumn": 289_430,
+        });
+        assert!(rewrite_frame(&map, &mut frame), "the repair is a rewrite");
+        assert_eq!(frame["line"], 1);
+        assert_eq!(frame["column"], 289_430);
+        assert!(frame.get("symbolicated").is_none());
+        assert!(frame.get("minifiedLine").is_none());
+    }
+
+    #[test]
+    fn a_bundle_url_matches_the_bare_bundle_name() {
+        // Metro serves the bundle over http with a query string; the
+        // artifact is uploaded under the plain filename.
+        assert_eq!(
+            bundle_basename("http://10.0.2.2:8081/index.android.bundle?platform=android&dev=false"),
+            "index.android.bundle",
+        );
+        assert_eq!(bundle_basename("main.jsbundle"), "main.jsbundle");
+    }
+
+    #[test]
+    fn walks_the_whole_cause_chain() {
+        let mut err = json!({
+            "type": "A", "stack": [{"line": 1, "column": 1}],
+            "cause": {
+                "type": "B", "stack": [{"line": 1, "column": 2}],
+                "cause": { "type": "C", "stack": [{"line": 1, "column": 3}] }
+            }
+        });
+        // Nothing resolves against an empty map, but every frame must
+        // be visited — a chain walk that stops at the first link would
+        // also report zero.
+        assert_eq!(walk_causes(&one(empty_map()), &mut err), 0);
+        assert_eq!(err["cause"]["cause"]["stack"][0]["line"], 1);
+    }
+
+    #[test]
+    fn a_null_cause_ends_the_chain() {
+        let mut err = json!({ "type": "A", "cause": null });
+        assert_eq!(walk_causes(&one(empty_map()), &mut err), 0);
+    }
+
+    /// A frame that already carries source context has been through
+    /// this once; re-running would overwrite the real coordinates with
+    /// a second lookup of coordinates that are no longer minified.
+    #[test]
+    fn a_resolved_frame_is_left_alone() {
+        let map = empty_map();
+        let mut frame = json!({
+            "line": 1, "column": 1, "preContext": ["const a = 1"]
+        });
+        assert!(!rewrite_frame(&map, &mut frame));
+        assert!(frame.get("minifiedLine").is_none());
+    }
+
+    /// The end-to-end shape, against a map that really resolves.
+    ///
+    /// Generated by hand rather than by a bundler so the expected
+    /// output is arithmetic rather than whatever Metro happened to
+    /// emit.
+    ///
+    /// Lines are 1-based on both sides of `resolve`, matching what a
+    /// stack frame carries; the map's own encoding is 0-based, so the
+    /// segment written as source line 141 comes back as 142.
+    #[test]
+    fn a_resolvable_frame_is_rewritten_and_keeps_its_original() {
+        let map = ParsedMap::parse(
+            br#"{"version":3,"sources":["src/screens/CheckoutScreen.tsx"],"names":["onPay"],"mappings":"UA6I0BA"}"#,
+        )
+        .expect("hand-built map parses");
+        let mut frame = json!({
+            "file": "index.android.bundle", "line": 1, "column": 10
+        });
+        assert!(rewrite_frame(&map, &mut frame), "the map covers 1:10");
+
+        assert_eq!(frame["file"], "src/screens/CheckoutScreen.tsx");
+        assert_eq!(frame["line"], 142);
+        assert_eq!(frame["column"], 26);
+        assert_eq!(frame["function"], "onPay");
+        assert_eq!(frame["symbolicated"], true);
+        // Not in node_modules, so it is the reader's own code.
+        assert_eq!(frame["inApp"], true);
+        // Where it pointed before, kept so a stale map is detectable.
+        assert_eq!(frame["minifiedFile"], "index.android.bundle");
+        assert_eq!(frame["minifiedLine"], 1);
+        assert_eq!(frame["minifiedColumn"], 10);
+    }
+
+    #[test]
+    fn a_frame_without_coordinates_is_left_alone() {
+        let map = empty_map();
+        let mut frame = json!({ "file": "native" });
+        assert!(!rewrite_frame(&map, &mut frame));
+    }
+
+    /// With sourcesContent embedded, a rewritten frame carries the
+    /// reading window: lines before, the failing line, lines after.
+    #[test]
+    fn source_context_rides_the_rewritten_frame() {
+        let mut raw: serde_json::Value = serde_json::from_slice(
+            br#"{"version":3,"sources":["src/pay.ts"],"names":["onPay"],"mappings":"UAM0BA"}"#,
+        )
+        .expect("json");
+        let src = (1..=12)
+            .map(|n| format!("line {n} of pay.ts"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        raw["sourcesContent"] = json!([src]);
+        let map = ParsedMap::parse(serde_json::to_vec(&raw).expect("ser").as_slice())
+            .expect("map parses");
+
+        let mut frame = json!({ "file": "bundle.js", "line": 1, "column": 10 });
+        assert!(rewrite_frame(&map, &mut frame));
+
+        let line = usize::try_from(frame["line"].as_u64().expect("line")).expect("usize");
+        assert_eq!(frame["contextLine"], format!("line {line} of pay.ts"));
+        let pre = frame["preContext"].as_array().expect("pre");
+        let post = frame["postContext"].as_array().expect("post");
+        assert_eq!(pre.len(), CONTEXT_LINES.min(line - 1));
+        assert!(!post.is_empty());
+        assert_eq!(
+            pre.last().expect("last"),
+            &json!(format!("line {} of pay.ts", line - 1))
+        );
+    }
+
+    /// A frame symbolicated before 2.4.0 (has coordinates + the
+    /// minified originals, no context) gains its source window on a
+    /// retro pass without its resolved position drifting.
+    #[test]
+    fn a_pre_context_era_frame_is_upgraded_not_skipped() {
+        let mut raw: serde_json::Value = serde_json::from_slice(
+            br#"{"version":3,"sources":["src/pay.ts"],"names":["onPay"],"mappings":"UAM0BA"}"#,
+        )
+        .expect("json");
+        let src = (1..=12)
+            .map(|n| format!("line {n} of pay.ts"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        raw["sourcesContent"] = json!([src]);
+        let map = ParsedMap::parse(serde_json::to_vec(&raw).expect("ser").as_slice())
+            .expect("map parses");
+
+        // What a 2.0-2.3 server left behind.
+        let mut fresh = json!({ "file": "bundle.js", "line": 1, "column": 10 });
+        assert!(rewrite_frame(&map, &mut fresh));
+        let mut old = fresh.clone();
+        let o = old.as_object_mut().expect("obj");
+        o.remove("preContext");
+        o.remove("contextLine");
+        o.remove("postContext");
+
+        assert!(rewrite_frame(&map, &mut old), "retro pass must re-resolve");
+        assert_eq!(
+            old["line"], fresh["line"],
+            "resolved position must not drift"
+        );
+        assert_eq!(old["contextLine"], fresh["contextLine"]);
+
+        // And a third pass is a no-op (context present).
+        assert!(!rewrite_frame(&map, &mut old));
+    }
+
+    #[test]
+    fn absurdly_long_source_lines_are_clipped() {
+        let long = "x".repeat(2_000);
+        assert!(clip_line(&long).chars().count() <= MAX_CONTEXT_LINE_CHARS + 1);
+        assert!(clip_line(&long).ends_with('…'));
+        assert_eq!(clip_line("short"), "short");
+    }
+}
