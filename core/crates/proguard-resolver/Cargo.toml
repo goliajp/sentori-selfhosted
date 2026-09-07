@@ -1,0 +1,91 @@
+# core/crates/proguard-resolver — 石头 #8 (per cement-stone).
+#
+# Deobfuscates Android stack frames using ProGuard / R8 mapping
+# files. Wraps Sentry's upstream `proguard` crate (the canonical
+# Rust parser, used by Sentry's own symbolicator and a number of
+# downstream crash-reporting backends) with:
+#
+#   1. **A typed `Frame` output** — owned-`String` fields instead
+#      of the upstream's borrowed `&str`, so callers can stash
+#      frames in their own structs without lifetime ceremony.
+#   2. **Pure in-memory `ParsedMapping`** — `ouroboros` self-
+#      referential struct owning the raw bytes and the borrowed
+#      `ProguardMapper`. Same pattern S7 uses for `addr2line::
+#      Context`, for the same reason: no temp files, no double
+#      storage of the same bytes, no surprise behavior when
+#      callers want to share modules across threads.
+#   3. **A bounded LRU `ResolverCache<K>`** — mirrors S6 /
+#      S7's pattern. Mapping files are 100KB-10MB depending on
+#      the size of the obfuscated app; even the small end is too
+#      much to re-parse per frame.
+#   4. **Two lookup modes** — class-only (`resolve_class`) and
+#      method-with-line (`resolve_method`). The latter returns
+#      a `Vec<Frame>` because R8's inline-expansion grammar lets
+#      a single obfuscated `(class.method, line)` map to a chain
+#      of original frames (the inlined caller chain).
+#
+# Used by:
+#  - K-tier `event-pipeline` (ingest-time Android frame
+#    deobfuscation before `issue-fingerprint`, for JVM frames
+#    that look like `com.example.a.b` with synthetic line numbers).
+#  - K-tier `attachment-store` symbol-window endpoint (operator
+#    clicks an Android frame in the dashboard → on-demand resolve).
+#
+# Design ref:
+#  - `server/src/symbolicate_android.rs` — legacy implementation
+#    we are cleanly re-writing. The legacy code mixed DB fetching,
+#    JSON mutation, and `proguard::ProguardMapper` construction in
+#    one file; the stone keeps only the parse + resolve primitive
+#    and leaves DB / JSON / cache-policy to the 钢筋 layer.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2):
+#  - build / test / clippy / fmt / doc green
+#  - criterion bench baseline for hot paths (parse + resolve)
+#  - proptest property tests across the parser + cache primitives
+#  - full rustdoc, 0 unsafe (`#![forbid(unsafe_code)]` — ouroboros'
+#    internal unsafe lives behind its vetted proc-macro)
+#  - fixture is just inline `&str` mapping text — ProGuard format
+#    is UTF-8 plain text so no binary fixture problem like S7
+
+[package]
+name = "sentori-proguard-resolver"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori Android (ProGuard / R8) mapping resolver — typed-frame deobfuscation with inline-call chain + LRU caching."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+proguard.workspace = true
+ouroboros.workspace = true
+lru.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "resolve"
+harness = false
+
+[[test]]
+name = "proptest_resolve"
+path = "tests/proptest_resolve.rs"
+
+[[test]]
+name = "fixtures"
+path = "tests/fixtures.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

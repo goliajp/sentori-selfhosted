@@ -1,0 +1,91 @@
+# core/crates/cookie-session — 石头 #9 (per cement-stone).
+#
+# HTTP-agnostic session-cookie primitives for the v0.1 dashboard
+# (and any other service that needs cookie-backed sessions). Five
+# small types, each one independently useful:
+#
+#   1. `SecretKey` — typed 32-byte key with constant-time eq + a
+#      zero-on-drop guard.
+#   2. `SignedCookie` — HMAC-SHA256-sealed cookie *value*. The
+#      payload stays plaintext (visible to the client) but is
+#      tamper-evident.
+#   3. `EncryptedCookie` — AES-256-GCM-sealed cookie value (AEAD;
+#      payload is encrypted + authenticated). Use this when the
+#      cookie carries server-private state.
+#   4. `PasswordHash` — bcrypt(5) wrapper. Cost-tunable, the same
+#      algorithm every battle-tested Rust web stack picks for
+#      v0.x password storage.
+#   5. `CsrfToken` — 32-byte CSPRNG-generated token + constant-time
+#      verify. Caller binds it to a session out-of-band (cookie or
+#      session storage); the stone deliberately stays unaware of
+#      session identity.
+#
+# This is the *primitive* layer. Set-Cookie / Cookie header
+# parsing and the axum middleware that wires those headers to
+# these types live in the 钢筋 `auth-session` crate.
+#
+# Design ref:
+#  - `server/src/session.rs` — legacy admin-token HMAC (just
+#    `sign(secret)` / `verify(secret, token)` — far smaller scope
+#    than the stone, intentionally; we widen v0.1 to "real"
+#    session cookies).
+#  - `server/src/auth.rs` — legacy bearer-token middleware (lives
+#    in the 钢筋 layer, not here; this stone has no axum dep).
+#
+# 工艺 ceiling-first (per refactor-standards.md §2):
+#  - build / test / clippy / fmt / doc green
+#  - criterion bench baseline for hot paths (sign, verify, hash,
+#    encrypt, decrypt)
+#  - proptest property tests for all sign/verify and
+#    encrypt/decrypt round-trips, including tampering tests
+#  - full rustdoc, 0 unsafe (`#![forbid(unsafe_code)]`)
+#  - cryptographic primitives via the already-registered
+#    `hmac` + `sha2` + `aes-gcm` + `subtle` + `base64` workspace
+#    deps; no new crypto code
+
+[package]
+name = "sentori-cookie-session"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori session-cookie primitives — HMAC-signed + AES-GCM-encrypted cookies, bcrypt password hashing, CSRF token generation/verification. HTTP-agnostic."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+hmac.workspace = true
+sha2.workspace = true
+aes-gcm.workspace = true
+subtle.workspace = true
+base64.workspace = true
+zeroize.workspace = true
+thiserror.workspace = true
+bcrypt.workspace = true
+getrandom.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "bench"
+harness = false
+
+[[test]]
+name = "proptest_roundtrips"
+path = "tests/proptest_roundtrips.rs"
+
+[[test]]
+name = "fixtures"
+path = "tests/fixtures.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

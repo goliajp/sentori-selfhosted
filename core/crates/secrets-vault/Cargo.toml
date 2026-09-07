@@ -1,0 +1,107 @@
+# core/crates/secrets-vault — 石头 #12 (the LAST stone in Phase 1).
+#
+# Envelope-encrypted at-rest secret storage for the v0.1 backend.
+# Designed to seal individual secrets (push provider credentials,
+# Stripe keys, OAuth tokens, anything the server stores in
+# Postgres that the operator should not be able to read with a
+# `SELECT *`).
+#
+# ## What "envelope encryption" means + why
+#
+# The textbook two-step KMS pattern, the same shape AWS KMS and
+# GCP Cloud KMS use:
+#
+#   1. Generate a fresh 32-byte data-encryption key (DEK) per seal.
+#   2. Encrypt the plaintext with the DEK (AES-256-GCM, random
+#      nonce).
+#   3. Wrap (encrypt) the DEK with the master key (AES-256-GCM,
+#      random nonce).
+#   4. Persist: `(key_id, wrapped_dek_nonce, wrapped_dek,
+#      payload_nonce, payload_ciphertext)` as one opaque blob.
+#
+# Why bother (vs the legacy `server/src/secrets.rs` direct-AEAD):
+#
+#   - **Per-secret keys.** Compromise of one DEK only leaks one
+#     secret, not the whole vault.
+#   - **Master rotation without re-encrypting payloads.** Rewrap
+#     each row's DEK against the new master; the payload
+#     ciphertext (which is the bulk of the data) stays untouched.
+#   - **Key-id versioning.** Each sealed blob carries the master
+#     key id it was sealed under, so the rotation playbook is:
+#     try current key; on the `peek_key_id` mismatch, try the
+#     legacy key; rewrap on next save.
+#
+# ## What the stone does NOT do
+#
+# - **No key storage / loading.** Callers hand us a [`MasterKey`]
+#   directly. Loading from env vars, a KMS, a sealed-box on disk,
+#   or a secret-manager service is a 钢筋-layer concern.
+# - **No rotation orchestration.** We provide `peek_key_id` so
+#   callers can drive rotation themselves; we don't run the
+#   rotation loop.
+# - **No HTTP / DB coupling.** Sealed blobs are returned as
+#   `Vec<u8>` (and there's a `base64_url_no_pad` helper); how you
+#   persist them is your business.
+#
+# ## Design ref
+#
+# - `server/src/secrets.rs` — the legacy direct-AEAD impl. Same
+#   primitive (AES-256-GCM via `aes-gcm`), but flat (no DEK
+#   layer) and no key versioning, so rotation requires
+#   re-encrypting every row.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2):
+#  - build / test / clippy / fmt / doc green
+#  - criterion bench baseline for seal / open / rewrap
+#  - proptest property tests for round-trips + tampering + the
+#    serialised envelope format's stability
+#  - full rustdoc, 0 unsafe (`#![forbid(unsafe_code)]`)
+#  - **zero new workspace deps** — every primitive
+#    (`aes-gcm`, `hkdf`, `sha2`, `subtle`, `zeroize`, `getrandom`,
+#    `base64`) is already registered for S9 cookie-session.
+
+[package]
+name = "sentori-secrets-vault"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori envelope-encrypted at-rest secret storage — AES-256-GCM + HKDF, per-secret data-encryption keys, key-id versioning for master rotation."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+aes-gcm.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+zeroize.workspace = true
+getrandom.workspace = true
+base64.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "bench"
+harness = false
+
+[[test]]
+name = "proptest_roundtrips"
+path = "tests/proptest_roundtrips.rs"
+
+[[test]]
+name = "fixtures"
+path = "tests/fixtures.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

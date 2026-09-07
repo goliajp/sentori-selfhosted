@@ -1,0 +1,69 @@
+{
+  "annotations": { "list": [] },
+  "description": "Sentori — ops overview. Every expression here names a metric that self-hosted/server/src/handlers/metrics_prom.rs actually emits; scripts/check-metric-names.mjs fails the build if that stops being true.",
+  "editable": true,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Ingest rate (events / sec)",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sum by (status) (rate(sentori_ingest_total[1m]))", "legendFormat": "{{status}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB pool in use",
+      "description": "Active connections against the configured max. The PgPoolNearSaturation alert fires at 0.80 of this ratio. Replaced an ingest-latency panel that queried sentori_ingest_duration_seconds_bucket — the server exposes no histogram, so it drew nothing.",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "sentori_db_pool_in_use", "legendFormat": "in use" },
+        { "expr": "sentori_db_pool_size", "legendFormat": "max" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rate limited (events / sec)",
+      "description": "Requests turned away by the per-token limiter. Replaced a quota-drops panel: quotas were a SaaS concept and left with it.",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "rate(sentori_ingest_total{status=\"rate_limited\"}[1m])", "legendFormat": "throttled" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Ingest error rate (5m)",
+      "description": "rejected (bad payload, client's bug) + failed (pipeline error, ours) as a fraction of all ingest attempts. rate_limited is excluded — a throttled burst is the limiter working.",
+      "datasource": "Prometheus",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 0.005 },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(sentori_ingest_total{status=~\"rejected|failed\"}[5m])) / clamp_min(sum(rate(sentori_ingest_total[5m])), 1)"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["sentori", "ops"],
+  "time": { "from": "now-1h", "to": "now" },
+  "title": "Sentori — Overview",
+  "uid": "sentori-overview",
+  "version": 2
+}
