@@ -1,0 +1,54 @@
+{
+  "name": "@goliapkg/sentori-web",
+  "version": "1.0.3",
+  "description": "Sentori SDK for the browser — error + unhandled rejection capture, breadcrumbs, Web Vitals, wireframe session replay, on one framework-agnostic package.",
+  "license": "Apache-2.0 OR MIT",
+  "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",
+  "homepage": "https://sentori.golia.jp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goliajp/sentori.git",
+    "directory": "sdk/web"
+  },
+  "bugs": {
+    "url": "https://github.com/goliajp/sentori/issues"
+  },
+  "keywords": [
+    "sentori",
+    "browser",
+    "error-tracking",
+    "monitoring",
+    "web-vitals"
+  ],
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/",
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rm -rf lib && tsc -p tsconfig.json",
+    "prepack": "bun run build",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@goliapkg/sentori-core": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^7"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

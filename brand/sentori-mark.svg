@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Line-only variant for documents and light grounds. -->
+  <path d="M6 10 H26 M9 15 H23 M12 10 L10.5 26 M20 10 L21.5 26"
+        fill="none" stroke="#155dfc" stroke-width="2.7" stroke-linejoin="miter" stroke-linecap="butt"/>
+</svg>

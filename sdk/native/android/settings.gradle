@@ -1,0 +1,31 @@
+// The Android core, as a build of its own.
+//
+// Until now these sources compiled only inside the React Native
+// module: `sdk/react-native/android` mirrors them, and `android-unit`
+// runs their tests by building the example app. That works, but it
+// means the artifact an Android app would depend on has never been
+// assembled, and the tests belong to a module that exists for a
+// different reason.
+//
+// One consequence worth stating: with this build, the Kotlin core no
+// longer has to be mirrored into the React Native package for its
+// tests to run. The mirror stays because a published pod and an npm
+// tarball still need the sources inside them — but the tests move
+// here, where the artifact is.
+
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'sentori'

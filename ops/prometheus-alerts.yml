@@ -1,0 +1,68 @@
+# Prometheus alert rules for Sentori (Phase 16 sub-B).
+#
+# Routes via Alertmanager → Better Stack on-call. Thresholds match the
+# ROADMAP "告警规则" section.
+#
+# Every metric named here must exist in
+# `self-hosted/server/src/handlers/metrics_prom.rs`, and
+# `scripts/check-metric-names.mjs` fails the build if one does not.
+# That gate exists because this file spent months alerting on three
+# series the server has never emitted: `sentori_pg_pool_in_use` and
+# `sentori_pg_pool_max` (the real names are `sentori_db_pool_in_use`
+# and `sentori_db_pool_size`) and `sentori_ingest_total`, which no
+# code path published until 2026-09-08. A rule that cannot fire reads
+# in review exactly like coverage.
+
+groups:
+  - name: sentori-ingest
+    interval: 30s
+    rules:
+      - alert: SentoriIngestErrorRateHigh
+        expr: |
+          (
+            sum(rate(sentori_ingest_total{status=~"rejected|failed"}[5m]))
+            / clamp_min(sum(rate(sentori_ingest_total[5m])), 1)
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: sentori
+        annotations:
+          summary: "Sentori ingest error rate above 1% for 5 minutes"
+          description: "`rejected` is the client's payload failing validation; `failed` is our pipeline erroring. Split them by the `status` label before deciding whose bug it is. `rate_limited` is deliberately excluded — a throttled burst is the limiter working. Blind spot: a body that fails to deserialise is rejected by the JSON layer as 422 before any handler runs, so it appears in neither the numerator nor the denominator — a client sending structurally wrong JSON reads here as silence, not as errors."
+
+      - alert: SentoriIngestStalled
+        # Counters reset to 0 on restart; `rate()` handles that, so a
+        # deploy does not fire this.
+        expr: sum(rate(sentori_ingest_total[5m])) == 0
+        for: 15m
+        labels:
+          severity: warning
+          team: sentori
+        annotations:
+          summary: "Sentori has accepted zero events for 15 minutes"
+          description: "Either the SDK is broken at the edge or the server is wedged. Check `sentori.golia.jp/healthz` (read the `version` field, not the status code), Postgres, and recent deploys."
+
+  - name: sentori-host
+    interval: 60s
+    rules:
+      - alert: HostDiskFreeLow
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.20
+        for: 10m
+        labels:
+          severity: warning
+          team: sentori
+        annotations:
+          summary: "Disk free below 20% on {{ $labels.instance }}"
+
+  - name: sentori-pg
+    interval: 60s
+    rules:
+      - alert: PgPoolNearSaturation
+        expr: sentori_db_pool_in_use / clamp_min(sentori_db_pool_size, 1) > 0.80
+        for: 5m
+        labels:
+          severity: warning
+          team: sentori
+        annotations:
+          summary: "PG pool above 80% in use for 5 minutes"

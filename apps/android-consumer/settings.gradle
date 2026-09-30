@@ -1,0 +1,18 @@
+// The smallest app that depends on the published Sentori artifact.
+//
+// Not a showcase — a gate. `android-artifact` proves the AAR
+// assembles and its POM is complete; this proves an Android app can
+// actually resolve and compile against it, which is a different
+// claim. The Swift side learned that the hard way: a package that
+// built inside the monorepo and failed from a clean checkout.
+//
+// `mavenLocal` first, so CI can point this at an artifact staged
+// minutes earlier without publishing anything to the world.
+pluginManagement {
+    repositories { google(); mavenCentral(); gradlePluginPortal() }
+}
+dependencyResolutionManagement {
+    repositories { mavenLocal(); google(); mavenCentral() }
+}
+rootProject.name = 'sentori-android-consumer'
+include ':app'

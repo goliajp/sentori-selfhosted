@@ -1,0 +1,73 @@
+# core/crates/issue-fingerprint — 石头 #3 (per cement-stone).
+#
+# Stable group-key hash for captured events. Given the components of an
+# event (release, error type, normalized message, frame site, etc.), the
+# crate produces a deterministic 32-char hex fingerprint that Sentori
+# uses as the issue dedup key.
+#
+# Used by:
+#  - sentori-saas / sentori-selfhosted server ingest pipeline — every
+#    accepted event is fingerprinted before being stored, so events
+#    with the same fingerprint roll up into one Issue row.
+#  - downstream `event-pipeline` (钢筋) wiring — owns the
+#    server-side `Event → Input` adaptation.
+#  - SDK-side preview tooling (planned) — surfacing "this event will
+#    group with these other events" in dogfood DX.
+#
+# Design ref:
+#  - legacy `server/src/grouping.rs` (v1.x) — read for business shape,
+#    not for code (stone is a clean rewrite).
+#  - product directive 2026-05-22: per-release isolation beats
+#    cross-release regression flip; documented inline in src/lib.rs.
+#
+# 工艺 ceiling-first (per refactor-standards.md §2): cov > 95% line +
+# branch > 90% + criterion bench baseline + 完整 rustdoc + doctest +
+# proptest property tests + cargo-mutants > 85% caught (CI gates pending
+# P0.2 wiring).
+#
+# Algorithm (locked, v1):
+#   digest   = SHA256(b"sentori-issue-fingerprint:v1:" || kind_tag ||
+#                    b"|" || components(release, ...))
+#   output   = hex(digest[..16])  // 32 lowercase hex chars
+#
+# Truncating SHA-256 to 16 bytes keeps the fingerprint legible inside
+# URLs and DB rows while preserving ~64-bit collision resistance — well
+# above the working-set size of any plausible Sentori issue table
+# (millions of distinct groups, not billions).
+
+[package]
+name = "sentori-issue-fingerprint"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori issue fingerprint — stable group-key hash for captured events (16-byte SHA-256 truncation, hex)."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "fingerprint"
+harness = false
+
+[[test]]
+name = "proptest_fingerprint"
+path = "tests/proptest_fingerprint.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

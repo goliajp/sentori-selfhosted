@@ -1,0 +1,170 @@
+// The Sentori Android SDK, as a publishable artifact.
+//
+// Coordinates are `jp.golia.sentori:sentori` — Maven namespaces are
+// reversed domains, so owning golia.jp owns `jp.golia.*`. The
+// alternative was JitPack's `com.github.goliajp.…`, which puts our
+// hosting provider in every integrator's build file and makes moving
+// off it a breaking change.
+
+plugins {
+    id 'com.android.library' version '8.12.0'
+    id 'org.jetbrains.kotlin.android' version '2.0.21'
+    id 'maven-publish'
+    id 'signing'
+}
+
+group = 'jp.golia.sentori'
+// Its own number, not the React Native package's. These used to ship
+// together and share one constant; an iOS or Android app has no
+// opinion about the RN SDK's major, and a version that moves for
+// reasons the consumer cannot see is worse than a separate one.
+// One file, shared with the Swift constant and gated by
+// scripts/sync-sdk-version.mjs, so the AAR's version and the string
+// the SDK reports cannot disagree.
+version = project.findProperty('sentoriVersion')
+    ?: file('../VERSION').text.trim()
+
+android {
+    namespace 'com.sentori'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 24
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    // Sources are shared with the React Native module, which mirrors
+    // them. This build is where they are compiled as the artifact.
+    sourceSets {
+        main {
+            manifest.srcFile 'src/main/AndroidManifest.xml'
+            java.srcDirs = ['src/main/java']
+        }
+        test {
+            java.srcDirs = ['src/test/java']
+        }
+    }
+
+    testOptions {
+        unitTests {
+            // Robolectric needs the real android.jar rather than the
+            // stub that throws on every call.
+            includeAndroidResources = true
+            returnDefaultValues = true
+        }
+    }
+
+    kotlinOptions { jvmTarget = '17' }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    publishing {
+        singleVariant('release') {
+            withSourcesJar()
+            withJavadocJar()
+        }
+    }
+}
+
+dependencies {
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.0.21'
+    // ContextCompat.checkSelfPermission + ActivityCompat.requestPermissions
+    // for the Android 13+ POST_NOTIFICATIONS prompt.
+    implementation 'androidx.core:core:1.13.1'
+
+    // `compileOnly` so an app that does not use push is not made to
+    // ship Firebase. `SentoriPushNotifications` probes for the classes
+    // at runtime and no-ops cleanly when they are absent — an app that
+    // wants push adds `firebase-messaging` itself, as it would anyway
+    // for `google-services.json`.
+    compileOnly 'com.google.firebase:firebase-messaging:24.0.3'
+
+    // The messaging service compiles against Firebase and had no
+    // test of any kind, so the one thing it does — turning a
+    // RemoteMessage into a tray entry and a callback — was only ever
+    // covered by calling the helper it delegates to. A unit test of a
+    // function nobody calls proves the function, not the feature.
+    testImplementation 'com.google.firebase:firebase-messaging:24.0.3'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.13'
+    testImplementation 'androidx.test:core:1.6.1'
+    testImplementation 'org.jetbrains.kotlin:kotlin-test:2.0.21'
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            release(MavenPublication) {
+                from components.release
+                artifactId = 'sentori'
+
+                pom {
+                    name = 'Sentori'
+                    description = 'Sentori SDK for Android — five-kind event capture, ' +
+                        'native crash handling, ANR detection and push, with no React Native.'
+                    url = 'https://sentori.golia.jp'
+                    licenses {
+                        license {
+                            name = 'Apache-2.0'
+                            url = 'https://www.apache.org/licenses/LICENSE-2.0'
+                        }
+                        license {
+                            name = 'MIT'
+                            url = 'https://opensource.org/licenses/MIT'
+                        }
+                    }
+                    developers {
+                        developer {
+                            id = 'golia'
+                            name = 'GOLIA K.K.'
+                            email = 'takagi@golia.jp'
+                        }
+                    }
+                    scm {
+                        url = 'https://github.com/goliajp/sentori'
+                        connection = 'scm:git:https://github.com/goliajp/sentori.git'
+                        developerConnection = 'scm:git:ssh://git@github.com/goliajp/sentori.git'
+                    }
+                }
+            }
+        }
+        repositories {
+            // There is deliberately no `central` repository here.
+            //
+            // There used to be one, pointed at
+            // `https://central.sonatype.com/api/v1/publisher/upload`,
+            // and it could never have worked: Gradle's maven publisher
+            // PUTs each file in repository layout, and that endpoint
+            // takes a single zipped bundle by POST. Nothing ran it, so
+            // nothing said so — the repo carried a publishing path
+            // that was documented as ready and had never been tried.
+            //
+            // Publishing is `scripts/publish-maven-central.sh`, which
+            // assembles the bundle from the staged directory below and
+            // is what the release workflow runs.
+            //
+            // Used by CI to prove the artifact assembles and its POM is
+            // complete without needing credentials — publishing to a
+            // directory exercises everything except the upload.
+            maven {
+                name = 'buildDir'
+                url = layout.buildDirectory.dir('staging-repo')
+            }
+        }
+    }
+
+    signing {
+        // Absent locally and in a PR build; present on a release.
+        // `required` false rather than a broken build for everyone who
+        // is not releasing.
+        def key = System.getenv('SIGNING_KEY')
+        def password = System.getenv('SIGNING_PASSWORD')
+        required { key != null && !key.isEmpty() }
+        if (key != null && !key.isEmpty()) {
+            useInMemoryPgpKeys(key, password)
+            sign publishing.publications.release
+        }
+    }
+}

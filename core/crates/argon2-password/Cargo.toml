@@ -1,0 +1,69 @@
+# core/crates/argon2-password — 石头 #13 (per cement-stone).
+#
+# Argon2id password hasher. Mirrors the surface of S9
+# `cookie-session::PasswordHash` (bcrypt) so callers can pick
+# either algorithm by importing the corresponding crate without
+# rewriting their callsite shape.
+#
+# Why both this and bcrypt-via-S9 exist:
+#   - bcrypt is the "good enough" battle-tested default; every
+#     Rust web stack ships it, every operations playbook expects
+#     it, hardware-accelerator attacks are well-understood.
+#   - argon2id is the OWASP-2025 recommendation and the PHC
+#     winner — memory-hard, GPU-resistant, with knobs for
+#     interactive (~50 ms / op) vs sensitive (~500 ms / op)
+#     latency/cost trade-offs.
+#
+# Two stones, callers choose. We do NOT abstract over both
+# behind a `trait PasswordHash` here — that's a 钢筋-layer
+# decision (e.g. `auth-session` may want to support both at
+# verify time to migrate hashes opportunistically; the trait
+# lives there, not in a stone).
+#
+# 工艺 ceiling-first (per refactor-standards.md §2 stone tier):
+#   - build / test / clippy (-D warnings) / fmt / doc green
+#   - criterion bench baseline for hash + verify at default
+#     params + interactive params
+#   - proptest property tests for round-trip + tamper detection
+#   - full rustdoc, 0 unsafe (`#![forbid(unsafe_code)]`)
+#   - 100% line cov target (gate is CI)
+#   - zero new transitive dep surface beyond the argon2 +
+#     password-hash crates we declare upstream
+
+[package]
+name = "sentori-argon2-password"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "Sentori argon2-password — Argon2id password hasher (mirrors the bcrypt-via-cookie-session shape, picked by caller)."
+
+[lib]
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+argon2.workspace = true
+password-hash.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "bench"
+harness = false
+
+[[test]]
+name = "proptest_roundtrip"
+path = "tests/proptest_roundtrip.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>sentori web harness</title>
+  </head>
+  <body>
+    <style>
+      body { margin: 0; font: 16px system-ui }
+      .card { background: #eee; padding: 16px; width: 320px }
+      .secret { background: #fee; padding: 8px }
+      img { width: 64px; height: 64px; background: #ccd }
+    </style>
+    <div class="card">
+      <h1>Order 4471</h1>
+      <p>Pay Dora Cawley 412.00</p>
+      <img alt="" />
+      <input id="email" value="dora@example.com" />
+      <div class="secret"><p>sort code 40-11-22, account 87654321</p></div>
+      <button id="pay" class="btn primary" data-sentori="pay">Pay Dora Cawley 412.00</button>
+      <a id="nav" href="#next">next</a>
+    </div>
+    <script type="module">
+      import { registerMaskQuery, sentori } from './sentori-web.js';
+
+      const params = new URLSearchParams(location.search);
+      sentori.init({
+        token: params.get('token'),
+        ingestUrl: params.get('ingest'),
+        release: 'harness@1.0.0+1',
+        environment: 'test',
+        // Opt-in, exactly as an integrator would write it.
+        replayScreens: params.get('replay') === '1',
+      });
+      registerMaskQuery('.secret');
+      sentori.user({ id: 'harness-person', email: null });
+      window.__sentori = sentori;
+      window.__ready = true;
+    </script>
+  </body>
+</html>

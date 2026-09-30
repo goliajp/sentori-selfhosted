@@ -1,0 +1,178 @@
+{
+  "note": "Generated from sdk/core/src/transport.ts — the kernel React Native, the browser and the mini program share. Swift and Kotlin have their own transports and must agree with these numbers. Regenerate with scripts/gen-transport-vectors.mjs; never hand-edit.",
+  "vectors": [
+    {
+      "name": "under the cap nothing is lost",
+      "applies": [
+        "kernel",
+        "swift",
+        "kotlin"
+      ],
+      "ops": [
+        {
+          "op": "enqueue",
+          "n": 9
+        }
+      ],
+      "expect": {
+        "queued": 9,
+        "dropped": 0,
+        "sessions": 0,
+        "assertStats": []
+      }
+    },
+    {
+      "name": "one over the cap drops exactly one",
+      "applies": [
+        "kernel",
+        "swift",
+        "kotlin"
+      ],
+      "ops": [
+        {
+          "op": "enqueue",
+          "n": 501
+        }
+      ],
+      "expect": {
+        "queued": 500,
+        "dropped": 1,
+        "sessions": 0,
+        "assertStats": []
+      }
+    },
+    {
+      "name": "fifty over the cap drops exactly fifty",
+      "applies": [
+        "kernel",
+        "swift",
+        "kotlin"
+      ],
+      "ops": [
+        {
+          "op": "enqueue",
+          "n": 550
+        }
+      ],
+      "expect": {
+        "queued": 500,
+        "dropped": 50,
+        "sessions": 0,
+        "assertStats": []
+      }
+    },
+    {
+      "name": "passes and failures aggregate onto one row",
+      "applies": [
+        "kernel",
+        "swift",
+        "kotlin"
+      ],
+      "ops": [
+        {
+          "op": "assert",
+          "name": "total.positive",
+          "ok": true
+        },
+        {
+          "op": "assert",
+          "name": "total.positive",
+          "ok": true
+        },
+        {
+          "op": "assert",
+          "name": "total.positive",
+          "ok": false
+        }
+      ],
+      "expect": {
+        "queued": 0,
+        "dropped": 0,
+        "sessions": 0,
+        "assertStats": [
+          {
+            "name": "total.positive",
+            "release": "vectors@1.0.0",
+            "passDelta": 2,
+            "failDelta": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "assert stats key on name and release together",
+      "applies": [
+        "kernel",
+        "swift",
+        "kotlin"
+      ],
+      "ops": [
+        {
+          "op": "assert",
+          "name": "a",
+          "ok": true,
+          "release": "r1"
+        },
+        {
+          "op": "assert",
+          "name": "a",
+          "ok": true,
+          "release": "r2"
+        },
+        {
+          "op": "assert",
+          "name": "b",
+          "ok": true,
+          "release": "r1"
+        }
+      ],
+      "expect": {
+        "queued": 0,
+        "dropped": 0,
+        "sessions": 0,
+        "assertStats": [
+          {
+            "name": "a",
+            "release": "r1",
+            "passDelta": 1,
+            "failDelta": 0
+          },
+          {
+            "name": "a",
+            "release": "r2",
+            "passDelta": 1,
+            "failDelta": 0
+          },
+          {
+            "name": "b",
+            "release": "r1",
+            "passDelta": 1,
+            "failDelta": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "sessions cap apart from events",
+      "applies": [
+        "kernel"
+      ],
+      "ops": [
+        {
+          "op": "enqueue",
+          "n": 600
+        },
+        {
+          "op": "session",
+          "n": 250
+        }
+      ],
+      "expect": {
+        "queued": 500,
+        "dropped": 100,
+        "sessions": 200,
+        "assertStats": []
+      }
+    }
+  ]
+}

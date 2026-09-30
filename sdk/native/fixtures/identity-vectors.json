@@ -1,0 +1,70 @@
+{
+  "note": "Generated from sdk/core/src/identity.ts — the source of truth for what gets hashed and how. Regenerate with scripts/gen-identity-vectors.mjs; never hand-edit.",
+  "vectors": [
+    {
+      "keyType": "id",
+      "raw": "usr_123",
+      "sha256Hex": "ca010ec7feb32be7e30002f602d7c2ab062fb7a2be105ae6b8b1fb739cb72c77"
+    },
+    {
+      "keyType": "id",
+      "raw": "  usr_123  ",
+      "sha256Hex": "ca010ec7feb32be7e30002f602d7c2ab062fb7a2be105ae6b8b1fb739cb72c77"
+    },
+    {
+      "keyType": "email",
+      "raw": "A@B.com",
+      "sha256Hex": "fb98d44ad7501a959f3f4f4a3f004fe2d9e581ea6207e218c4b02c08a4d75adf"
+    },
+    {
+      "keyType": "email",
+      "raw": "  user@Example.COM  ",
+      "sha256Hex": "b4c9a289323b21a01c3e940f150eb9b8c542587f1abfd8f0e1cc1ffc5e475514"
+    },
+    {
+      "keyType": "phone",
+      "raw": "+81 (90) 1234-5678",
+      "sha256Hex": "3d06a39d40790f11761295e053029378ae28c4b4f6f301693005e079f3d4ca64"
+    },
+    {
+      "keyType": "phone",
+      "raw": "+819012345678",
+      "sha256Hex": "3d06a39d40790f11761295e053029378ae28c4b4f6f301693005e079f3d4ca64"
+    },
+    {
+      "keyType": "username",
+      "raw": "  DoraCawl ",
+      "sha256Hex": "4e2d47ec6e4a9a6d05d3fa73dfa50724c6e7c0844a2adf763b7b24e69e72740c"
+    },
+    {
+      "keyType": "googleSub",
+      "raw": "  108bc  ",
+      "sha256Hex": "dcccdc6e863968e23e8477a9fa9e288110d8936ed81439f9e0d512a88d025feb"
+    },
+    {
+      "keyType": "custom",
+      "raw": "  trimmed  ",
+      "sha256Hex": "073f3c701722d652c8ff2c6f5c18499a6e03e0a81ec2cf65a1bf6596f0686033"
+    },
+    {
+      "keyType": "id",
+      "raw": "日本語ユーザー",
+      "sha256Hex": "44b7bee1a7c317b1b346972e5b9044f8ebded4868505138fe4329f9841523727"
+    },
+    {
+      "keyType": "id",
+      "raw": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "sha256Hex": "c76681257c327e2bbb5c90712fdc4ab31905b6292581bbee628fcc2ec1c1eb55"
+    },
+    {
+      "keyType": "id",
+      "raw": " usr_123 ",
+      "sha256Hex": "ca010ec7feb32be7e30002f602d7c2ab062fb7a2be105ae6b8b1fb739cb72c77"
+    },
+    {
+      "keyType": "email",
+      "raw": "﻿  A@B.com  ",
+      "sha256Hex": "fb98d44ad7501a959f3f4f4a3f004fe2d9e581ea6207e218c4b02c08a4d75adf"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# tsc -b emits .js + .d.ts next to .tsx during build; we
+# don't ship those (Vite re-bundles from .tsx).
+src/**/*.js
+src/**/*.d.ts
+src/**/*.js.map
+
+# Local env override
+.env.local
+.env.*.local
