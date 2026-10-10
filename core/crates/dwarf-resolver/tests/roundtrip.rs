@@ -148,7 +148,7 @@ fn end_to_end_via_public_api() {
     let module = DwarfModule::from_bytes(bytes).expect("parse");
 
     let frames = module.resolve(LOW_PC).expect("resolve");
-    assert!(!frames.is_empty());
+    assert_ne!(frames.len(), 0);
 
     let leaf = &frames[0];
     assert_eq!(leaf.function.as_deref(), Some(FUNCTION_NAME));

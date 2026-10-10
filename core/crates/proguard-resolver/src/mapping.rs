@@ -310,7 +310,7 @@ mod tests {
         // Synthetic range in SIMPLE_MAPPING is 42:42, so the runtime
         // line 42 maps back to original line 42.
         let frames = m.resolve_method("a.b.c", "a", 42).expect("ok");
-        assert!(!frames.is_empty(), "got: {frames:?}");
+        assert_ne!(frames.len(), 0, "got: {frames:?}");
         let leaf = &frames[0];
         assert_eq!(leaf.class, "com.example.android.auth.LoginPresenter");
         assert_eq!(leaf.method, "onLoginClick");
@@ -321,7 +321,7 @@ mod tests {
     fn resolves_method_unknown_to_empty() {
         let m = ParsedMapping::parse(SIMPLE_MAPPING.as_bytes().to_vec()).expect("parse");
         let frames = m.resolve_method("not.a.class", "nope", 1).expect("ok");
-        assert!(frames.is_empty());
+        assert_eq!(frames.len(), 0);
     }
 
     #[test]

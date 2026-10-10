@@ -17,6 +17,9 @@ WORKDIR /webapp
 COPY webapp/package.json webapp/bun.lock /webapp/
 RUN bun install --frozen-lockfile
 COPY webapp/ /webapp/
+# Docs imports the canonical changelog from the repository parent.
+COPY CHANGELOG.md VERSION /
+COPY docs/ /docs/
 RUN bun run build
 # Expected output: /webapp/dist (Vite default)
 
@@ -29,10 +32,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /src
 
+# The operator records the application version in recovery manifests.
+COPY VERSION /src/VERSION
 COPY core/ /src/core/
 COPY self-hosted/ /src/self-hosted/
 
 WORKDIR /src/self-hosted/server
+# Bound release compilation on shared runners; callers may choose a larger pool.
+ARG CARGO_BUILD_JOBS=2
 # The registry and the target directory sit in BuildKit cache mounts
 # rather than in a layer. Any source byte invalidates the COPY above, so
 # without them every build downloads and recompiles all 387 dependencies
@@ -46,8 +53,10 @@ WORKDIR /src/self-hosted/server
 # image.
 RUN --mount=type=cache,id=sentori-cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=sentori-server-target,target=/src/self-hosted/server/target,sharing=locked \
-    cargo build --release --bin sentori-server \
-    && cp target/release/sentori-server /usr/local/bin/sentori-server
+    cargo build --locked --release --bin sentori-server \
+    && cp target/release/sentori-server /usr/local/bin/sentori-server \
+    && CARGO_TARGET_DIR=/src/self-hosted/server/target cargo build --locked --release --manifest-path ../cli/Cargo.toml --bin sentori-cli \
+    && cp target/release/sentori-cli /usr/local/bin/sentori-operator
 # Skeleton for the /data volume: distroless has no shell, so the
 # ownership must be baked in — a named volume adopts the image
 # path's owner on first creation, and root-owned /data would make
@@ -58,6 +67,7 @@ RUN mkdir -p /data-skel/blobs
 FROM gcr.io/distroless/cc-debian12:nonroot AS runtime
 
 COPY --from=builder /usr/local/bin/sentori-server /usr/local/bin/sentori-server
+COPY --from=builder /usr/local/bin/sentori-operator /usr/local/bin/sentori-operator
 # Bundle the SPA. The server's fallback handler serves this
 # directory; SENTORI_WEBAPP_DIST env-var can override.
 COPY --from=webapp-builder /webapp/dist /app/webapp

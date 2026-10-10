@@ -118,6 +118,9 @@ fn cached_token(key: &str) -> Option<String> {
 fn store_token(key: &str, token: &str, ttl: Duration) {
     if let Ok(mut cache) = TOKEN_CACHE.lock() {
         cache.retain(|(k, _, expiry)| k != key && *expiry > Instant::now());
+        if cache.len() >= 1024 {
+            cache.clear();
+        }
         cache.push((key.to_string(), token.to_string(), Instant::now() + ttl));
     }
 }
@@ -149,8 +152,17 @@ pub async fn token_for(cfg: &FcmConfig) -> Result<String, FcmError> {
     access_token(&parse(cfg)?).await
 }
 
+fn credential_cache_key(sa: &ServiceAccount) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(format!(
+        "{}\0{}\0{}",
+        sa.project_id, sa.client_email, sa.private_key
+    )))
+}
+
 async fn access_token(sa: &ServiceAccount) -> Result<String, FcmError> {
-    if let Some(token) = cached_token(&sa.client_email) {
+    let cache_key = credential_cache_key(sa);
+    if let Some(token) = cached_token(&cache_key) {
         return Ok(token);
     }
 
@@ -170,6 +182,7 @@ async fn access_token(sa: &ServiceAccount) -> Result<String, FcmError> {
     let assertion = jsonwebtoken::encode(&header, &claims, &key)?;
 
     let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(15))
         .build()?;
     let resp = client
@@ -193,7 +206,7 @@ async fn access_token(sa: &ServiceAccount) -> Result<String, FcmError> {
     // Expire ours a minute early. A token that dies between the check
     // and the send is a 401 on a notification somebody was waiting on.
     let ttl = Duration::from_secs(parsed.expires_in.unwrap_or(3600).saturating_sub(60));
-    store_token(&sa.client_email, &parsed.access_token, ttl);
+    store_token(&cache_key, &parsed.access_token, ttl);
     Ok(parsed.access_token)
 }
 
@@ -226,6 +239,7 @@ pub async fn send(
     });
 
     let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(15))
         .build()?;
     let resp = client
@@ -287,6 +301,30 @@ mod tests {
             .into(),
         };
         assert_eq!(project_id(&cfg).ok().as_deref(), Some("qualcomm-insight"));
+    }
+
+    #[test]
+    fn rotating_a_key_under_the_same_account_invalidates_the_cached_token() {
+        let old = ServiceAccount {
+            project_id: "cache-project".into(),
+            client_email: "rotation@example.com".into(),
+            private_key: "old-key".into(),
+        };
+        let new = ServiceAccount {
+            project_id: old.project_id.clone(),
+            client_email: old.client_email.clone(),
+            private_key: "new-key".into(),
+        };
+        store_token(
+            &credential_cache_key(&old),
+            "old-access-token",
+            Duration::from_mins(5),
+        );
+        assert_eq!(
+            cached_token(&credential_cache_key(&old)).as_deref(),
+            Some("old-access-token")
+        );
+        assert!(cached_token(&credential_cache_key(&new)).is_none());
     }
 
     /// The cache must not hand one project's token to another.

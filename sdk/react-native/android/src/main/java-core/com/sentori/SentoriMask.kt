@@ -58,7 +58,7 @@ object SentoriMask {
             // `warn`, never `error`: red text in a host's console makes
             // their team think their own app is broken, and the first
             // thing they do about it is remove us.
-            android.util.Log.w("sentori", "mask query threw; this frame masks nothing: $t")
+            Unit // SDK failures stay silent in the host.
             emptyList()
         }
     }

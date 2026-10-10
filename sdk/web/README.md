@@ -61,7 +61,7 @@ the page.
 | `detect.webVitals` | `boolean` | `true` |
 | `replayScreens` | `boolean` | `false` |
 | `beforeSend` | `(e) => e \| null` | — |
-| `logLevel` | `'silent' \| 'error' \| 'warn' \| 'info' \| 'debug'` | `'warn'` |
+| `logLevel` | `'silent' \| 'error' \| 'warn' \| 'info' \| 'debug'` | `'silent'` |
 | `backendHealthUrl` | `string` | — |
 
 ## Session replay

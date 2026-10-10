@@ -20,7 +20,7 @@ const LOCALES = ['en', 'zh', 'ja'];
 
 const keysOf = loc => {
   const text = readFileSync(`${SRC}/i18n/${loc}.ts`, 'utf8');
-  return new Set([...text.matchAll(/^ {2}'([\w.]+)':/gm)].map(m => m[1]));
+  return new Set([...text.matchAll(/^ {2}(['"])([\w.]+)\1:/gm)].map(m => m[2]));
 };
 
 const walk = dir =>
@@ -43,7 +43,7 @@ for (const loc of LOCALES) {
   if (catalogues[loc].size === 0) {
     console.error(
       `i18n: parsed 0 keys from ${loc}.ts — the checker is broken, not the ` +
-        `catalogue. Its key regex expects two-space indent and single quotes.`,
+        `catalogue. Its key regex expects two-space indent and quoted keys.`,
     );
     process.exit(1);
   }
@@ -88,6 +88,9 @@ for (const f of walk(SRC)) {
     used.add(m[1]);
     used.add(m[2]);
   }
+  // Nested conditional branches need not have a literal immediately after
+  // their colon (a ? 'key.a' : b ? 'key.b' : 'key.c').
+  for (const m of text.matchAll(/\?\s*(['"])([\w.]+\.[\w.]+)\1/g)) used.add(m[2]);
   // Built at the call site: t(`status.${row.status}`)
   for (const m of text.matchAll(/t\(`([\w.]+)\.\$\{/g)) prefixes.add(m[1]);
 }

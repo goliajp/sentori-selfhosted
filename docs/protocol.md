@@ -100,7 +100,11 @@ Up to **200** events in one request, plus optional side channels.
   envelope: a full queue, or a spill it could not write. A loss nobody
   counts is a loss nobody can see.
 - `backendHealthUrl` — remembered per project and probed server-side
-  once a minute. The app never pings it.
+  once a minute. The app never pings it. Targets must use HTTP or HTTPS on
+  port 80 or 443 and resolve entirely to public addresses. Private, loopback,
+  link-local and other special-purpose ranges are rejected, including on
+  redirects; HTTPS cannot redirect to HTTP. Checks allow at most three redirects
+  and a 64 KiB response body. This field does not authorize internal-network probes.
 
 Response `200 OK`, one outcome per event, in order:
 
@@ -361,6 +365,54 @@ only ever safe for an audience of exactly one.
 somebody did not get it. There is no array of per-device ids: `/deliveries` walks
 those, and returning them inline was megabytes of uuid for a large send.
 
+#### Legacy Insight sender (server 5.0.0)
+
+Existing Insight backends can keep `POST /v1/push/send` with this single-device
+request. Both a bare device UUID and its historical `ipt_<uuid>` spelling resolve
+to the same device **inside the token's project**:
+
+```json
+{
+  "to": "ipt_019ff080-2aeb-7e30-aba1-4431b296d120",
+  "title": "Camera event",
+  "body": "A new event is available",
+  "data": { "camera_id": "camera-123" }
+}
+```
+
+The response is `202` with `{"tickets":[{"id":"<delivery UUID>","status":"queued"}]}`.
+Each ticket names a **delivery**, usable at `GET /v1/push/deliveries/{deliveryId}`;
+it is not a batch `sendId`. Queued means accepted for processing, not delivered to
+the phone. The adapter shares the normal queue, worker and `api`-scope requirement.
+Missing credentials return `401`, ingest-only credentials `403`, and malformed,
+missing, revoked or foreign-project device addresses `400`. It never interprets an
+unknown handle as a provider token or expands it into an audience.
+
+Optional `idempotencyKey`, `campaignId` and `templateId` use the normal send
+semantics. A deduplicated retry queues nothing new and returns an empty `tickets`
+array. This compatibility route covers Insight's single-recipient message; arrays,
+legacy scheduling/options and audience objects are rejected rather than silently
+discarded. New integrations should use `/v1/push/sends`.
+
+`POST /v1/push/tokens` also accepts the pre-v3 registration request and adds
+`token_id` and `is_new` aliases to `spToken` and `isNew`. Its `id` is the historical
+`ipt_<uuid>` address. The older `provider` spelling of `kind` is accepted and returns
+`200`; `kind` requests return `202`. `DELETE /v1/push/tokens/{handle}` accepts either
+device spelling and revokes the same row. The canonical `/devices` response stays
+unchanged. These adapters do not migrate devices from a different database.
+
+For an in-place upgrade, retain the database, blob volume, ingest hostname and
+project tokens, plus push credentials and their encryption key. Existing Insight
+event reporting needs no configuration change on that basis. Verify registration,
+an old-format send, actual provider delivery, revocation and permission rejection
+before switching traffic. Moving to a different Cloud workspace requires a
+separate data and credential migration.
+
+The removed paths and fields predate v4.1.1; they were changed during the v3 API
+consolidation while still under `/v1/`, contrary to the compatibility promise
+below. This adapter restores the documented subset; it is not a claim that every
+historical push API is supported. No removal date is set for these restored routes.
+
 #### Who it goes to
 
 Six ways, and they are one mechanism. `spTokens` / `tokenIds` / `nativeTokens` /
@@ -576,10 +628,10 @@ sentori.init({
 });
 ```
 
-There is no default. `init()` without an `ingestUrl` logs one warning
-and leaves every verb a no-op, because the alternative — falling back
-to some other instance's host — would send an app's crashes to
-strangers.
+There is no default. `init()` without an `ingestUrl` silently leaves
+every verb a no-op. SDK diagnostics require an explicit `logLevel`;
+SDK failures do not write to the host console by default. The SDK never
+falls back to another instance's host.
 
 `ingestUrl` is the origin of the instance you run:
 

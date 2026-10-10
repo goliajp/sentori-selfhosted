@@ -243,13 +243,14 @@ enum SentoriSignalHandler {
             let base = UInt(bitPattern: header)
             let raw = UnsafeRawPointer(header)
             guard let uuid = SentoriImage.uuid(atBase: raw) else { continue }
-            let name = String(cString: _dyld_get_image_name(index))
+            let path = _dyld_get_image_name(index)!
+            let name = String(cString: strrchr(path, 47).map { UnsafePointer($0.advanced(by: 1)) } ?? path)
             images.append(
                 LoadedImage(
                     base: UInt64(base),
                     end: UInt64(base) + UInt64(imageSize(raw)),
                     uuid: uuid,
-                    name: (name as NSString).lastPathComponent
+                    name: name
                 )
             )
         }
@@ -299,15 +300,19 @@ enum SentoriSignalHandler {
 
     /// `segname` is a fixed 16-byte tuple, not a string.
     private static func isPageZero(_ segname: SegmentName) -> Bool {
-        withUnsafeBytes(of: segname) { raw in
-            let name = raw.prefix(while: { $0 != 0 })
-            return name.elementsEqual("__PAGEZERO".utf8)
+        withUnsafePointer(to: segname) { value in
+            value.withMemoryRebound(to: CChar.self, capacity: 16) {
+                strncmp($0, "__PAGEZERO", 16) == 0
+            }
         }
     }
 
     private static func writeImageMap(to directory: URL) {
         let url = directory.appendingPathComponent("signal.images.json")
-        if let data = try? JSONEncoder().encode(imageMap()) {
+        let rows = imageMap().map { image -> [String: Any] in
+            ["base": image.base, "end": image.end, "uuid": image.uuid, "name": image.name]
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: rows) {
             try? data.write(to: url)
         }
     }

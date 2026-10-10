@@ -22,10 +22,8 @@
  *            retries. Off by default — only host devs debugging
  *            Sentori turn this on.
  *
- * Default level: **`warn`**. That means a clean Sentori install
- * shows exactly one line (the init banner) and is otherwise
- * silent. If the host's metro / browser console has `[sentori]`
- * lines beyond that, Sentori is doing something wrong.
+ * Default level: **`silent`**, including SDK failures. Diagnostics
+ * require explicit opt-in and are bounded; they cannot break the host.
  *
  * To opt into more output:
  *
@@ -42,17 +40,24 @@ const ORDER = {
     info: 3,
     debug: 4,
 };
-const DEFAULT_LEVEL = 'warn';
+const DEFAULT_LEVEL = 'silent';
+const MAX_LINES_PER_MINUTE = 20;
+const MAX_STRING_LENGTH = 2048;
+const MAX_ARGS = 8;
 let activeLevel = DEFAULT_LEVEL;
 let activeTransport = null;
-let transportThrewWarned = false;
+let transportFailed = false;
+let windowStart = 0;
+let emitted = 0;
 /**
  * Set the active log level. Called once from `init()` after reading
  * the host's config. Idempotent and cheap (one assignment + one
  * read in the level check).
  */
 export function setLogLevel(level) {
-    activeLevel = level ?? DEFAULT_LEVEL;
+    activeLevel = typeof level === 'string' && Object.hasOwn(ORDER, level) ? level : DEFAULT_LEVEL;
+    windowStart = 0;
+    emitted = 0;
 }
 /** Read-only — surfaced so tests + adapters can inspect. */
 export function getLogLevel() {
@@ -64,7 +69,7 @@ export function getLogLevel() {
  */
 export function setLogTransport(transport) {
     activeTransport = transport;
-    transportThrewWarned = false;
+    transportFailed = false;
 }
 function shouldLog(target) {
     return ORDER[target] <= ORDER[activeLevel];
@@ -75,31 +80,48 @@ function shouldLog(target) {
  * host devs grep but keeps every line consistently formatted.
  */
 function log(level, tag, ...args) {
-    if (!shouldLog(level))
-        return;
-    if (activeTransport !== null) {
-        try {
-            activeTransport(level, tag, args);
+    try {
+        if (!shouldLog(level) || transportFailed)
+            return;
+        const now = Date.now();
+        if (now - windowStart >= 60_000 || now < windowStart) {
+            windowStart = now;
+            emitted = 0;
         }
-        catch (e) {
-            // NEVER-rule: host transport throwing must not propagate.
-            // One-shot console fallback so host devs notice the bug
-            // without each subsequent log re-warning.
-            if (!transportThrewWarned) {
-                transportThrewWarned = true;
-                try {
-                    console.warn('[sentori/logger] setLogTransport callback threw; falling back to console for this line and onward', e);
-                }
-                catch {
-                    // console itself unavailable — give up silently.
+        if (emitted >= MAX_LINES_PER_MINUTE)
+            return;
+        emitted += 1;
+        // Never enumerate/serialize host objects for diagnostics. Keep work and
+        // retained values bounded even with large strings or hostile getters.
+        const bounded = args.slice(0, MAX_ARGS).map(value => {
+            if (typeof value === 'string')
+                return value.slice(0, MAX_STRING_LENGTH);
+            if (value === null || ['number', 'boolean', 'undefined'].includes(typeof value))
+                return value;
+            return '[object omitted]';
+        });
+        if (activeTransport !== null) {
+            const selectedTransport = activeTransport;
+            try {
+                const result = selectedTransport(level, tag.slice(0, 128), bounded);
+                if (result && typeof result.then === 'function') {
+                    void Promise.resolve(result).catch(() => {
+                        if (activeTransport === selectedTransport)
+                            transportFailed = true;
+                    });
                 }
             }
-            // Fall through to console so this line isn't lost.
-            defaultConsoleEmit(level, tag, args);
+            catch {
+                if (activeTransport === selectedTransport)
+                    transportFailed = true;
+            }
+            return;
         }
-        return;
+        defaultConsoleEmit(level, tag.slice(0, 128), bounded);
     }
-    defaultConsoleEmit(level, tag, args);
+    catch {
+        // A broken console, clock or host callback must not escape the SDK.
+    }
 }
 function defaultConsoleEmit(level, tag, args) {
     const prefix = `[sentori${tag ? '/' + tag : ''}]`;

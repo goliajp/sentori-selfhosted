@@ -1,271 +1,102 @@
-// Releases — "did this version ship healthy?".
-// One row per release: the three symbolication lights (sourcemap /
-// dsym / proguard), backed by upload commands when a light is off.
-// Artifact gaps are most visible here, on purpose — the lights are
-// live on load, not hidden behind a click.
-
-import { ChevronRight } from 'lucide-react';
-import { useState } from 'react';
-
+import { useRef, useState } from 'react';
+import { ReleaseJobs } from '../components/ReleaseJobs';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Heading, Surface } from '../../shared/design/Surface';
+import { Metric } from '../../shared/design/Metric';
+import { Button, Badge, Field, Input } from '../../shared/design/controls';
+import { FileInput } from '../../shared/design/FileInput';
+import { useSharedT } from '../i18n/shared';
+import { Dialog } from '../../shared/design/Dialog';
 import { useShell } from '../App';
-import { ErrorBanner, PageShell, Panel, PanelEmpty, TimeAgo, formatBytes } from '../components/ui';
-import { useT } from '../i18n';
-import { api, type ReleaseRow } from '../lib/api';
-import { formatApiError, useAsyncData } from '../lib/useAsyncData';
+import { DataTable, ErrorBanner, Select, TimeAgo, formatBytes } from '../components/ui';
+import { useT, useLocale } from '../i18n';
+import { api, type ArtifactRow, type ReleaseRow } from '../lib/api';
+import { formatApiError } from '../lib/useAsyncData';
+import { useScopedAsyncData } from '../lib/useScopedAsyncData';
+import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { formatCrashFree } from '../lib/crash-free';
 import { lightColour, lightState, type LightState } from '../lib/release-lights';
 
-export default function ReleasesPage() {
-  const t = useT();
-  const { activeProject } = useShell();
-  const active = activeProject?.id ?? null;
-
-  // `null` rather than `{ releases: [] }` when there is no project
-  // yet. The fabricated payload survived into the next render, so a
-  // failed load showed its error banner above a panel titled `(0)` —
-  // a count nothing had counted.
-  const { data, error, loading, reload } = useAsyncData<{ releases: ReleaseRow[] } | null>(
-    () => (active ? api.listReleases(active) : Promise.resolve(null)),
-    [active],
-  );
-
-  // Health, per release, in one request for the page. The question
-  // this screen answers is "did this version ship healthy", and until
-  // now it answered only "can its stacks be read" — half of it.
-  //
-  // Thirty days, not the inbox's 24 hours: a release from three weeks
-  // ago still has a number worth seeing here, and a window that hid it
-  // would make the column empty for exactly the releases a reader
-  // comes here to compare.
-  const { data: health } = useAsyncData(
-    () => (active ? api.crashFree({ projectId: active, hours: 720 }) : Promise.resolve(null)),
-    [active],
-  );
-  // Per release name, collapsed across platforms: one row is one
-  // release, and an iOS number and an Android number on the same row
-  // would need two columns nobody asked for. Summed as counts and
-  // divided once — averaging two percentages weights a release with
-  // nine sessions the same as one with nine thousand.
-  const byRelease = new Map<string, { sessions: number; crashed: number }>();
-  for (const r of health?.releases ?? []) {
-    const cur = byRelease.get(r.release) ?? { sessions: 0, crashed: 0 };
-    cur.sessions += r.sessions ?? 0;
-    cur.crashed += r.crashedSessions ?? 0;
-    byRelease.set(r.release, cur);
+type Row = ReleaseRow & {artifacts?:ArtifactRow[]|null};
+export default function ReleasesPage(){
+  const {activeProject}=useShell(),t=useT();
+  return activeProject?<Releases key={activeProject.id} projectId={activeProject.id}/>:<div className="production-page"><Heading title={t('nav.releases')}/><Surface><p>{t('inbox.emptyNoProject')}</p><Link className="text-link" to="/projects">{t('nav.projects')}</Link></Surface></div>;
+}
+function Releases({projectId}:{projectId:string}){
+  const t=useT();const [params,setParams]=useSearchParams();
+  const query=params.get('q')??'',selected=params.get('detail');
+  const settledQuery=useDebouncedValue(query,150),pendingQuery=query!==settledQuery;
+  const rawOffset=Number(params.get('offset')??0),offset=Number.isSafeInteger(rawOffset)&&rawOffset>=0?rawOffset:0;
+  const state=useScopedAsyncData(JSON.stringify([projectId,settledQuery,offset]),async signal=>{
+    const result=await api.listReleases(projectId,{q:settledQuery,offset,limit:50},signal);
+    return {...result,rows:result.releases};
+  });
+  const health=useScopedAsyncData(projectId,()=>api.crashFree({projectId,hours:720}));
+  const byRelease=new Map<string,{sessions:number;crashed:number}>();
+  for(const row of health.data?.releases??[]){const previous=byRelease.get(row.release)??{sessions:0,crashed:0};previous.sessions+=row.sessions??0;previous.crashed+=row.crashedSessions??0;byRelease.set(row.release,previous);}
+  function update(changes:Record<string,string>){const next=new URLSearchParams(params);for(const [key,value]of Object.entries(changes)){if(value)next.set(key,value);else next.delete(key);}setParams(next,{replace:true});}
+  const release=state.data?.rows.find(row=>row.id===selected);
+  return <div className="production-page">
+    <Heading title={t('nav.releases')} description={t('releaseView.description')}/>
+    <div className="control-bar"><Field label={t('releaseView.search')}><Input type="search" maxLength={200} value={query} onChange={e=>update({q:e.target.value,offset:'',detail:''})}/></Field></div>
+    <Legend/>
+    {state.error&&<div><ErrorBanner reason={state.error}>{t('releases.loadFailed')}</ErrorBanner><Button onClick={state.reload}>{t('common.retry')}</Button></div>}
+    {health.error&&<ErrorBanner reason={health.error}>{t('releaseView.healthFailed')}</ErrorBanner>}
+    <div className="surface" aria-busy={state.loading||pendingQuery}><DataTable<Row> appearance="design" rowKey={row=>row.id} rows={pendingQuery?[]:state.data?.rows??[]} empty={t(state.loading||pendingQuery?'projects.loading':state.error?'releases.loadFailed':'releases.emptyTitle')} columns={[
+      {key:'name',label:t('inbox.releaseFilter'),render:row=><button className="text-link font-semibold" onClick={()=>update({detail:row.id})}>{row.name}</button>},
+      {key:'sessions',label:t('releaseView.sessions'),align:'right',render:row=>byRelease.get(row.name)?.sessions.toLocaleString()??'—'},
+      {key:'crashFree',label:t('releases.crashFree'),align:'right',render:row=><CrashFreeCell health={byRelease.get(row.name)??null}/>},
+      {key:'artifacts',label:t('releaseView.artifacts'),render:row=><Coverage release={row}/>},
+      {key:'created',label:t('releaseView.created'),render:row=><TimeAgo iso={(row.createdAt??row.created_at)!}/>},
+    ]}/><div className="table-pagination"><span>{state.data?t('queue.pageCount',{first:String(state.data.rows.length?offset+1:0),last:String(state.data.rows.length?offset+state.data.rows.length:0),total:String(state.data.total)}):'—'}</span><div className="flex gap-2"><Button small disabled={state.loading||pendingQuery||offset===0} onClick={()=>update({offset:String(Math.max(0,offset-50)),detail:''})}>{t('queue.previous')}</Button><Button small disabled={state.loading||pendingQuery||state.data?.nextOffset==null} onClick={()=>update({offset:String(state.data!.nextOffset),detail:''})}>{t('queue.next')}</Button></div></div></div>
+    {release&&<ReleaseDetails key={release.id} projectId={projectId} release={release} health={byRelease.get(release.name)??null} onClose={()=>update({detail:''})} onChange={state.reload}/>}
+  </div>;
+}
+function Coverage({release}:{release:Row}){
+  return <div className="release-coverage">{(['sourcemap','dsym','proguard','srcbundle'] as const).map((kind,index)=>{
+    const artifacts=release.artifacts?.filter(row=>row.kind===kind);
+    const summary=release.artifactSummary?.find(row=>row.kind===kind);
+    // Unchecked historical artifacts are unknown, never green coverage.
+    const on=artifacts!==undefined
+      ?artifacts.some(row=>row.usable==null)?undefined:artifacts.some(row=>row.usable===true)
+      :release.artifactSummary===undefined||summary?.unchecked?undefined:summary?.usable??false;
+    return <Light key={kind} on={on} warn={artifacts?.some(row=>row.usable===false)??summary?.broken} label={['js','ios','android','src'][index]} used={kind==='sourcemap'||kind==='dsym'&&!!release.platforms?.includes('ios')||kind==='proguard'&&!!release.platforms?.includes('android')}/>;
+  })}</div>;
+}
+function ReleaseDetails({projectId,release,health,onClose,onChange}:{projectId:string;release:Row;health:{sessions:number;crashed:number}|null;onClose:()=>void;onChange:()=>void}){
+  const t=useT(), sharedT=useSharedT(), locale=useLocale();const [fileEpoch,setFileEpoch]=useState(0);const [kind,setKind]=useState('sourcemap'),[file,setFile]=useState<File|null>(null);
+  const [busy,setBusy]=useState(false),[failure,setFailure]=useState<string|null>(null),[receipt,setReceipt]=useState<boolean|null>(null);
+  const [jobRevision,setJobRevision]=useState(0);
+  const [deleting,setDeleting]=useState(false);const busyRef=useRef(false);
+  const artifactState=useScopedAsyncData(JSON.stringify([projectId,release.id]),()=>api.listArtifacts(projectId,release.id));
+  async function upload(event:React.FormEvent){event.preventDefault();if(!file||busyRef.current)return;busyRef.current=true;setBusy(true);setFailure(null);setReceipt(null);
+    try{const result=await api.uploadArtifact(projectId,release.id,kind,file);setReceipt(result.usable);setFile(null);setFileEpoch(value=>value+1);setJobRevision(value=>value+1);artifactState.reload();onChange();}
+    catch(error){setFailure(formatApiError(error));}finally{setBusy(false);busyRef.current=false;}
   }
-
-  return (
-    <PageShell title={t('nav.releases')}>
-      {error && (
-        <ErrorBanner reason={error}>
-          {t('releases.loadFailed')}{' '}
-          <button type="button" className="underline" onClick={reload}>
-            {t('common.retry')}
-          </button>
-        </ErrorBanner>
-      )}
-      {loading && !data && (
-        <div className="py-16 text-center text-sm text-fg-subtle">…</div>
-      )}
-
-      {/* Only once there is an answer. Rendering the panel while
-          `data` is null put `(0)` in the title beside "could not
-          load" — a count is a claim, and "none" is not the same
-          statement as "we could not find out". */}
-      {data && (
-      <Panel title={`${t('nav.releases')} (${data.releases.length})`}>
-        {data.releases.length === 0 ? (
-          <PanelEmpty>
-            {t('releases.emptyTitle')} — {t('releases.emptyHint')}
-          </PanelEmpty>
-        ) : (
-          <div className="divide-y divide-border/60">
-            <Legend />
-            {data.releases.map((r) => (
-              <ReleaseRowView
-                key={r.id}
-                release={r}
-                projectId={active ?? ''}
-                health={byRelease.get(r.name) ?? null}
-                onDeleted={reload}
-              />
-            ))}
-          </div>
-        )}
-      </Panel>
-      )}
-    </PageShell>
-  );
+  async function remove(){if(busyRef.current)return;busyRef.current=true;setBusy(true);setFailure(null);
+    try{await api.deleteRelease(release.id);setDeleting(false);onClose();onChange();}catch(error){setFailure(formatApiError(error));}finally{setBusy(false);busyRef.current=false;}
+  }
+  return <>
+    <Dialog drawer open active={!deleting} title={release.name} closeLabel={t('common.close')} onClose={()=>{if(!busy)onClose();}} footer={<Button variant="danger" disabled={busy} onClick={()=>{setFailure(null);setDeleting(true);}}>{t('releases.delete')}</Button>}>
+      <div className="section-stack">
+        <div className="grid grid-cols-2 gap-3"><Metric label={t('releaseView.sessions')} value={health?.sessions.toLocaleString()??'—'} note={t('releaseView.window')}/><Metric label={t('releases.crashFree')} value={<CrashFreeCell health={health}/>}/></div>
+        <Coverage release={{...release,artifacts:artifactState.data?.artifacts}}/>
+        {artifactState.error&&<div><ErrorBanner reason={artifactState.error}>{t('releaseView.artifactFailed')}</ErrorBanner><Button onClick={artifactState.reload}>{t('common.retry')}</Button></div>}
+        {artifactState.data?.artifacts.length===0&&<p className="muted">{t('releases.noArtifacts')}</p>}
+        {artifactState.data?.artifacts.map(artifact=><Surface key={artifact.id}><div className="flex flex-wrap justify-between gap-3"><strong className="text-sm break-all">{artifact.name}</strong><Badge tone={artifact.usable===true?'success':artifact.usable===false?'danger':'neutral'}>{t(artifact.usable===true?'releaseView.usable':artifact.usable===false?'releaseView.unusable':'releaseView.unchecked')}</Badge></div><p className="muted text-xs mt-3">{artifact.kind} · {formatBytes(artifact.size_bytes??0)}</p><p className="subtle text-xs mt-2 break-all">{artifact.content_hash}</p></Surface>)}
+        <Surface title={t('releaseView.upload')}><form className="form-stack" onSubmit={upload}>
+          <Field label={t('queue.kind')}><Select disabled={busy} value={kind} onChange={e=>setKind(e.target.value)}>{['sourcemap','dsym','proguard','srcbundle'].map(value=><option key={value}>{value}</option>)}</Select></Field>
+          <div><p className="field-label">{t('releaseView.file')}</p><p className="field-note">{t('releaseView.fileHint')}</p><FileInput key={fileEpoch} t={sharedT} number={(value,digits=0)=>value.toLocaleString(locale,{maximumFractionDigits:digits})} multiple={false} maxFiles={1} maxFileSize={255*1024*1024} preview={false} disabled={busy} onChange={files=>{setFile(files[0]??null);setReceipt(null);}}/></div>
+          <Button type="submit" variant="primary" busy={busy} disabled={!file}>{t('releaseView.upload')}</Button>
+          {failure&&<ErrorBanner reason={failure}>{t('releaseView.actionFailed')}</ErrorBanner>}
+          {receipt!==null&&<p role="status" className={receipt?'text-ok':'text-danger'}>{t(receipt?'releaseView.uploaded':'releaseView.uploadedInvalid')}</p>}
+        </form></Surface>
+        <ReleaseJobs projectId={projectId} releaseId={release.id} revision={jobRevision}/>
+      </div>
+    </Dialog>
+    <Dialog open={deleting} title={t('releases.deleteConfirm',{name:release.name})} closeLabel={t('common.close')} onClose={()=>{if(!busy)setDeleting(false);}} footer={<Button variant="danger" busy={busy} onClick={remove}>{t('releases.delete')}</Button>}><p>{t('releaseView.deleteHint')}</p>{failure&&<ErrorBanner reason={failure}>{t('releases.deleteFailed')}</ErrorBanner>}</Dialog>
+  </>;
 }
-
-function ReleaseRowView({
-  release,
-  projectId,
-  health,
-  onDeleted,
-}: {
-  release: ReleaseRow;
-  projectId: string;
-  health: null | { sessions: number; crashed: number };
-  onDeleted: () => void;
-}) {
-  const t = useT();
-  const [open, setOpen] = useState(false);
-  const [deleteError, setDeleteError] = useState<null | string>(null);
-  // Artifacts load with the row: the lights ARE the page — greying
-  // them out until a click would hide exactly the gap this screen
-  // exists to show.
-  const { data } = useAsyncData(
-    () => api.listArtifacts(projectId, release.id),
-    [release.id],
-  );
-  const artifacts = data?.artifacts ?? [];
-  // An artifact the server could not parse is not coverage. Counting
-  // it lit is how a Hermes bytecode bundle passed as a source map on
-  // two releases for months with a green light above it.
-  const kinds = new Set(
-    artifacts.filter((a) => a.usable !== false).map((a) => a.kind),
-  );
-  const unreadable = artifacts.filter((a) => a.usable === false);
-  // A kind can hold a good artifact and a broken one at once — which
-  // is exactly the shape that hid: the good map lights the row green
-  // and the bundle somebody uploaded beside it says nothing until the
-  // row is expanded. The light is the whole point of this screen, so
-  // it carries both facts.
-  const broken = new Set(unreadable.map((a) => a.kind));
-  const used = new Set(release.platforms ?? []);
-  const created = release.createdAt ?? release.created_at;
-
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-4 px-3.5 py-2 text-left hover:bg-raised/50"
-      >
-        <ChevronRight
-          aria-hidden
-          className={`h-3.5 w-3.5 shrink-0 text-fg-subtle transition-transform ${open ? 'rotate-90' : ''}`}
-        />
-        <span className="min-w-0 flex-1 truncate font-mono text-sm text-fg">
-          {release.name}
-        </span>
-        {/* A light is only a warning for a platform this release
-            actually hears from; the rest stay quiet furniture. */}
-        <Light
-          on={data ? kinds.has('sourcemap') : undefined}
-          warn={broken.has('sourcemap')}
-          label="js" used />
-        <Light
-          on={data ? kinds.has('dsym') : undefined}
-          warn={broken.has('dsym')}
-          label="ios"
-          used={used.has('ios')}
-        />
-        <Light
-          on={data ? kinds.has('proguard') : undefined}
-          warn={broken.has('proguard')}
-          label="android"
-          used={used.has('android')}
-        />
-        {/* Source bundles are an enhancement — they put the failing
-            line next to a native frame — so an absent one is never
-            red. It is still worth showing: it was uploaded by the
-            same pipeline step as the dSYM, and when that step stops
-            being called this is the other half of what goes with
-            it. */}
-        <Light
-          on={data ? kinds.has('srcbundle') : undefined}
-          warn={broken.has('srcbundle')}
-          label="src" />
-        <CrashFreeCell health={health} />
-        {created && (
-          <span className="w-16 text-right text-xs tabular-nums text-fg-subtle">
-            <TimeAgo iso={created} />
-          </span>
-        )}
-      </button>
-      {open && (
-        <div className="border-t border-border/60 bg-bg px-3.5 py-2.5 pl-10">
-          {artifacts.length === 0 ? (
-            <div className="text-xs text-fg-muted">
-              <p>{t('releases.noArtifacts')}</p>
-              <code className="mt-1.5 block rounded bg-surface p-2 font-mono text-xs">
-                sentori-cli upload sourcemap --release &quot;{release.name}
-                &quot; --token &lt;api-token&gt; &lt;map&gt;
-              </code>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {unreadable.length > 0 && (
-                <p className="mb-1.5 text-xs text-kind-error">
-                  {t('releases.unreadable', {
-                    names: unreadable.map((a) => a.name).join(', '),
-                  })}
-                </p>
-              )}
-              {artifacts.map((a) => (
-                <div key={a.id} className="flex gap-3 font-mono text-xs">
-                  <span className="w-20 text-fg-subtle">
-                    {a.kind}
-                    {a.usable === false && ' ✕'}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-fg-muted">{a.name}</span>
-                  {a.size_bytes !== undefined && (
-                    <span className="text-fg-subtle">{formatBytes(a.size_bytes)}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          {/* Deleting lives inside the expanded panel rather than on the
-              row: it cascades to every artifact above it, and a row in a
-              list is somewhere a click lands by accident. */}
-          <div className="mt-3 flex items-center gap-3 border-t border-border/60 pt-2.5">
-            <button
-              type="button"
-              className="text-xs text-danger underline hover:opacity-80"
-              onClick={() => {
-                if (
-                  !window.confirm(
-                    t('releases.deleteConfirm', { name: release.name }),
-                  )
-                ) {
-                  return;
-                }
-                setDeleteError(null);
-                void api.deleteRelease(release.id).then(onDeleted, (e: unknown) =>
-                  setDeleteError(formatApiError(e)),
-                );
-              }}
-            >
-              {t('releases.delete')}
-            </button>
-            {deleteError && (
-              <span className="text-xs text-danger">
-                {t('releases.deleteFailed')} {deleteError}
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** One symbolication light. `used` says whether this platform
- *  actually reports in the release: an absent artifact is red only
- *  then, and otherwise dims to furniture — three lights that go red
- *  regardless are noise, and noise buries the one that matters. */
-/**
- * Crash-free, for one release.
- *
- * A dash when no sessions arrived, never a percentage. "Nobody ran
- * this build" and "everyone who ran it was fine" are different facts,
- * and a release with no sessions reading 100% is the more comfortable
- * one — which is why it has to be the one this does not print.
- */
 function CrashFreeCell({ health }: { health: null | { sessions: number; crashed: number } }) {
   const t = useT();
   if (!health || health.sessions === 0) {
@@ -306,9 +137,10 @@ function Legend() {
     ['broken', t('releases.legendBroken')],
     ['missing', t('releases.legendMissing')],
     ['unused', t('releases.legendUnused')],
+    ['unknown', t('releaseView.unchecked')],
   ];
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/60 px-3.5 py-2 text-xs text-fg-subtle">
+    <div className="release-legend">
       <span className="text-fg-muted">{t('releases.legend')}</span>
       {items.map(([state, label]) => (
         <span key={state} className="flex items-center gap-1.5">
@@ -319,12 +151,6 @@ function Legend() {
           {label}
         </span>
       ))}
-      {/* Names the column below it. A bare percentage between four
-          coloured dots and a date is a number with no noun. */}
-      <span className="ml-auto w-20 shrink-0 text-right text-fg-muted">
-        {t('releases.crashFree')}
-      </span>
-      <span className="w-16 shrink-0" aria-hidden />
     </div>
   );
 }
@@ -355,7 +181,7 @@ function Light({
         used ? 'text-fg-muted' : 'text-fg-subtle/60'
       }`}
       title={
-        warn
+        on === undefined ? t('releaseView.unchecked') : warn
           ? t('releases.artifactBroken', { platform: label })
           : on === false && used
             ? t('releases.artifactMissing', { platform: label })

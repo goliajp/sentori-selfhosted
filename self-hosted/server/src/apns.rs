@@ -131,6 +131,7 @@ async fn do_send(
         },
     };
     let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .http2_prior_knowledge()
         .timeout(Duration::from_secs(15))
         .build()?;

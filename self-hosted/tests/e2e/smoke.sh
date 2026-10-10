@@ -69,6 +69,7 @@ SENTORI_OWNER_EMAIL=e2e@example.com
 SENTORI_BASE_URL=${BASE}
 SENTORI_PORT=${PORT}
 RUST_LOG=warn
+SENTORI_MASTER_KEY=$(openssl rand -hex 32)
 SENTORI_PG_IMAGE=${SENTORI_PG_IMAGE:-postgres:18-alpine}
 EOF
 
@@ -797,6 +798,12 @@ echo "→ a second credential of the same kind does not replace the first"
 # .p8 is the same shape as an APNs .p8. So the new one is staged, and
 # the one that sends keeps sending until somebody says otherwise.
 FIRST_ID="$(echo "$CREDS" | jq -r '.credentials[] | select(.kind == "apns") | .id')"
+echo "$CREDS" | jq -e '.credentials[] | select(.kind == "apns") | .active == false and .encrypted == true' >/dev/null
+# The test key has no provider account. Explicitly exercise the operator override;
+# new v5 credentials stay staged until verification or a reviewed override.
+curl -fsS -b "$JAR" -X POST "${BASE}/admin/api/projects/${PROJECT_ID}/push/credentials/${FIRST_ID}/activate" \
+    -H 'content-type: application/json' -d '{"force":true}' >/dev/null
+
 SECOND="$(jq -n --arg s "$P8" \
     '{provider:"apns",config:{keyId:"ZZZ9999999",teamId:"DEF7654321",topic:"com.example.app"},secret:$s,label:"rotation"}' \
     | curl -fsS -b "$JAR" -X POST "${BASE}/admin/api/projects/${PROJECT_ID}/push/credentials" \
@@ -870,7 +877,7 @@ echo "$LEFT" | jq -e '[.credentials[] | select(.kind == "apns")] | length == 1' 
 # credential: deleting the active one leaves the kind with none.
 curl -fsS -b "$JAR" -X POST \
     "${BASE}/admin/api/projects/${PROJECT_ID}/push/credentials/${FIRST_ID}/activate" \
-    -H 'content-type: application/json' -d '{}' >/dev/null
+    -H 'content-type: application/json' -d '{"force":true}' >/dev/null
 
 echo "→ register a device the way the SDK does"
 IPT="$(curl -fsS -X POST "${BASE}/v1/push/devices" -H "Authorization: Bearer ${TOKEN}" \
@@ -1591,5 +1598,14 @@ dbq "INSERT INTO delivery_log (id, channel, recipient, subject, status, created_
 RECOVERED="$(curl -fsS -b "$JAR" "${BASE}/admin/api/smtp")"
 echo "$RECOVERED" | grep -q '"healthy":true' \
     || { echo "a later success did not clear the unhealthy state: ${RECOVERED}" >&2; exit 1; }
+
+echo "→ packaged nonroot operator creates and independently verifies a full archive"
+docker compose --env-file "$ENV_FILE" exec -T sentori /usr/local/bin/sentori-operator \
+    keygen --out /data/smoke-recovery.key
+docker compose --env-file "$ENV_FILE" exec -T sentori /usr/local/bin/sentori-operator --quiet \
+    dump --out /data/smoke-recovery.sentori --blob-dir /data/blobs --key-file /data/smoke-recovery.key
+docker compose --env-file "$ENV_FILE" exec -T sentori /usr/local/bin/sentori-operator \
+    verify --from /data/smoke-recovery.sentori --key-file /data/smoke-recovery.key \
+    | jq -e '.header.mode == "disaster_recovery" and .tables.events.rows > 0 and .blob_bytes > 0' >/dev/null
 
 echo "✓ e2e smoke passed — project ${PROJECT_ID}, issue ${ISSUE_ID}"

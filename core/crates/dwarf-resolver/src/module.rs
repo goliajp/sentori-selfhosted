@@ -287,7 +287,7 @@ mod tests {
         let fx = synthetic_macho_with_dwarf();
         let module = DwarfModule::from_bytes(fx.bytes.clone()).expect("parse");
         let frames = module.resolve(fx.known_offset).expect("resolve");
-        assert!(!frames.is_empty(), "expected at least one frame");
+        assert_ne!(frames.len(), 0, "expected at least one frame");
         let leaf = &frames[0];
         assert_eq!(leaf.function.as_deref(), Some(fx.known_function));
         // addr2line joins the comp_dir + decl_file when resolving, so
@@ -310,7 +310,7 @@ mod tests {
         let fx = synthetic_macho_with_dwarf();
         let module = DwarfModule::from_bytes(fx.bytes).expect("parse");
         let frames = module.resolve(0xDEAD_BEEF_DEAD_BEEF).expect("resolve");
-        assert!(frames.is_empty());
+        assert_eq!(frames.len(), 0);
     }
 
     #[test]

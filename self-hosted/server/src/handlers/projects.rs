@@ -16,12 +16,14 @@ pub async fn list(
     Extension(ctx): Extension<SessionContext>,
 ) -> (StatusCode, Json<Value>) {
     let rows = if ctx.role.is_superadmin() {
-        sqlx::query("SELECT id, name, platform, created_at FROM projects ORDER BY created_at")
-            .fetch_all(&state.pool)
-            .await
+        sqlx::query(
+            "SELECT id, name, platform, created_at, version FROM projects ORDER BY created_at",
+        )
+        .fetch_all(&state.pool)
+        .await
     } else {
         sqlx::query(
-            "SELECT p.id, p.name, p.platform, p.created_at FROM projects p \
+            "SELECT p.id, p.name, p.platform, p.created_at, p.version FROM projects p \
              JOIN project_assignments pa ON pa.project_id = p.id \
              WHERE pa.user_id = $1 ORDER BY p.created_at",
         )
@@ -37,8 +39,9 @@ pub async fn list(
                     json!({
                         "id": r.get::<Uuid, _>("id"),
                         "name": r.get::<String, _>("name"),
-                        "platform": r.get::<String, _>("platform"),
+                        "platform": r.get::<Option<String>, _>("platform"),
                         "createdAt": crate::wire_time::rfc3339(r.get("created_at")),
+                        "version": r.get::<i64, _>("version"),
                     })
                 })
                 .collect();

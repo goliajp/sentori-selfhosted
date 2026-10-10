@@ -3,6 +3,7 @@
 // Run `node scripts/sync-native-core.mjs` after editing it.
 package com.sentori
 
+import android.content.Context
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -120,6 +121,20 @@ object SentoriTransport {
             Thread(r, "sentori-transport").apply { isDaemon = true }
         }
 
+    /** One-time startup I/O belongs to the same bounded transport worker. */
+    internal fun background(block: () -> Unit) {
+        worker.execute { try { block() } catch (_: Throwable) { /* silent SDK failure */ } }
+    }
+
+    internal fun startFromContext(context: Context?) {
+        synchronized(lock) { started = true }
+        background {
+            val directory = context?.let { File(it.filesDir, "sentori") }
+            synchronized(lock) { spillDir = directory }
+            drainPersisted()
+        }
+    }
+
     /** O(1) on the calling thread: append, maybe schedule. */
     @JvmStatic
     fun enqueue(event: Map<String, Any?>) {
@@ -192,14 +207,12 @@ object SentoriTransport {
             pending = null
         }
 
-        val envelope = mutableMapOf<String, Any?>("events" to events)
-        if (stats.isNotEmpty()) envelope["assertStats"] = stats
-        config.backendHealthUrl?.let { envelope["backendHealthUrl"] = it }
-        // Say so rather than let the gap look like quiet: a hole in a
-        // timeline otherwise reads as a calm period.
-        if (lost > 0) envelope["droppedEvents"] = lost
-
         worker.execute {
+            val resolved = events.map { Sentori.prepareEvent(it) }
+            val envelope = mutableMapOf<String, Any?>("events" to resolved)
+            if (stats.isNotEmpty()) envelope["assertStats"] = stats
+            config.backendHealthUrl?.let { envelope["backendHealthUrl"] = it }
+            if (lost > 0) envelope["droppedEvents"] = lost
             when (sendWithRetry(envelope, config)) {
                 Outcome.DELIVERED -> {
                     synchronized(lock) { delivered += events.size }
@@ -211,7 +224,7 @@ object SentoriTransport {
                 // Spilled, not lost: `drainPersisted` puts these back
                 // through this path on the next start with the same
                 // ids, so anything waiting on them keeps waiting.
-                else -> persist(events)
+                else -> persist(resolved)
             }
         }
     }
@@ -503,7 +516,7 @@ object SentoriTransport {
         }
     }
 
-    internal fun peekQueue(): List<Map<String, Any?>> = synchronized(lock) { queue.toList() }
+    internal fun peekQueue(): List<Map<String, Any?>> = synchronized(lock) { queue.toList() }.map { Sentori.prepareEvent(it) }
 
     internal fun peekAssertStats(): List<Map<String, Any?>> =
         synchronized(lock) { assertStats.values.map { it.toMap() } }

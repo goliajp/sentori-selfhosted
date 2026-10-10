@@ -1,6 +1,6 @@
 // sentori.init(config) — the single configuration entry point
 // Synchronous, never throws; a bad config degrades
-// every verb to a no-op with one console.warn, never a crash
+// every verb to a silent no-op, never a crash
 // (failure-isolation iron rule).
 
 import { safeFn, setInternalReporter, setLogLevel } from '@goliapkg/sentori-core';
@@ -35,13 +35,9 @@ export const init = safeFn('init', (config: InitConfig): void => {
   if (_initialized) return;
 
   if (!config || typeof config.token !== 'string' || config.token.length === 0) {
-    // eslint-disable-next-line no-console
-    console.warn('[sentori] init skipped: token missing — SDK is a no-op');
     return;
   }
   if (typeof config.ingestUrl !== 'string' || config.ingestUrl.length === 0) {
-    // eslint-disable-next-line no-console
-    console.warn('[sentori] init skipped: ingestUrl missing — SDK is a no-op');
     return;
   }
 
@@ -65,7 +61,7 @@ export const init = safeFn('init', (config: InitConfig): void => {
     backendHealthUrl: config.backendHealthUrl,
     beforeSend: config.beforeSend,
   });
-  setLogLevel(config.logLevel ?? 'warn');
+  setLogLevel(config.logLevel);
   // Core catches its own faults and hands them here. Until now the
   // setter existed, was exported, and was called by nobody, so a
   // failure inside a public verb reached the host's console and

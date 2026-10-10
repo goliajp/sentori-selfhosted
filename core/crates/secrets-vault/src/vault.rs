@@ -210,7 +210,7 @@ mod tests {
     fn round_trip_empty_payload() {
         let v = vault("master-v1");
         let sealed = v.seal(b"").expect("seal");
-        assert!(v.open(&sealed).expect("open").is_empty());
+        assert_eq!(v.open(&sealed).expect("open").len(), 0);
     }
 
     #[test]

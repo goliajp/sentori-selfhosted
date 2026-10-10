@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sentori",
-    "version": "4.1.1",
+    "version": "5.1.0",
     "summary": "Self-hosted crash and error reporting for mobile apps.",
     "description": "Its own wire protocol — not Sentry-compatible, and there is no DSN. Generated from the router by scripts/gen-openapi.mjs; the path list cannot drift from the server."
   },
@@ -735,6 +735,122 @@
         }
       }
     },
+    "/v1/push/send": {
+      "post": {
+        "summary": "Queue one push using the legacy Insight request format",
+        "description": "Compatibility route. Requires an api-scope project token. Accepts a bare device UUID or its historical ipt_ spelling; returns per-device delivery tickets. New integrations should use /v1/push/sends.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "to"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "to": {
+                    "type": "string",
+                    "description": "One device UUID, optionally prefixed with ipt_."
+                  },
+                  "title": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "body": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "data": {
+                    "description": "Application JSON payload; preserved unchanged."
+                  },
+                  "idempotencyKey": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "campaignId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "templateId": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Queued, not delivered. A deduplicated retry returns no new tickets.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "tickets"
+                  ],
+                  "properties": {
+                    "tickets": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "status"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "description": "Delivery ID, not a batch sendId."
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "queued"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed, missing, revoked or foreign-project device address."
+          },
+          "401": {
+            "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "An api-scope project token is required."
+          },
+          "422": {
+            "description": "Invalid request shape or unsupported legacy options. Plain-text body."
+          },
+          "500": {
+            "description": "Queue persistence failed; no success ticket is returned."
+          }
+        }
+      }
+    },
     "/v1/push/sends": {
       "post": {
         "summary": "POST /v1/push/sends",
@@ -770,6 +886,38 @@
     "/v1/push/sends/{send_id}/deliveries": {
       "get": {
         "summary": "GET /v1/push/sends/{send_id}/deliveries",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/tokens": {
+      "post": {
+        "summary": "POST /v1/push/tokens",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/push/tokens/{handle}": {
+      "delete": {
+        "summary": "DELETE /v1/push/tokens/{handle}",
         "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
         "security": [
           {
@@ -827,6 +975,106 @@
         "responses": {
           "default": {
             "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/v1/transfer-proof": {
+      "post": {
+        "summary": "Verify an activated migration target for old-client forwarding",
+        "description": "Requires a newly issued ingestion token for a mapped target project. Returns only the migration binding; grants no administrative access.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "transferId"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "transferId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Activated target binding",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "transferId",
+                    "instanceId",
+                    "generation",
+                    "projectId",
+                    "archiveId",
+                    "state",
+                    "eventVerified"
+                  ],
+                  "properties": {
+                    "transferId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "instanceId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "generation": {
+                      "type": "integer"
+                    },
+                    "projectId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "archiveId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "active",
+                        "observing",
+                        "completed"
+                      ]
+                    },
+                    "eventVerified": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "An ingestion token is required."
+          },
+          "409": {
+            "description": "The requested migration is not active for this token and project."
           }
         }
       }

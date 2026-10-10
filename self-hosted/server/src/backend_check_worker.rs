@@ -7,10 +7,10 @@
 //! day of results — the project health endpoint turns that into an
 //! uptime figure.
 //!
-//! The URL is owner-configured on a self-hosted, single-tenant
-//! instance; the probe is a plain GET with a hard timeout and no
-//! body retention.
+//! SDK-supplied URLs are untrusted. Public egress validation applies to
+//! every DNS answer and redirect; no ambient proxy or private target is allowed.
 
+use futures::{StreamExt, stream};
 use sqlx::{PgPool, Row};
 use std::time::{Duration, Instant};
 use tracing::{debug, warn};
@@ -21,59 +21,50 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn spawn(pool: PgPool) {
     tokio::spawn(async move {
-        let client = match reqwest::Client::builder()
-            .timeout(PROBE_TIMEOUT)
-            .user_agent("sentori-backend-check")
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                warn!(error = %e, "backend check client build failed — probes disabled");
-                return;
-            }
-        };
         loop {
-            run_cycle(&pool, &client).await;
+            run_cycle(&pool).await;
             tokio::time::sleep(INTERVAL).await;
         }
     });
 }
 
-async fn run_cycle(pool: &PgPool, client: &reqwest::Client) {
+async fn run_cycle(pool: &PgPool) {
     let rows = sqlx::query(
-        "SELECT id, backend_health_url FROM projects WHERE backend_health_url IS NOT NULL",
+        "SELECT p.id,p.backend_health_url FROM projects p LEFT JOIN LATERAL \
+         (SELECT checked_at FROM backend_checks WHERE project_id=p.id ORDER BY checked_at DESC LIMIT 1) c ON true \
+         WHERE p.backend_health_url IS NOT NULL AND (c.checked_at IS NULL OR c.checked_at < now()-interval '1 minute') \
+         ORDER BY c.checked_at NULLS FIRST,p.id LIMIT 32",
     )
     .fetch_all(pool)
     .await
     .unwrap_or_default();
-    for r in rows {
-        let project_id: Uuid = r.get("id");
-        let url: String = r.get("backend_health_url");
-        let started = Instant::now();
-        let outcome = client.get(&url).send().await;
-        let latency = i32::try_from(started.elapsed().as_millis()).unwrap_or(i32::MAX);
-        let (ok, status) = match outcome {
-            Ok(resp) => {
-                let code = resp.status();
-                (code.is_success(), Some(i32::from(code.as_u16())))
-            }
-            Err(_) => (false, None),
-        };
-        let write = sqlx::query(
-            "INSERT INTO backend_checks (project_id, ok, status_code, latency_ms) \
+    stream::iter(rows)
+        .for_each_concurrent(4, |r| async move {
+            let project_id: Uuid = r.get("id");
+            let url: String = r.get("backend_health_url");
+            let started = Instant::now();
+            let outcome = crate::public_http::probe(&url, PROBE_TIMEOUT).await;
+            let latency = i32::try_from(started.elapsed().as_millis()).unwrap_or(i32::MAX);
+            let (ok, status) = match outcome {
+                Ok(code) => ((200..300).contains(&code), Some(i32::from(code))),
+                Err(_) => (false, None),
+            };
+            let write = sqlx::query(
+                "INSERT INTO backend_checks (project_id, ok, status_code, latency_ms) \
              VALUES ($1, $2, $3, $4)",
-        )
-        .bind(project_id)
-        .bind(ok)
-        .bind(status)
-        .bind(latency)
-        .execute(pool)
+            )
+            .bind(project_id)
+            .bind(ok)
+            .bind(status)
+            .bind(latency)
+            .execute(pool)
+            .await;
+            if let Err(e) = write {
+                warn!(%project_id, error = %e, "backend check write failed");
+            }
+            debug!(%project_id, ok, latency, "backend check");
+        })
         .await;
-        if let Err(e) = write {
-            warn!(%project_id, error = %e, "backend check write failed");
-        }
-        debug!(%project_id, ok, latency, "backend check");
-    }
     // One rolling day is the whole retention story.
     let _ =
         sqlx::query("DELETE FROM backend_checks WHERE checked_at < now() - interval '24 hours'")

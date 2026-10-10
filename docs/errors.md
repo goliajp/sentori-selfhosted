@@ -20,16 +20,17 @@ change without notice.
 | `error` | Sent by |
 |---|---|
 | `admin_token_required` | mod.rs |
-| `bad_target` | count.rs, send.rs |
+| `bad_target` | count.rs, legacy.rs, send.rs |
 | `batch_too_large` | events_batch.rs |
 | `blob_store_failed` | events_attachments.rs |
 | `delivery_not_found` | receipt.rs |
 | `device_token_not_found` | subscribe_topic.rs |
+| `device_token_not_found_or_revoked` | send.rs |
 | `empty_file` | events_attachments.rs |
 | `ingest_failed` | events.rs, events_batch.rs |
-| `internal` | ack.rs, batch.rs, count.rs, deploys.rs, events_attachments.rs, get_preferences.rs, put_preference.rs, receipt.rs, register_token.rs, revoke_token.rs, send.rs, subscribe_topic.rs, unsubscribe_topic.rs |
+| `internal` | ack.rs, batch.rs, count.rs, deploys.rs, get_preferences.rs, legacy.rs, put_preference.rs, receipt.rs, register_token.rs, revoke_token.rs, send.rs, subscribe_topic.rs, unsubscribe_topic.rs |
 | `invalid_fp_hex` | get_preferences.rs, put_preference.rs |
-| `invalid_kind` | events_attachments.rs, register_token.rs |
+| `invalid_kind` | events_attachments.rs, legacy.rs, register_token.rs |
 | `invalid_multipart` | events_attachments.rs |
 | `invalid_payload` | events.rs, events_batch.rs, events_validate.rs |
 | `invalid_source` | events_attachments.rs |

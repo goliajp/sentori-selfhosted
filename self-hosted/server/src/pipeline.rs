@@ -41,7 +41,7 @@ use uuid::Uuid;
 
 /// The five kinds. The enum IS the concept model — no severity
 /// dimension anywhere.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     Error,
@@ -105,6 +105,8 @@ pub struct IngestOutcome {
 
 #[derive(Debug, thiserror::Error)]
 pub enum IngestError {
+    #[error("Cloud quota: {0}")]
+    Quota(#[from] crate::cloud_quota::Error),
     #[error("db: {0}")]
     Db(#[from] sqlx::Error),
     #[error("invalid event: {0}")]
@@ -255,11 +257,18 @@ const SELECT_ISSUE: &str = "SELECT id, status, resolved_in_release, resolved_at 
 // One transaction, one narrative: splitting the steps into helpers
 // would hide the ordering the row locks depend on.
 #[allow(clippy::too_many_lines)]
-pub async fn ingest(pool: &PgPool, ev: IncomingEvent) -> Result<IngestOutcome, IngestError> {
+pub async fn ingest(
+    pool: &PgPool,
+    ev: IncomingEvent,
+    cloud: bool,
+) -> Result<IngestOutcome, IngestError> {
     let (group_title, message_sample, fp_input) = group_identity(&ev)?;
     let fingerprint = compute_fingerprint(&ev.environment, &ev.platform, &fp_input);
 
     let mut tx = pool.begin().await?;
+    if cloud {
+        crate::cloud_quota::event(&mut tx, ev.id).await?;
+    }
 
     // Lock-or-create the issue row.
     //
@@ -345,6 +354,7 @@ pub async fn ingest(pool: &PgPool, ev: IncomingEvent) -> Result<IngestOutcome, I
                 )
                 .await?;
             if regress {
+                crate::team::regress(&mut tx, id).await?;
                 sqlx::query(
                     "UPDATE issues SET status = 'open', regressed_at = now(), \
                      regressed_in_release = $2, last_seen = $3, \
@@ -524,6 +534,15 @@ pub async fn ingest(pool: &PgPool, ev: IncomingEvent) -> Result<IngestOutcome, I
             .execute(&mut *tx)
             .await?;
             if flipped.rows_affected() > 0 {
+                crate::team::regress(&mut tx, guarded_issue).await?;
+                crate::notification_queue::issue(
+                    &mut tx,
+                    ev.project_id,
+                    guarded_issue,
+                    ev.id,
+                    false,
+                )
+                .await?;
                 sqlx::query(
                     "INSERT INTO issue_activity (id, issue_id, kind, body) \
                      VALUES ($1, $2, 'regression', $3)",
@@ -541,6 +560,18 @@ pub async fn ingest(pool: &PgPool, ev: IncomingEvent) -> Result<IngestOutcome, I
         }
     }
 
+    // Only a newly accepted live event can establish migration cutover evidence.
+    // Imported receipt timestamps may be ahead because of source clock drift;
+    // historical rows and duplicate SDK retries must never verify a cutover.
+    // If retention/deletion removes an unverified receipt, the next live event
+    // replaces it; otherwise verification would remain impossible forever.
+    sqlx::query("UPDATE project_transfers t SET observed_events=t.observed_events || jsonb_build_object(m.key,$2::text) FROM project_transfers source CROSS JOIN LATERAL jsonb_each_text(source.project_mapping) m WHERE t.id=source.id AND t.direction='target' AND t.state IN ('active','observing') AND m.value=$1::text AND (NOT (t.observed_events ? m.key) OR (NOT (t.verified_events ? m.key) AND NOT EXISTS(SELECT 1 FROM events proof WHERE proof.project_id=$1 AND proof.id::text=t.observed_events->>m.key)))")
+        .bind(ev.project_id).bind(ev.id).execute(&mut *tx).await?;
+
+    if is_new_issue || regressed {
+        crate::notification_queue::issue(&mut tx, ev.project_id, issue_id, ev.id, is_new_issue)
+            .await?;
+    }
     tx.commit().await?;
     Ok(IngestOutcome {
         event_id: ev.id,
@@ -592,7 +623,7 @@ async fn is_regression(
 
 /// Batch-envelope assert aggregates: passes are
 /// counted client-side and shipped as totals, never as events.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AssertStat {
     pub name: String,

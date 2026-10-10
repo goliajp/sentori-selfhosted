@@ -34,11 +34,13 @@ class SentoriCrashHandlerTest {
         pendingDir = File(ctx.filesDir, "sentori/pending")
         pendingDir.deleteRecursively()
         pendingDir.mkdirs()
+        SentoriCrashHandler.setConfig(mapOf("release" to "cold-start@1", "environment" to "test"))
         SentoriCrashHandler.installForTesting(ctx)
     }
 
     @After
     fun tearDown() {
+        SentoriCrashHandler.setConfig(emptyMap())
         pendingDir.deleteRecursively()
     }
 
@@ -54,6 +56,8 @@ class SentoriCrashHandlerTest {
         val payload = JSONObject(files[0].readText())
         assertEquals("error", payload.getString("kind"))
         assertEquals("android", payload.getString("platform"))
+        assertEquals("cold-start@1", payload.getString("release"))
+        assertEquals("test", payload.getString("environment"))
         assertNotNull(payload.getString("id"))
         assertNotNull(payload.getString("timestamp"))
         val error = payload.getJSONObject("error")

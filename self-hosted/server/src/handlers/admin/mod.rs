@@ -7,6 +7,7 @@
 
 pub mod projects;
 pub mod push_audience;
+pub mod push_commands;
 pub mod push_credentials;
 pub mod push_devices;
 pub mod push_readiness;

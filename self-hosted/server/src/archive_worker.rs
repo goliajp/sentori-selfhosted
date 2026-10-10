@@ -50,16 +50,20 @@ use tracing::{info, warn};
 
 use crate::blob_store::AttachmentStore;
 
-pub fn spawn(pool: PgPool, attachments: AttachmentStore) {
-    if !env_enabled() {
+pub fn spawn(pool: PgPool, attachments: AttachmentStore, cloud: bool) {
+    if !cloud && !env_enabled() {
         info!("archive worker disabled via SENTORI_ARCHIVE_WORKER_ENABLED");
         return;
     }
-    let interval = env_interval();
+    let interval = if cloud {
+        env_interval().clamp(Duration::from_secs(1), Duration::from_secs(3600))
+    } else {
+        env_interval()
+    };
     let sent_days = env_sent_days();
     let failed_days = env_failed_days();
-    let keep_releases = env_keep_releases();
-    let event_days = env_event_retention_days();
+    let keep_releases = if cloud { 0 } else { env_keep_releases() };
+    let event_days = if cloud { 0 } else { env_event_retention_days() };
     tokio::spawn(async move {
         info!(
             interval_sec = interval.as_secs(),
@@ -95,7 +99,7 @@ pub fn spawn(pool: PgPool, attachments: AttachmentStore) {
                     Err(e) => warn!(error = %e, "event retention pass failed"),
                 }
             }
-            if keep_releases > 0 || event_days > 0 {
+            if cloud || keep_releases > 0 || event_days > 0 {
                 match gc_orphan_blobs(&pool, &attachments).await {
                     Ok((deleted, kept)) => info!(deleted, kept, "orphan blob gc pass"),
                     Err(e) => warn!(error = %e, "orphan blob gc pass failed"),
@@ -112,7 +116,7 @@ pub fn spawn(pool: PgPool, attachments: AttachmentStore) {
 /// for [`gc_orphan_blobs`] to reap on the same pass.
 async fn prune_release_artifacts(pool: &PgPool, keep: i64) -> Result<u64, sqlx::Error> {
     let rows = sqlx::query(
-        "DELETE FROM release_artifacts WHERE release_id IN (             SELECT id FROM (                 SELECT id, row_number() OVER (                     PARTITION BY project_id ORDER BY created_at DESC                 ) AS rn FROM releases             ) ranked WHERE ranked.rn > $1          )",
+        "DELETE FROM release_artifacts WHERE release_id IN (SELECT id FROM (SELECT r.id, row_number() OVER (PARTITION BY r.project_id ORDER BY r.created_at DESC) AS rn FROM releases r JOIN projects p ON p.id=r.project_id WHERE p.migration_fence IS NULL) ranked WHERE ranked.rn > $1)",
     )
     .bind(keep)
     .execute(pool)
@@ -132,15 +136,23 @@ async fn gc_orphan_blobs(
     pool: &PgPool,
     attachments: &AttachmentStore,
 ) -> Result<(u64, u64), Box<dyn std::error::Error + Send + Sync>> {
+    // A complete backup holds the shared counterpart from before its database
+    // snapshot until the last referenced blob is copied. Metadata retention can
+    // continue, but physical bytes must survive that snapshot's lifetime.
+    let mut guard = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(sentori_snapshot::BLOB_GC_LOCK)
+        .execute(&mut *guard)
+        .await?;
     let mut referenced: HashSet<String> = HashSet::new();
     for row in sqlx::query("SELECT content_hash FROM release_artifacts")
-        .fetch_all(pool)
+        .fetch_all(&mut *guard)
         .await?
     {
         referenced.insert(row.get::<String, _>(0));
     }
     for row in sqlx::query("SELECT blob_hash FROM event_attachments")
-        .fetch_all(pool)
+        .fetch_all(&mut *guard)
         .await?
     {
         referenced.insert(row.get::<String, _>(0));
@@ -179,7 +191,7 @@ async fn gc_orphan_blobs(
                        AND NOT EXISTS (SELECT 1 FROM release_artifacts WHERE content_hash = $1)",
         )
         .bind(&hex)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *guard)
         .await?;
         if still_orphan.is_none() {
             kept += 1;
@@ -191,22 +203,50 @@ async fn gc_orphan_blobs(
             Err(e) => warn!(hash = %hex, error = %e, "orphan blob delete failed"),
         }
     }
+    guard.commit().await?;
     Ok((deleted, kept))
 }
 
-/// Events (and their attachment rows) older than the window, in
-/// batches so the first pass over a long backlog cannot hold a
-/// giant delete transaction. `event_attachments.event_id` carries
-/// no FK, so the rows go explicitly, attachments before events.
-/// Issue aggregates are denormalized and survive; the attachment
-/// blobs become orphans for [`gc_orphan_blobs`] on the same pass.
+/// Sweep one isolated Cloud workspace using its verified retention policy.
+/// The caller already holds the entitlement row lock shared by admission.
+pub(crate) async fn prune_cloud(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    event_days: i64,
+    replay_days: i64,
+) -> Result<(), sqlx::Error> {
+    // Use the same lock order as admission, including replay deduplication.
+    // Bounded batches; clocks supplied by devices cannot extend retention.
+    let ids:Vec<uuid::Uuid>=sqlx::query_scalar("SELECT e.id FROM events e JOIN projects p ON p.id=e.project_id WHERE p.migration_fence IS NULL AND e.received_at<now()-$1::bigint*interval '1 day' ORDER BY e.received_at LIMIT 5000 FOR UPDATE OF e SKIP LOCKED")
+        .bind(event_days).fetch_all(&mut **tx).await?;
+    sqlx::query("DELETE FROM event_attachments a USING events e WHERE a.event_id=e.id AND a.project_id=e.project_id AND e.id=ANY($1)")
+        .bind(&ids)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM events WHERE id=ANY($1)")
+        .bind(&ids)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM event_attachments WHERE ref IN (SELECT a.ref FROM event_attachments a JOIN projects p ON p.id=a.project_id WHERE p.migration_fence IS NULL AND (a.received_at<now()-$1::bigint*interval '1 day' OR (a.kind IN ('replay','screens') AND a.received_at<now()-$2::bigint*interval '1 day')) LIMIT 5000)")
+        .bind(event_days).bind(replay_days).execute(&mut **tx).await?;
+    sqlx::query("DELETE FROM sessions WHERE id IN (SELECT s.id FROM sessions s JOIN projects p ON p.id=s.project_id WHERE p.migration_fence IS NULL AND s.received_at<now()-$1::bigint*interval '1 day' LIMIT 5000)")
+        .bind(event_days).execute(&mut **tx).await?;
+    sqlx::query("DELETE FROM cloud_replay_usage WHERE (project_id,event_id) IN (SELECT u.project_id,u.event_id FROM cloud_replay_usage u WHERE u.created_at<now()-$1::bigint*interval '1 day' AND NOT EXISTS(SELECT 1 FROM events e WHERE e.id=u.event_id AND e.project_id=u.project_id) AND NOT EXISTS(SELECT 1 FROM event_attachments a WHERE a.event_id=u.event_id AND a.project_id=u.project_id) LIMIT 5000)")
+        .bind(event_days).execute(&mut **tx).await?;
+    sqlx::query("DELETE FROM cloud_second_usage WHERE second<now()-interval '2 minutes'")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Remove old events and their same-project attachments in bounded batches.
+/// Attachment event IDs have no FK and must not match another project's event.
 async fn prune_old_events(pool: &PgPool, days: i64) -> Result<(u64, u64), sqlx::Error> {
     const BATCH: i64 = 5_000;
     let mut events_total = 0u64;
     let mut atts_total = 0u64;
     loop {
         let ids: Vec<uuid::Uuid> = sqlx::query_scalar(
-            "SELECT id FROM events              WHERE received_at < now() - ($1 || ' days')::interval              LIMIT $2",
+            "SELECT e.id FROM events e JOIN projects p ON p.id=e.project_id WHERE p.migration_fence IS NULL AND e.received_at < now() - ($1 || ' days')::interval LIMIT $2",
         )
         .bind(days)
         .bind(BATCH)
@@ -215,7 +255,7 @@ async fn prune_old_events(pool: &PgPool, days: i64) -> Result<(u64, u64), sqlx::
         if ids.is_empty() {
             break;
         }
-        atts_total += sqlx::query("DELETE FROM event_attachments WHERE event_id = ANY($1)")
+        atts_total += sqlx::query("DELETE FROM event_attachments a USING events e WHERE a.event_id=e.id AND a.project_id=e.project_id AND e.id=ANY($1)")
             .bind(&ids)
             .execute(pool)
             .await?

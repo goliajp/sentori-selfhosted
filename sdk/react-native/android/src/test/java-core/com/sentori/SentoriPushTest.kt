@@ -772,5 +772,6 @@ class SentoriPushTest {
         // it down, nothing after it ever runs.
         SentoriPush.register(ctx, activity = null, timeoutMs = 200) { second.countDown() }
         assertTrue("the worker did not survive a throwing completion", second.await(30, TimeUnit.SECONDS))
+        assertTrue("SDK failures must not write host logs", org.robolectric.shadows.ShadowLog.getLogsForTag("sentori").isEmpty())
     }
 }

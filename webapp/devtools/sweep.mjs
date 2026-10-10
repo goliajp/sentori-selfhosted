@@ -18,6 +18,7 @@ const I = '019f85ee-ae41-77f1-bbf9-97d310663c9a';
 
 const ROUTES = [
   '', `issues/${I}`, 'instruments', 'releases', 'projects',
+  'setup', 'setup?new=1', 'welcome', 'demo', 'pricing',
   // Settings sections are URL-driven, so each one is reachable here.
   // They were not, and four admin screens went unrendered for months.
   // The docs site, which is public and outside the authenticated
@@ -134,6 +135,11 @@ const cmd = (method, params = {}) =>
 
 await cmd('Page.enable');
 await cmd('Runtime.enable');
+// Chrome's window-size has a minimum desktop width. Use the actual
+// viewport so a requested 390px sweep really exercises a phone layout.
+await cmd('Emulation.setDeviceMetricsOverride', {
+  width: Number(width), height: 900, deviceScaleFactor: 1, mobile: Number(width) < 600,
+});
 
 // Theme lives in localStorage; set it once on the origin, then reload.
 await cmd('Page.navigate', { url: `${BASE}/` });
@@ -154,6 +160,19 @@ for (const r of ROUTES) {
   if (OPEN_ALL[r]) {
     await cmd('Runtime.evaluate', { expression: OPEN_ALL[r] });
     await new Promise(res => setTimeout(res, 700));
+  }
+  if (r.startsWith('issues/')) {
+    const layout = await cmd('Runtime.evaluate', {
+      expression: `(() => {
+        const pane = document.querySelector('[data-evidence-code]');
+        if (!pane) return 'source panel is missing';
+        const box = pane.getBoundingClientRect();
+        return box.width < 200 || box.left >= innerWidth || box.right <= 0
+          ? 'source panel is outside the usable viewport' : '';
+      })()`,
+      returnByValue: true,
+    });
+    if (layout?.result?.value) logs.push(layout.result.value);
   }
   const name = (r || 'triage').replace(I, 'I').replace(/[^\w.-]+/g, '-');
   const shot = await cmd('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });

@@ -36,8 +36,10 @@ expect_used = "warn"
 panic = "warn"
 
 [dependencies]
+sentori-snapshot = { path = "../snapshot" }
 clap = { version = "4", features = ["derive", "env"] }
-sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "uuid", "time", "json"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "uuid", "time", "json", "migrate", "macros"] }
+hex = "0.4"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-util", "io-std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -36,7 +36,7 @@ use uuid::Uuid;
 use crate::pipeline::{self, IncomingEvent, Kind};
 use crate::state::AppState;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WireEvent {
     #[serde(default)]
@@ -206,6 +206,9 @@ pub async fn handle(
     State(state): State<Arc<AppState>>,
     Json(wire): Json<WireEvent>,
 ) -> (StatusCode, Json<Value>) {
+    if let Err(error) = crate::cloud_quota::payload(&state, &wire).await {
+        return error.reply();
+    }
     let ev = match prepare(&state, ctx.project_id, wire).await {
         Ok(e) => e,
         Err(msg) => {
@@ -228,19 +231,12 @@ pub async fn handle(
         timestamp: ev.occurred_at,
     };
 
-    match pipeline::ingest(&state.pool, ev).await {
+    match pipeline::ingest(&state.pool, ev, state.cloud.is_some()).await {
         Ok(outcome) => {
             let _ = state.events_bus.send(crate::state::RecentEventTick {
                 issue_id: outcome.issue_id,
                 ..tick
             });
-            crate::notify::spawn_issue_notification(
-                &state,
-                ctx.project_id,
-                outcome.issue_id,
-                outcome.is_new_issue,
-                outcome.regressed,
-            );
             state.ingest_counters.accepted();
             (
                 StatusCode::ACCEPTED,
@@ -251,6 +247,10 @@ pub async fn handle(
                     "regressed": outcome.regressed,
                 })),
             )
+        }
+        Err(pipeline::IngestError::Quota(error)) => {
+            state.ingest_counters.rejected();
+            error.reply()
         }
         Err(pipeline::IngestError::Invalid(msg)) => {
             state.ingest_counters.rejected();

@@ -33,50 +33,83 @@ pub struct CreateBody {
     pub platform: Option<String>,
 }
 
+type Reply = (StatusCode, Json<Value>);
+type ProjectDetailRow = (
+    String,
+    Option<String>,
+    time::OffsetDateTime,
+    Option<String>,
+    i64,
+    Option<Vec<u8>>,
+);
+
+fn failure(error: &sqlx::Error) -> Reply {
+    warn!(%error, "project transaction failed");
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({"error": "internal"})),
+    )
+}
+
+fn validate(name: Option<&str>, platform: Option<&str>) -> Result<(), Reply> {
+    if name.is_some_and(|name| name.trim().is_empty() || name.trim().chars().count() > 200) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid_project_name"})),
+        ));
+    }
+    if platform.is_some_and(|platform| platform.trim().chars().count() > 80) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid_platform"})),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn create(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Json(body): Json<CreateBody>,
-) -> (StatusCode, Json<Value>) {
-    if let Err(e) = superadmin_only(&ctx) {
-        return e;
-    }
+) -> Result<Reply, Reply> {
+    superadmin_only(&ctx)?;
+    validate(Some(&body.name), body.platform.as_deref())?;
     let id = Uuid::now_v7();
-    // Absent, not invented. This defaulted to `react-native`, so a
-    // project created without one advertised a stack it might have
-    // nothing to do with — on the projects page, as a badge.
-    let platform = body.platform;
-    match sqlx::query("INSERT INTO projects (id, name, platform) VALUES ($1, $2, $3)")
-        .bind(id)
-        .bind(&body.name)
-        .bind(&platform)
-        .execute(&state.pool)
-        .await
-    {
-        Ok(_) => {
-            crate::audit::record(
-                &state.pool,
-                Some(id),
-                ctx.user_id,
-                "project.create",
-                "project",
-                &id.to_string(),
-                json!({ "name": body.name }),
-            )
-            .await;
-            (
-                StatusCode::CREATED,
-                Json(json!({ "id": id, "name": body.name, "platform": platform })),
-            )
-        }
-        Err(e) => {
-            warn!(error = %e, "project create failed");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal" })),
-            )
-        }
+    let name = body.name.trim();
+    let platform = body
+        .platform
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mut tx = state.pool.begin().await.map_err(|error| failure(&error))?;
+    if state.cloud.is_some() {
+        crate::cloud_quota::project(&mut tx)
+            .await
+            .map_err(|error| error.reply())?;
     }
+    sqlx::query("INSERT INTO projects (id, name, platform) VALUES ($1, $2, $3)")
+        .bind(id)
+        .bind(name)
+        .bind(platform)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| failure(&error))?;
+    crate::audit::record_in_transaction(
+        &mut tx,
+        Some(id),
+        ctx.user_id,
+        "project.create",
+        "project",
+        &id.to_string(),
+        json!({"name": name}),
+    )
+    .await
+    .map_err(|error| failure(&error))?;
+    tx.commit().await.map_err(|error| failure(&error))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({"id": id, "name": name, "platform": platform, "version": 1})),
+    ))
 }
 
 pub async fn get(
@@ -87,21 +120,22 @@ pub async fn get(
     if let Err(e) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
         return e;
     }
-    let row: Option<(String, String, time::OffsetDateTime, Option<String>)> = sqlx::query_as(
-        "SELECT name, platform, created_at, webhook_url FROM projects WHERE id = $1",
+    let row: Option<ProjectDetailRow> = sqlx::query_as(
+        "SELECT name, platform, created_at, webhook_url, version, webhook_secret_blob FROM projects WHERE id = $1",
     )
     .bind(project_id)
     .fetch_optional(&state.pool)
     .await
     .unwrap_or(None);
     match row {
-        Some((name, platform, created_at, webhook_url)) => (
+        Some((name, platform, created_at, webhook_url, version, blob)) => (
             StatusCode::OK,
             Json(json!({
                 "id": project_id,
                 "name": name,
                 "platform": platform,
                 "createdAt": crate::wire_time::rfc3339(created_at),
+                "version": version,
                 // Only to whoever can set it. This route is not
                 // superadmin-only — an admin assigned to the project
                 // reaches it — and the URL is a secret in the same way
@@ -111,7 +145,10 @@ pub async fn get(
                 //
                 // I wrote the opposite here first, in a comment
                 // claiming the route was superadmin-only. It is not.
-                "webhookUrl": if ctx.role.is_superadmin() { webhook_url } else { None },
+                "webhookConfigured": webhook_url.is_some() || blob.is_some(),
+                "webhookUrl": if ctx.role.is_superadmin() {
+                    blob.as_ref().and_then(|bytes|state.vault.as_ref().and_then(|vault|crate::integrations::open(vault,project_id,"legacy_webhook",bytes).ok().map(|s|s.endpoint))).or(webhook_url)
+                } else { None },
             })),
         ),
         None => (
@@ -128,6 +165,7 @@ pub async fn get(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateBody {
+    pub expected_version: Option<i64>,
     pub name: Option<String>,
     pub platform: Option<String>,
     /// Where issue alerts also go. Empty string clears it — absent and
@@ -136,111 +174,133 @@ pub struct UpdateBody {
     pub webhook_url: Option<String>,
 }
 
+async fn stale_or_missing(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, id: Uuid) -> Reply {
+    match sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM projects WHERE id = $1)")
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+    {
+        Ok(true) => (
+            StatusCode::CONFLICT,
+            Json(json!({"error": "project_changed"})),
+        ),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "project_not_found"})),
+        ),
+        Err(error) => failure(&error),
+    }
+}
+
 pub async fn update(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Path(project_id): Path<Uuid>,
     Json(body): Json<UpdateBody>,
-) -> (StatusCode, Json<Value>) {
-    if let Err(e) = superadmin_only(&ctx) {
-        return e;
-    }
-    // An empty string clears the column rather than storing "".
-    // `notify` treats a blank URL as absent anyway, but a NULL is the
-    // honest way to say "no channel" and it keeps the two states from
-    // diverging.
-    let webhook = body.webhook_url.as_deref().map(|u| {
-        if u.trim().is_empty() {
-            None
-        } else {
-            Some(u.trim())
-        }
+) -> Result<Reply, Reply> {
+    superadmin_only(&ctx)?;
+    validate(body.name.as_deref(), body.platform.as_deref())?;
+    let webhook = body.webhook_url.as_deref().map(|value| {
+        let value = value.trim();
+        if value.is_empty() { None } else { Some(value) }
     });
-    let r = sqlx::query(
-        "UPDATE projects SET name = COALESCE($2, name), platform = COALESCE($3, platform), \
-                webhook_url = CASE WHEN $5 THEN $4 ELSE webhook_url END \
-         WHERE id = $1",
+    let sealed = if let Some(Some(endpoint)) = webhook {
+        crate::public_http::parse(endpoint)
+            .map_err(|code| (StatusCode::BAD_REQUEST, Json(json!({"error":code}))))?;
+        let vault = state.vault.as_ref().ok_or_else(|| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({"error":"vault_unconfigured"})),
+            )
+        })?;
+        Some(
+            crate::integrations::seal(
+                vault,
+                project_id,
+                "legacy_webhook",
+                &crate::integrations::Settings {
+                    endpoint: endpoint.to_string(),
+                    ..crate::integrations::Settings::default()
+                },
+            )
+            .map_err(|code| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error":code})),
+                )
+            })?,
+        )
+    } else {
+        None
+    };
+    let mut tx = state.pool.begin().await.map_err(|error| failure(&error))?;
+    // Old admin clients may omit expectedVersion. New editors always send it.
+    let version: Option<i64> = sqlx::query_scalar(
+        "UPDATE projects SET name = COALESCE($2, name), \
+         platform = CASE WHEN $3::text IS NULL THEN platform ELSE NULLIF($3, '') END, \
+         webhook_url = CASE WHEN $5 THEN NULL ELSE webhook_url END, \
+         webhook_secret_blob = CASE WHEN $5 THEN $4 ELSE webhook_secret_blob END, version = version + 1 \
+         WHERE id = $1 AND ($6::bigint IS NULL OR version = $6) RETURNING version",
     )
     .bind(project_id)
-    .bind(body.name.as_deref())
-    .bind(body.platform.as_deref())
-    .bind(webhook.flatten())
+    .bind(body.name.as_deref().map(str::trim))
+    .bind(body.platform.as_deref().map(str::trim))
+    .bind(sealed)
     .bind(webhook.is_some())
-    .execute(&state.pool)
-    .await;
-    match r {
-        Ok(res) if res.rows_affected() > 0 => {
-            crate::audit::record(
-                &state.pool,
-                Some(project_id),
-                ctx.user_id,
-                "project.update",
-                "project",
-                &project_id.to_string(),
-                // The URL itself is not logged: whoever holds it can
-                // post into the team's channel, and an audit log is
-                // read by more people than can set one.
-                json!({
-                    "name": body.name,
-                    "platform": body.platform,
-                    "webhookUrl": webhook.map(|u| u.map_or("cleared", |_| "set")),
-                }),
-            )
-            .await;
-            (StatusCode::OK, Json(json!({ "ok": true })))
-        }
-        Ok(_) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "project_not_found" })),
-        ),
-        Err(e) => {
-            warn!(error = %e, "project update failed");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal" })),
-            )
-        }
-    }
+    .bind(body.expected_version)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|error| failure(&error))?;
+    let Some(version) = version else {
+        return Err(stale_or_missing(&mut tx, project_id).await);
+    };
+    crate::audit::record_in_transaction(&mut tx, Some(project_id), ctx.user_id, "project.update", "project", &project_id.to_string(),
+        json!({"name": body.name.as_deref().map(str::trim), "platform": body.platform, "webhookUrl": webhook.map(|url| url.map_or("cleared", |_| "set")), "version": version}))
+        .await.map_err(|error| failure(&error))?;
+    tx.commit().await.map_err(|error| failure(&error))?;
+    Ok((
+        StatusCode::OK,
+        Json(json!({"ok": true, "version": version})),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteQuery {
+    pub expected_version: Option<i64>,
 }
 
 pub async fn delete(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Path(project_id): Path<Uuid>,
-) -> (StatusCode, Json<Value>) {
-    if let Err(e) = superadmin_only(&ctx) {
-        return e;
+    Query(query): Query<DeleteQuery>,
+) -> Result<Reply, Reply> {
+    superadmin_only(&ctx)?;
+    let mut tx = state.pool.begin().await.map_err(|error| failure(&error))?;
+    let result =
+        sqlx::query("DELETE FROM projects WHERE id = $1 AND ($2::bigint IS NULL OR version = $2)")
+            .bind(project_id)
+            .bind(query.expected_version)
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| failure(&error))?;
+    if result.rows_affected() == 0 {
+        return Err(stale_or_missing(&mut tx, project_id).await);
     }
-    let r = sqlx::query("DELETE FROM projects WHERE id = $1")
-        .bind(project_id)
-        .execute(&state.pool)
-        .await;
-    match r {
-        Ok(res) if res.rows_affected() > 0 => {
-            crate::audit::record(
-                &state.pool,
-                None,
-                ctx.user_id,
-                "project.delete",
-                "project",
-                &project_id.to_string(),
-                json!({}),
-            )
-            .await;
-            (StatusCode::OK, Json(json!({ "ok": true })))
-        }
-        Ok(_) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "project_not_found" })),
-        ),
-        Err(e) => {
-            warn!(error = %e, "project delete failed");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal" })),
-            )
-        }
-    }
+    crate::audit::record_in_transaction(
+        &mut tx,
+        None,
+        ctx.user_id,
+        "project.delete",
+        "project",
+        &project_id.to_string(),
+        json!({}),
+    )
+    .await
+    .map_err(|error| failure(&error))?;
+    tx.commit().await.map_err(|error| failure(&error))?;
+    Ok((StatusCode::OK, Json(json!({"ok": true}))))
 }
 
 /// The backend probe's story for one project: latest check + a

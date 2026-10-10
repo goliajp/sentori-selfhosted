@@ -217,7 +217,7 @@ async fn token_quarantine_skips_from_live_list() {
         .list_live(pid, ProviderKind::Apns)
         .await
         .unwrap();
-    assert!(live.is_empty());
+    assert_eq!(live.len(), 0);
     let row = disp.tokens().find(id).await.unwrap().unwrap();
     assert!(row.is_quarantined());
     assert_eq!(row.quarantine_reason.as_deref(), Some("manual"));
@@ -489,7 +489,7 @@ async fn permanently_invalid_quarantines_row() {
         .list_live(pid, ProviderKind::Apns)
         .await
         .unwrap();
-    assert!(live.is_empty());
+    assert_eq!(live.len(), 0);
 }
 
 #[tokio::test]

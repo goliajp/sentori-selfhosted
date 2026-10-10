@@ -37,7 +37,7 @@ use crate::state::AppState;
 
 const MAX_BATCH: usize = 200;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchEnvelope {
     #[serde(default)]
@@ -184,6 +184,9 @@ pub async fn handle(
     State(state): State<Arc<AppState>>,
     Json(envelope): Json<BatchEnvelope>,
 ) -> (StatusCode, Json<Value>) {
+    if let Err(error) = crate::cloud_quota::payload(&state, &envelope).await {
+        return error.reply();
+    }
     absorb_telemetry(&state, ctx.project_id, &envelope).await;
 
     if envelope.events.len() > MAX_BATCH {
@@ -239,7 +242,7 @@ pub async fn handle(
                     platform: ev.platform.clone(),
                     timestamp: ev.occurred_at,
                 };
-                match pipeline::ingest(&state.pool, ev).await {
+                match pipeline::ingest(&state.pool, ev, state.cloud.is_some()).await {
                     Ok(o) => {
                         accepted += 1;
                         state.ingest_counters.accepted();
@@ -247,19 +250,16 @@ pub async fn handle(
                             issue_id: o.issue_id,
                             ..tick
                         });
-                        crate::notify::spawn_issue_notification(
-                            &state,
-                            ctx.project_id,
-                            o.issue_id,
-                            o.is_new_issue,
-                            o.regressed,
-                        );
                         outcomes.push(json!({
                             "eventId": o.event_id,
                             "issueId": o.issue_id,
                             "isNewIssue": o.is_new_issue,
                             "regressed": o.regressed,
                         }));
+                    }
+                    Err(pipeline::IngestError::Quota(error)) => {
+                        state.ingest_counters.rejected();
+                        outcomes.push(error.reply().1.0);
                     }
                     Err(pipeline::IngestError::Invalid(msg)) => {
                         state.ingest_counters.rejected();

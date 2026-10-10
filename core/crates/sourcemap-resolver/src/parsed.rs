@@ -378,7 +378,7 @@ mod tests {
         let map = ParsedMap::parse(&fixture()).unwrap_or_else(|e| panic!("parse: {e}"));
         let r = map.resolve(1, 0).expect("first source");
         let w = map.source_window(r.src_id, 0, 3).expect("window");
-        assert!(w.before.is_empty());
+        assert_eq!(w.before.len(), 0);
         assert_eq!(w.at, "function hello() {");
         assert_eq!(w.after.len(), 2);
     }
@@ -395,7 +395,7 @@ mod tests {
         // foo.ts has 3 lines; from line index 2, after should clamp to 0.
         let w = map.source_window(0, 2, 5).expect("window");
         assert_eq!(w.at, "}");
-        assert!(w.after.is_empty());
+        assert_eq!(w.after.len(), 0);
     }
 
     #[test]
@@ -405,7 +405,7 @@ mod tests {
         let w = map
             .source_window(0, 1, usize::MAX)
             .expect("window with saturating clamp");
-        assert!(!w.at.is_empty());
+        assert_ne!(w.at.len(), 0);
     }
 
     #[test]

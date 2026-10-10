@@ -393,7 +393,11 @@ async fn list_recent_respects_since() {
     svc.dispatch(&n).await.unwrap();
     let future = time::OffsetDateTime::now_utc() + time::Duration::hours(1);
     let recent = svc.list_recent(pid, future, 10).await.unwrap();
-    assert!(recent.is_empty());
+    assert_eq!(
+        recent.len(),
+        0,
+        "no delivery is newer than a future watermark"
+    );
 }
 
 // ── WebhookTransport (in-process mock HTTP) ─────────────────

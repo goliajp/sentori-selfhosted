@@ -88,7 +88,9 @@ export function CommandPalette() {
         [t('nav.inbox'), '/'],
         [t('nav.instruments'), '/instruments'],
         [t('nav.releases'), '/releases'],
+        [t('nav.setup'), '/setup'],
         [t('nav.settings'), '/settings'],
+        [t('lifecycle.title'), '/self-hosted'],
       ] as const
     )
       .filter(([label]) => !q || label.toLowerCase().includes(q))

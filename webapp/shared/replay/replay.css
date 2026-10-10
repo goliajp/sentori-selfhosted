@@ -1,0 +1,24 @@
+
+.replay-surface { container-type: inline-size; container-name: replay; }
+.replay-layout { display: grid; grid-template-columns: minmax(0,1fr); gap: var(--space-6); align-items: start; }
+.replay-stage { display: grid; place-items: center; width: 100%; min-width: 0; aspect-ratio: 1; overflow: hidden; background: var(--ui-raised); border-radius: var(--radius-control); }
+.replay-frame { position: relative; overflow: hidden; box-shadow: 0 0 0 1px var(--ui-control); background: var(--ui-surface); }
+.replay-screen { position: absolute; inset: 0 auto auto 0; transform-origin: top left; background: var(--ui-surface); overflow: hidden; }
+@container replay (min-width:640px) { .replay-layout { grid-template-columns: minmax(0,1fr) minmax(160px,.65fr); } }
+.replay-screen.wireframe * {
+  background: transparent !important;
+  color: var(--ui-muted) !important;
+  border-color: var(--ui-control) !important;
+}
+.replay-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+.replay-controls .field {
+  width: 84px;
+}
+.replay-tap { position: absolute; width: 26px; height: 26px; transform: translate(-50%, -50%); border: 2px solid var(--ui-action); border-radius: 50%; background: var(--ui-tint); opacity: .8; pointer-events: none; }
+.replay-signals button:disabled { cursor: default; opacity: 1; }

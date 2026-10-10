@@ -1,3 +1,5 @@
+import { Button as DesignButton, Badge as DesignBadge } from "../../shared/design/controls";
+export { Input, Textarea, Field } from "../../shared/design/controls";
 // The dashboard's layout and data primitives.
 //
 // Colour and both modes come from the self-owned token sheet in
@@ -18,7 +20,6 @@ import { Link } from 'react-router-dom';
 import { useT } from '../i18n';
 import { setThemeMode, useThemeMode, type ThemeMode } from '../lib/theme';
 
-import { SentoriMark } from './brand';
 
 // ── Card ───────────────────────────────────────────────────
 
@@ -69,41 +70,7 @@ export function CardHeader({
  * different padding pairs standing in for a height, and no two
  * adjacent controls agreed.
  */
-export const CONTROL_H = { sm: 'h-7', md: 'h-8' } as const;
-
-/** Text input at the shared control height. */
-export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  const { className = '', ...rest } = props;
-  return (
-    <input
-      {...rest}
-      className={`${CONTROL_H.md} w-full rounded border border-border bg-surface px-2.5 text-sm text-fg placeholder:text-fg-subtle focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-accent ${className}`}
-    />
-  );
-}
-
-/** Multi-line input, for values that have line breaks in them.
- *
- *  There was none, so a PEM private key went into an `<input>` — and
- *  the HTML value sanitiser strips line breaks, silently. Measured:
- *
- *    input.value    = "-----BEGIN PRIVATE KEY-----MIIEv…-----END…"
- *    textarea.value = "-----BEGIN PRIVATE KEY-----\nMIIEv…\n-----END…"
- *
- *  A PEM without line breaks is not a PEM. The field accepted the
- *  paste, the save succeeded, and delivery failed later with a JWT
- *  error that named nothing anyone had touched. */
-export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  const { className = '', rows = 4, ...rest } = props;
-  return (
-    <textarea
-      {...rest}
-      rows={rows}
-      spellCheck={false}
-      className={`w-full rounded border border-border bg-surface px-2.5 py-1.5 font-mono text-xs leading-relaxed text-fg placeholder:text-fg-subtle focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-accent ${className}`}
-    />
-  );
-}
+export const CONTROL_H = { sm: 'h-[var(--control-height-small)]', md: 'h-[var(--control-height)]' } as const;
 
 /** The one class list every `<select>` in the app wears.
  *
@@ -156,22 +123,7 @@ export function buttonClass(
   size: ButtonSize = 'md',
   icon = false,
 ): string {
-  const base =
-    'inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50';
-  // An icon-only button is square. Left to padding it would be
-  // narrower than its lettered neighbours and by a different amount
-  // for every glyph — `⊘` and `↺` do not share a width.
-  const sizes = icon
-    ? { sm: `${CONTROL_H.sm} w-7 text-sm`, md: `${CONTROL_H.md} w-8 text-sm` }
-    : { sm: `${CONTROL_H.sm} px-2.5 text-sm`, md: `${CONTROL_H.md} px-3 text-sm` };
-  const variants = {
-    primary: 'bg-accent text-accent-fg hover:opacity-90',
-    secondary: 'border border-border-strong bg-surface text-fg hover:bg-raised',
-    ghost: 'text-fg-muted hover:bg-raised hover:text-fg',
-    danger:
-      'border border-danger/40 bg-danger/10 text-danger hover:bg-danger/20',
-  };
-  return `${base} ${sizes[size]} ${variants[variant]}`;
+  return `button button-${variant} ${size === 'sm' ? 'button-small' : ''} ${icon ? 'button-icon' : ''}`;
 }
 
 export function Button({
@@ -197,16 +149,18 @@ export function Button({
   icon?: boolean;
 }) {
   return (
-    <button
+    <DesignButton
       type={type}
       onClick={onClick}
       disabled={disabled}
       title={title}
       aria-label={title}
-      className={buttonClass(variant, size, icon)}
+      variant={variant}
+      size={size === 'sm' ? 'small' : 'regular'}
+      className={icon ? 'button-icon' : ''}
     >
       {children}
-    </button>
+    </DesignButton>
   );
 }
 
@@ -245,31 +199,7 @@ export function Badge({
   children: ReactNode;
   tone?: 'neutral' | 'ok' | 'warn' | 'danger' | 'info';
 }) {
-  // Tinted from the semantic colour itself rather than picked off the
-  // raw palette: `bg-green-950` is a near-black green, which reads as
-  // a badge only while the card behind it is dark. Deriving the fill
-  // from the same token as the text means one definition serves both
-  // modes, and a status colour can never drift from its own tint.
-  const tones = {
-    neutral: 'bg-raised text-fg-muted',
-    ok: 'bg-ok/12 text-ok',
-    warn: 'bg-warn/12 text-warn',
-    danger: 'bg-danger/12 text-danger',
-    info: 'bg-accent/12 text-accent',
-  };
-  // `whitespace-nowrap` is not cosmetic here. CJK has no word
-  // boundaries, so a wrapped badge breaks between any two characters:
-  // 未対応 became three stacked glyphs and pushed the table row to
-  // three lines. `tracking-wide` is scoped to the Latin case for the
-  // same reason — letter-spacing between kanji reads as broken, not
-  // deliberate.
-  return (
-    <span
-      className={`inline-flex items-center whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium uppercase ${tones[tone]}`}
-    >
-      {children}
-    </span>
-  );
+  return <DesignBadge tone={tone === 'ok' ? 'success' : tone === 'warn' ? 'warning' : tone}>{children}</DesignBadge>;
 }
 
 // ── PageShell ──────────────────────────────────────────────
@@ -292,7 +222,7 @@ export function PageShell({
   return (
     <div className="flex h-full min-w-0 flex-col">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-bg px-4">
-        <h1 className="text-sm font-semibold">{title}</h1>
+        <h1 className="shrink-0 whitespace-nowrap text-sm font-semibold">{title}</h1>
         {toolbar}
       </header>
       {/* Full width: an app pane uses the monitor it was given.
@@ -347,44 +277,8 @@ export function PanelEmpty({ children }: { children: ReactNode }) {
   return <p className="px-3.5 py-4 text-sm text-fg-subtle">{children}</p>;
 }
 
-/** A labelled control — the form primitive. The label is visible
- *  (placeholder-only forms make the reader hold the schema in their
- *  head), sits above the control, and clicks through to it. */
-export function Field({
-  label,
-  hint,
-  children,
-  className = '',
-}: {
-  label: ReactNode;
-  hint?: ReactNode;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <label className={`block ${className}`}>
-      <span className="mb-1 block text-xs font-medium text-fg-muted">{label}</span>
-      {children}
-      {hint && <span className="mt-1 block text-xs text-fg-subtle">{hint}</span>}
-    </label>
-  );
-}
-
 /** The public pages' shared frame: brand above, one card, canvas
  *  behind — the same visual family as the app the door leads into. */
-export function AuthShell({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-4 flex items-center justify-center gap-2">
-          <SentoriMark className="h-5 w-5 text-fg" />
-          <span className="text-lg font-semibold tracking-tight text-fg">sentori</span>
-        </div>
-        <div className="rounded-lg border border-border bg-surface p-6">{children}</div>
-      </div>
-    </div>
-  );
-}
 
 /** A keycap, wherever a shortcut is named. One definition so ⌘K in
  *  the topbar and j/k in the empty state read as the same object. */
@@ -467,7 +361,9 @@ export function DataTable<T>({
   onRowClick,
   activeKey,
   footer,
+  appearance = 'legacy',
 }: {
+  appearance?: 'legacy' | 'design';
   columns: Column<T>[];
   rows: T[];
   empty?: string;
@@ -494,14 +390,14 @@ export function DataTable<T>({
   const alignCls = (c: Column<T>) =>
     c.align === 'right' ? 'text-right tabular-nums' : 'text-left';
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className={appearance === 'design' ? 'data-wrap' : 'overflow-x-auto'}>
+      <table className={appearance === 'design' ? 'data-table' : 'w-full text-sm'} data-layout="content">
         <thead className="border-b border-border bg-bg/50">
           <tr>
             {columns.map((c) => (
               <th
                 key={String(c.key)}
-                className={`whitespace-nowrap px-4 py-2 text-xs font-medium text-fg-muted ${alignCls(c)}`}
+                className={`whitespace-nowrap ${appearance === 'legacy' ? 'px-4 py-2 text-xs font-medium text-fg-muted' : ''} ${alignCls(c)}`}
                 style={c.width ? { width: c.width } : undefined}
               >
                 {c.label}
@@ -528,7 +424,7 @@ export function DataTable<T>({
                 {columns.map((c) => (
                   <td
                     key={String(c.key)}
-                    className={`whitespace-nowrap px-4 py-2 text-fg-muted ${alignCls(c)}`}
+                    className={`whitespace-nowrap ${appearance === 'legacy' ? 'px-4 py-2 text-fg-muted' : ''} ${alignCls(c)}`}
                   >
                     {c.render ? c.render(r) : cell(r, c.key)}
                   </td>
@@ -616,7 +512,7 @@ export function ErrorBanner({
   reason?: string | null;
 }) {
   return (
-    <div className="rounded border border-danger/40 bg-danger/50 p-3 text-sm text-danger">
+    <div role="alert" className="rounded border border-danger/40 bg-danger/50 p-3 text-sm text-danger">
       {children}
       {reason != null && reason !== '' && (
         <div className="mt-1 font-mono text-xs opacity-75">{reason}</div>

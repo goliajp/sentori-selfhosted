@@ -32,6 +32,8 @@ use crate::state::AppState;
 pub struct ListQuery {
     /// `live` (default) hides revoked rows; `all` shows them.
     pub scope: Option<String>,
+    pub provider: Option<String>,
+    pub q: Option<String>,
     pub limit: Option<u32>,
     /// How many to skip. There was no way to skip any, so a project
     /// with more devices than the cap had rows nobody could reach —
@@ -48,8 +50,21 @@ pub async fn list(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     super::tokens::ensure_project_access(&state, &ctx, project_id).await?;
 
+    let provider = q.provider.as_deref().filter(|v| !v.is_empty());
+    let search = q.q.unwrap_or_default();
+    if q.scope
+        .as_deref()
+        .is_some_and(|s| !["all", "live"].contains(&s))
+        || provider.is_some_and(|p| super::push_commands::config_keys(p).is_empty())
+        || search.chars().count() > 200
+    {
+        return Err(super::push_commands::error(
+            StatusCode::BAD_REQUEST,
+            "invalid_push_filter",
+        ));
+    }
     let include_revoked = q.scope.as_deref() == Some("all");
-    let limit = i64::from(q.limit.unwrap_or(50).min(500));
+    let limit = i64::from(q.limit.unwrap_or(50).clamp(1, 100));
     let offset = i64::from(q.offset.unwrap_or(0));
 
     // The count comes back with the page. A table that says "50" when
@@ -58,26 +73,30 @@ pub async fn list(
     // what they are looking at is all of it.
     let total: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM device_tokens \
-         WHERE project_id = $1 AND ($2 OR revoked_at IS NULL)",
+         WHERE project_id = $1 AND ($2 OR revoked_at IS NULL) AND ($3::text IS NULL OR provider=$3) AND ($4='' OR position(lower($4) in lower(id::text||' '||right(native_token,6)||' '||COALESCE(right(user_key,6),'')||' '||COALESCE(metadata->>'appVersion','')))>0)",
     )
     .bind(project_id)
     .bind(include_revoked)
+    .bind(provider)
+    .bind(&search)
     .fetch_one(&state.pool)
     .await
-    .unwrap_or(0);
+    .map_err(super::push_commands::database_error)?;
 
     let rows = sqlx::query(
-        "SELECT id, provider, env, metadata, traits, bad_streak, revoked_at, \
+        "SELECT id, provider, env, metadata-'auth' AS metadata, traits, bad_streak, revoked_at, version, \
                 last_seen_at, created_at, \
                 user_key IS NOT NULL AS addressable, \
                 right(user_key, 6) AS user_key_tail, \
                 right(native_token, 6) AS token_tail \
          FROM device_tokens \
-         WHERE project_id = $1 AND ($2 OR revoked_at IS NULL) \
-         ORDER BY last_seen_at DESC LIMIT $3 OFFSET $4",
+         WHERE project_id = $1 AND ($2 OR revoked_at IS NULL) AND ($3::text IS NULL OR provider=$3) AND ($4='' OR position(lower($4) in lower(id::text||' '||right(native_token,6)||' '||COALESCE(right(user_key,6),'')||' '||COALESCE(metadata->>'appVersion','')))>0) \
+         ORDER BY last_seen_at DESC,id DESC LIMIT $5 OFFSET $6",
     )
     .bind(project_id)
     .bind(include_revoked)
+    .bind(provider)
+    .bind(&search)
     .bind(limit)
     .bind(offset)
     .fetch_all(&state.pool)
@@ -95,6 +114,7 @@ pub async fn list(
         .map(|r| {
             json!({
                 "id": r.get::<Uuid, _>("id").to_string(),
+                "version":r.get::<i64,_>("version"),
                 "provider": r.get::<String, _>("provider"),
                 "env": r.get::<Option<String>, _>("env"),
                 // The metadata the host sent, verbatim. Whether it is
@@ -155,30 +175,18 @@ pub async fn revoke(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     super::tokens::ensure_project_access(&state, &ctx, project_id).await?;
 
-    // `AND project_id` ties the token to the guarded project, so an
-    // id from another project cannot be retired through this one's
-    // URL.
-    let affected = sqlx::query(
-        "UPDATE device_tokens SET revoked_at = now() \
-         WHERE project_id = $1 AND id = $2 AND revoked_at IS NULL",
+    super::push_commands::execute(
+        &state,
+        &ctx,
+        project_id,
+        super::push_commands::Command {
+            command_id: Uuid::now_v7().to_string(),
+            action: super::push_commands::Action::RevokeDevice {
+                id: token_id,
+                expected_version: None,
+            },
+        },
     )
-    .bind(project_id)
-    .bind(token_id)
-    .execute(&state.pool)
     .await
-    .map_err(|e| {
-        warn!(error = %e, "admin.push.devices revoke failed");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "internal" })),
-        )
-    })?
-    .rows_affected();
-
-    // Says which. An id that matched nothing — already revoked, or
-    // another project's — answering exactly like a revocation is how
-    // the SDK's own endpoint hid a bug for a year.
-    Ok(Json(json!({
-        "status": if affected > 0 { "revoked" } else { "not_found" },
-    })))
+    .map(Json)
 }

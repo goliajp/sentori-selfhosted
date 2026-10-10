@@ -1,3 +1,23 @@
+import type { ProjectTransfer, TransferCreate, TransferCommand, TransferTail, TransferUpload } from './transfer-contract';
+export type CloudUsage = {
+  limits: { monthlyEvents: number; monthlyReplays: number; monthlyIngestBytes: number; artifactBytes: number; projects: number; eventRetentionDays: number; replayRetentionDays: number; eventsPerSecond: number };
+  active: boolean; checkedAt: string; validUntil: string; paidUntil: string | null; month: string; resetsAt: string;
+  events: number; replays: number; ingestBytes: number; artifactBytes: number; projects: number;
+};
+import type { InstanceOperation, BackupCommand, ResetPreparation, ResetPermit } from './system-contract';
+import type { PushCommand, PushCommandResult, PushDetail } from './push-contract';
+import type { Task, TaskCommand, TaskEvent, InboxItem, InboxPreferences } from './team-contract';
+import type { Monitor, MonitorCommand, MonitorEvent } from './monitor-contract';
+import type { Integration, IntegrationKind, IntegrationConfigure, IntegrationSend, IntegrationRetry, Delivery } from './integration-contract';
+export interface JobRow {
+  id: string; projectId: string; releaseId: string; kind: 'resymbolicate';
+  state: 'queued' | 'running' | 'retry_wait' | 'succeeded' | 'failed' | 'cancelled';
+  attempt: number; maxAttempts: number; cancelRequested: boolean;
+  scanned: number; rewritten: number; frames: number; scanLimit: number;
+  errorCode: string | null; createdAt: string; updatedAt: string; finishedAt: string | null;
+}
+
+import type { InstanceCheck, InstanceHealth, InstanceInfo, SystemInfo } from "./system-contract";
 // The dashboard's typed fetch client — one class, one method per
 // server route, same-origin cookies. The surface mirrors
 // self-hosted/server/src/handlers exactly; if a method has no
@@ -15,7 +35,8 @@ export type Me = {
 export type Project = {
   id: string;
   name: string;
-  platform: string;
+  platform: string | null;
+  version: number;
   createdAt: string;
 };
 
@@ -64,6 +85,7 @@ export type IssueActivity = {
 
 export type IssueDetail = IssueSummary & {
   activity: IssueActivity[];
+  assignees: { id: string; email: string; displayName: string | null }[];
   releases?: IssueReleaseRow[];
 };
 
@@ -160,6 +182,8 @@ export type ReleaseRow = {
   /** Platforms that actually reported events in this release — a
    *  missing artifact only matters for a platform that is sending. */
   platforms?: string[];
+  /** Bounded status summary for the list; artifact metadata loads on opening a release. */
+  artifactSummary?: {kind: string; count: number; usable: boolean; broken: boolean; unchecked: boolean}[];
 };
 
 export type ArtifactRow = {
@@ -190,6 +214,8 @@ export type AuditRow = {
 /** A provider credential as the dashboard sees it — never the secret
  *  itself, only whether one is there and whether it last worked. */
 export type PushCredential = {
+  encrypted: boolean;
+  version: number;
   id: string;
   kind: string;
   /** Redacted shape from the server; the secret never leaves it. */
@@ -227,6 +253,10 @@ export type ProbeVerdict = {
 };
 
 export type PushSend = {
+  displayState: string;
+  credentialId: string | null;
+  deliveredAt: string | null;
+  version: number;
   id: string;
   token_id: string;
   provider: string;
@@ -270,6 +300,7 @@ export type PushHealth = {
 };
 
 export type PushDevice = {
+  version: number;
   id: string;
   provider: string;
   env: null | string;
@@ -410,14 +441,15 @@ class ApiError extends Error {
 class Api {
   base = DEFAULT_BASE;
 
-  private async send<T>(method: string, path: string, body?: unknown): Promise<T> {
+  private async send<T>(method: string, path: string, body?: unknown, redirectOnUnauthorized = true, signal?: AbortSignal): Promise<T> {
     const resp = await fetch(`${this.base}${path}`, {
       method,
+      signal,
       credentials: 'include',
-      headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      headers: body !== undefined && !(body instanceof FormData) ? { 'content-type': 'application/json' } : undefined,
+      body: body instanceof FormData ? body : body !== undefined ? JSON.stringify(body) : undefined,
     });
-    if (resp.status === 401) {
+    if (resp.status === 401 && redirectOnUnauthorized) {
       this.handleAuthFailure(path);
     }
     if (!resp.ok) {
@@ -451,8 +483,8 @@ class Api {
     return (await resp.json()) as T;
   }
 
-  private get<T>(path: string): Promise<T> {
-    return this.send<T>('GET', path);
+  private get<T>(path: string, signal?: AbortSignal): Promise<T> {
+    return this.send<T>('GET', path, undefined, true, signal);
   }
   private post<T>(path: string, body?: unknown): Promise<T> {
     return this.send<T>('POST', path, body ?? {});
@@ -466,7 +498,54 @@ class Api {
     window.location.href = '/login';
   }
 
+  transfers() { return this.get<{ items: ProjectTransfer[]; configured: boolean; uploadLimit: number }>('/admin/api/transfers'); }
+  createTransfer(command: TransferCreate) { return this.post('/admin/api/transfers', command); }
+  transferCommand(id: string, command: TransferCommand) { return this.post(`/admin/api/transfers/${encodeURIComponent(id)}/commands`, command); }
+  transferTail(id: string, command: TransferTail) { return this.post(`/admin/api/transfers/${encodeURIComponent(id)}/tail`, command); }
+  uploadTransfer(id: string, upload: TransferUpload) {
+    const form = new FormData();
+    for (const [name, value] of Object.entries(upload.command)) form.set(name, String(value));
+    form.set('archive', upload.file);
+    return this.post(`/admin/api/transfers/${encodeURIComponent(id)}/upload?phase=${upload.phase}&version=${upload.version}`, form);
+  }
+  transferDownloadUrl(id: string, job: string) { return `${this.base}/admin/api/transfers/${encodeURIComponent(id)}/jobs/${encodeURIComponent(job)}/download`; }
+  cancelTransferJob(id: string, job: string) { return this.post(`/admin/api/transfers/${encodeURIComponent(id)}/jobs/${encodeURIComponent(job)}/cancel`); }
+
+  // Instance operations use authenticated server state, never VIS fixtures.
+  systemInfo() { return this.get<SystemInfo>('/admin/api/system'); }
+  backupDownloadUrl(id: string) { return `${this.base}/admin/api/instance/operations/${encodeURIComponent(id)}/download`; }
+  verifyBackup(command: BackupCommand, file: File) {
+    const form = new FormData();
+    for (const [name, value] of Object.entries(command)) form.set(name, String(value));
+    form.set('archive', file);
+    return this.post<{ operation: InstanceOperation }>('/admin/api/instance/operations/verify', form);
+  }
+  instanceOperations() { return this.get<{ items: InstanceOperation[]; configured: boolean }>('/admin/api/instance/operations'); }
+  prepareReset(command: ResetPreparation) { return this.post<ResetPermit>('/admin/api/instance/reset/prepare', command); }
+  createBackup(command: BackupCommand) { return this.post<{ operation: InstanceOperation }>('/admin/api/instance/operations', command); }
+  cancelBackup(id: string) { return this.post<{ operation: InstanceOperation }>(`/admin/api/instance/operations/${encodeURIComponent(id)}/cancel`); }
+  instanceInfo() { return this.get<InstanceInfo>('/admin/api/instance'); }
+  updateInstance(name: string, expectedVersion: number) {
+    return this.send<InstanceInfo>('PATCH', '/admin/api/instance', { name, expectedVersion });
+  }
+  checkInstance() { return this.post<InstanceCheck>('/admin/api/instance/check'); }
+  instanceHealth() { return this.get<InstanceHealth>('/admin/api/instance/health'); }
+  initializeInstance(expectedVersion: number) {
+    return this.post<InstanceInfo>('/admin/api/instance/initialize', { expectedVersion });
+  }
+
   // ── auth ──
+  async authConfig() {
+    const value = await this.get<{ mode: 'password' | 'cloud'; controlOrigin?: string }>('/auth/config');
+    if (value.mode !== 'password' && value.mode !== 'cloud') throw new ApiError(502, 'invalid_auth_configuration');
+    if (value.mode === 'cloud') {
+      const origin = new URL(value.controlOrigin ?? '');
+      if (!['https:', 'http:'].includes(origin.protocol) || origin.origin !== value.controlOrigin) throw new ApiError(502, 'invalid_cloud_origin');
+    }
+    return value;
+  }
+  cloudUsage() { return this.get<CloudUsage>('/admin/api/cloud/usage'); }
+
   login(email: string, password: string) {
     return this.send<{ userId: string; role: Role }>('POST', '/auth/login', {
       email,
@@ -479,11 +558,30 @@ class Api {
   authMe() {
     return this.get<Me>('/auth/me');
   }
-  changePassword(currentPassword: string, newPassword: string) {
-    return this.post<{ ok: boolean }>('/auth/change-password', {
-      currentPassword,
-      newPassword,
-    });
+  /** The public home checks for a session without sending visitors
+   * to a login form. Network and server errors remain real errors. */
+  async currentUser(): Promise<Me | null> {
+    try {
+      return await this.send<Me>('GET', '/auth/me', undefined, false);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) return null;
+      throw error;
+    }
+  }
+  async changePassword(currentPassword: string, newPassword: string) {
+    try {
+      return await this.send<{ ok: boolean }>('POST', '/auth/change-password', {
+        currentPassword,
+        newPassword,
+      }, false);
+    } catch (error) {
+      // A wrong current password is also 401. Keep the form open when the
+      // session is still valid; only an expired session needs a fresh login.
+      if (error instanceof ApiError && error.status === 401 && await this.currentUser() === null) {
+        this.handleAuthFailure('/auth/change-password');
+      }
+      throw error;
+    }
   }
   forgotPassword(email: string) {
     return this.send<{ ok: boolean }>('POST', '/auth/forgot-password', { email });
@@ -503,7 +601,8 @@ class Api {
     return this.get<{
       id: string;
       name: string;
-      platform: string;
+      platform: string | null;
+      version: number;
       createdAt: string;
       /** Only ever populated for a superadmin; the server returns null
        *  to everyone else, because whoever holds it can post into the
@@ -519,12 +618,13 @@ class Api {
    *  off. */
   updateProject(
     id: string,
-    patch: { name?: string; platform?: string; webhookUrl?: string },
+    patch: { name?: string; platform?: string; webhookUrl?: string; expectedVersion?: number },
   ) {
     return this.send<{ ok: boolean }>('PATCH', `/admin/api/projects/${id}`, patch);
   }
-  deleteProject(id: string) {
-    return this.send<{ ok: boolean }>('DELETE', `/admin/api/projects/${id}`);
+  deleteProject(id: string, expectedVersion?: number) {
+    const query = expectedVersion === undefined ? '' : `?expectedVersion=${expectedVersion}`;
+    return this.send<{ ok: boolean }>('DELETE', `/admin/api/projects/${id}${query}`);
   }
 
   /** Deletes the release and, by cascade, its symbolication
@@ -583,6 +683,39 @@ class Api {
     return this.get<ProjectHealth>(`/admin/api/projects/${id}/health`);
   }
 
+  taskIntegration(project: string) {
+    return this.get<{ vaultConfigured: boolean; configuration: { repository: string; environment: string; enabled: boolean; version: number; secretConfigured: boolean } | null }>(`/admin/api/projects/${project}/task-integration`);
+  }
+  configureTaskIntegration(project: string, body: { repository: string; environment: string; enabled: boolean; expectedVersion: number; rotateSecret: boolean }) {
+    return this.send<{ version: number; secret: string | null }>('PUT', `/admin/api/projects/${project}/task-integration`, body);
+  }
+  listTasks(project: string, query: URLSearchParams) {
+    return this.get<{ tasks: Task[]; members: { id: string; name: string }[]; total: number; nextOffset: number | null }>(`/admin/api/projects/${project}/tasks?${query}`);
+  }
+  listMonitors(project: string) { return this.get<{ monitors: Monitor[] }>(`/admin/api/projects/${project}/monitors`); }
+  listIntegrations(project: string) { return this.get<{ integrations: Integration[]; vaultConfigured: boolean; smtpConfigured: boolean }>(`/admin/api/projects/${project}/integrations`); }
+  configureIntegration(project: string, kind: IntegrationKind, body: IntegrationConfigure) { return this.send<{ id: string; version: number }>('PUT', `/admin/api/projects/${project}/integrations/${kind}`, body); }
+  sendIntegration(project: string, id: string, body: IntegrationSend) { return this.post<{ deliveryId: string }>(`/admin/api/projects/${project}/integrations/${id}/send`, body); }
+  listDeliveries(project: string, offset = 0) { return this.get<{ deliveries: Delivery[]; nextOffset: number | null }>(`/admin/api/projects/${project}/deliveries?offset=${offset}`); }
+  retryDelivery(project: string, id: string, body: IntegrationRetry) { return this.post<{ deliveryId: string }>(`/admin/api/projects/${project}/deliveries/${id}/retry`, body); }
+  monitorCommand(project: string, command: MonitorCommand) { return this.post<{ id: string; version: number; deleted: boolean }>(`/admin/api/projects/${project}/monitors/commands`, command); }
+  monitorHistory(project: string, id: string, offset = 0) { return this.get<{ events: MonitorEvent[]; nextOffset: number | null }>(`/admin/api/projects/${project}/monitors/${id}/history?offset=${offset}`); }
+  getTask(project: string, id: string, offset = 0) {
+    return this.get<{ task: Task; events: TaskEvent[]; nextOffset: number | null }>(`/admin/api/projects/${project}/tasks/${id}?offset=${offset}`);
+  }
+  taskCommand(project: string, command: TaskCommand) {
+    return this.post<Task>(`/admin/api/projects/${project}/tasks/commands`, command);
+  }
+  listInbox(query: URLSearchParams) {
+    return this.get<{ items: InboxItem[]; total: number; unread: number; nextOffset: number | null }>(`/admin/api/inbox?${query}`);
+  }
+  readAllInbox() { return this.post<{ updated: number }>('/admin/api/inbox/read-all', {}); }
+  updateInbox(id: string, change: { read?: boolean; archived?: boolean }) {
+    return this.send<{ ok: boolean }>('PATCH', `/admin/api/inbox/${id}`, change);
+  }
+  inboxPreferences() { return this.get<InboxPreferences>('/admin/api/inbox-preferences'); }
+  saveInboxPreferences(prefs: InboxPreferences) { return this.send<{ ok: boolean }>('PUT', '/admin/api/inbox-preferences', prefs); }
+
   // ── issues ──
   /** Crash-free rate for a window, and the same broken out per
    *  release — the comparison a ship/no-ship decision is made on. */
@@ -625,6 +758,10 @@ class Api {
     kind?: string;
     projectId?: string;
     limit?: number;
+    offset?: number;
+    q?: string;
+    sort?: string;
+    group?: string;
     environment?: string;
     contextKey?: string;
     contextValue?: string;
@@ -634,7 +771,11 @@ class Api {
     if (q.status) usp.set('status', q.status);
     if (q.kind) usp.set('kind', q.kind);
     if (q.projectId) usp.set('project_id', q.projectId);
-    if (q.limit) usp.set('limit', String(q.limit));
+    if (q.limit !== undefined) usp.set('limit', String(q.limit));
+    if (q.offset !== undefined) usp.set('offset', String(q.offset));
+    if (q.q) usp.set('q', q.q);
+    if (q.sort) usp.set('sort', q.sort);
+    if (q.group) usp.set('group', q.group);
     if (q.environment) usp.set('environment', q.environment);
     if (q.contextKey && q.contextValue) {
       usp.set('context_key', q.contextKey);
@@ -642,7 +783,7 @@ class Api {
     }
     if (q.release) usp.set('release', q.release);
     const qs = usp.toString();
-    return this.get<{ issues: IssueSummary[] }>(`/admin/api/issues${qs ? `?${qs}` : ''}`);
+    return this.get<{ issues: IssueSummary[]; total: number; limit: number; offset: number; nextOffset: number | null; summary: { events: number; open: number; regressed: number; releases: number } }>(`/admin/api/issues${qs ? `?${qs}` : ''}`);
   }
   /** Deployment environments this project's events have reported. */
   projectEnvironments(projectId: string) {
@@ -683,8 +824,8 @@ class Api {
   addNote(id: string, body: string) {
     return this.post<{ ok: boolean }>(`/admin/api/issues/${id}/notes`, { body });
   }
-  listOccurrences(id: string) {
-    return this.get<{ events: OccurrenceRow[] }>(`/admin/api/issues/${id}/events`);
+  listOccurrences(id: string, offset = 0, limit = 100) {
+    return this.get<{ events: OccurrenceRow[]; total: number; nextOffset: number | null }>(`/admin/api/issues/${id}/events?offset=${offset}&limit=${limit}`);
   }
 
   // ── events + attachments ──
@@ -701,11 +842,27 @@ class Api {
     return this.get<{ events: ContextEventRow[] }>(`/admin/api/events/${id}/context`);
   }
 
+  listJobs(projectId: string, releaseId: string) {
+    return this.get<{ jobs: JobRow[] }>(`/admin/api/projects/${projectId}/jobs?releaseId=${releaseId}&limit=10`);
+  }
+  resymbolicateRelease(projectId: string, releaseId: string, idempotencyKey: string) {
+    return this.post<{jobId: string}>(`/admin/api/projects/${projectId}/releases/${releaseId}/resymbolicate`, {idempotencyKey});
+  }
+  cancelJob(projectId: string, jobId: string) {
+    return this.post<JobRow>(`/admin/api/projects/${projectId}/jobs/${jobId}/cancel`, {});
+  }
+
   // ── releases ──
-  listReleases(projectId: string) {
-    return this.get<{ releases: ReleaseRow[] }>(
-      `/admin/api/projects/${projectId}/releases`,
-    );
+  listReleases(projectId: string, query: {q?:string;offset?:number;limit?:number} = {}, signal?: AbortSignal) {
+    const params = new URLSearchParams();
+    if(query.q)params.set('q',query.q);
+    if(query.offset!==undefined)params.set('offset',String(query.offset));
+    if(query.limit!==undefined)params.set('limit',String(query.limit));
+    return this.get<{ releases: ReleaseRow[]; total: number; nextOffset: number | null }>(`/admin/api/projects/${projectId}/releases?${params}`, signal);
+  }
+  uploadArtifact(projectId: string, releaseId: string, kind: string, file: File) {
+    const form = new FormData(); form.set('kind', kind); form.set('file', file);
+    return this.post<{ id: string; usable: boolean; jobId: string }>(`/admin/api/projects/${projectId}/releases/${releaseId}/artifacts`, form);
   }
   listArtifacts(projectId: string, releaseId: string) {
     return this.get<{ artifacts: ArtifactRow[] }>(
@@ -737,7 +894,7 @@ class Api {
     return this.get<PushHealth>(`/admin/api/projects/${projectId}/push/health`);
   }
   pushCredentials(projectId: string) {
-    return this.get<{ credentials: PushCredential[] }>(
+    return this.get<{ credentials: PushCredential[]; vaultConfigured: boolean }>(
       `/admin/api/projects/${projectId}/push/credentials`,
     );
   }
@@ -789,9 +946,9 @@ class Api {
    *  rows, `all` shows them. It existed unused: a device that stopped
    *  receiving is exactly what someone opens this page to find, and
    *  the default view is the one view that cannot show it. */
-  pushDevices(projectId: string, limit = 50, scope: 'all' | 'live' = 'live', offset = 0) {
+  pushDevices(projectId: string, limit = 50, scope: 'all' | 'live' = 'live', offset = 0, search = '', provider = '') {
     return this.get<{ devices: PushDevice[]; offset: number; total: number }>(
-      `/admin/api/projects/${projectId}/push/devices?limit=${limit}&scope=${scope}&offset=${offset}`,
+      `/admin/api/projects/${projectId}/push/devices?limit=${limit}&scope=${scope}&offset=${offset}&q=${encodeURIComponent(search)}&provider=${encodeURIComponent(provider)}`,
     );
   }
   /** Retire a device from the console. The SDK can revoke its own
@@ -810,7 +967,7 @@ class Api {
    *  the number is what a send would do rather than an estimate of
    *  it. */
   previewAudience(projectId: string, audience: AudienceRequest) {
-    return this.post<{ matched: number; sample: AudienceSample[] }>(
+    return this.post<{ matched: number; sample: AudienceSample[]; previewId: string; expiresAt: string }>(
       `/admin/api/projects/${projectId}/push/audience/preview`,
       audience,
     );
@@ -833,22 +990,31 @@ class Api {
     body: string,
     expectedMatched: number,
     idempotencyKey: string,
+    previewId?: string,
   ) {
     return this.post<{ alreadySent: boolean; matched: number; queued: number }>(
       `/admin/api/projects/${projectId}/push/audience/send`,
-      { ...audience, body, expectedMatched, idempotencyKey, title },
+      { ...audience, body, expectedMatched, idempotencyKey, title, previewId },
     );
   }
-  pushSends(projectId: string, limit = 50, status = '', offset = 0) {
+  pushSends(projectId: string, limit = 50, status = '', offset = 0, search = '', provider = '') {
     // The status filter goes to the server. Filtering a page in the
     // browser filters the page, not the data — with fifty of four
     // hundred rows in hand, "failed" showed the failures among the
     // fifty and called it the answer.
     const q = new URLSearchParams({ limit: String(limit), offset: String(offset) });
     if (status) q.set('status', status);
+    if (search) q.set('q', search);
+    if (provider) q.set('provider', provider);
     return this.get<{ offset: number; sends: PushSend[]; total: number }>(
       `/admin/api/projects/${projectId}/push/sends?${q.toString()}`,
     );
+  }
+  pushCommand(projectId: string, command: PushCommand) {
+    return this.post<PushCommandResult>(`/admin/api/projects/${projectId}/push/commands`, command);
+  }
+  pushSendDetail(projectId: string, id: string) {
+    return this.get<PushDetail>(`/admin/api/projects/${projectId}/push/sends/${id}`);
   }
   retryPushSend(projectId: string, sendId: string) {
     return this.post<{ status: string }>(

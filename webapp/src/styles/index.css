@@ -1,91 +1,54 @@
-/*
- * Sentori dashboard — the whole design token layer, self-owned.
- *
- * No design-system dependency: two hand-tuned palettes (dark is the
- * native one; light is re-inked to Jira-calibre contrast), the
- * GOLIA Lab blue as the single accent, and the five-kind hues
- * doing double duty as the status colours — one concept model,
- * everywhere. Type is the Jira posture: the platform's own UI
- * fonts, 14px base, dense but never cramped.
- *
- * Components speak only the semantic Tailwind names mapped below
- * (`bg-surface`, `text-fg-muted`, `border-border`, `text-kind-*`);
- * nothing outside this file may name a hex.
- */
+@import "../../shared/design/self-hosted.css";
+@import "../../shared/design/team.css";
+@import "../../shared/design/files.css";
+@import "../../shared/design/releases.css";
+@import "../../shared/replay/replay.css";
+@import "../../shared/design/metrics.css";
+@import "../../shared/design/feedback.css";
+@import "../../shared/design/flow.css";
+/* Compatibility aliases let existing live pages use the frozen design tokens. */
 @import 'tailwindcss';
+@import '../../shared/design/tokens.css';
+@import '../../shared/design/controls.css';
+@import '../../shared/design/workspace.css';
+@import '../../shared/design/dialog.css';
+@import '../../shared/site/base.css';
+@import '../../shared/site/site.css';
+@import "../../shared/documents/base.css";
+@import "../../shared/documents/document-styles.css";
+@import "../../shared/documents/docs-site.css";
+@import "../../shared/site/pricing.css";
+@import "../../shared/design/segmented.css";
+@source '../../shared';
 
 :root {
-  /* ── dark (native) ── */
-  --sn-bg: #101014;
-  --sn-canvas: #101014;
-  --sn-surface: #17171c;
-  --sn-raised: #23232b;
-  --sn-fg: #e7e7ec;
-  --sn-fg-muted: #a3a3ae;
-  --sn-fg-subtle: #767681;
-  /* Drawn rather than left to the browser: a native <select> paints
-   * its own control on macOS, so a dark form grew one light-grey box
-   * that matched nothing beside it. Two literals rather than one
-   * var-in-a-data-URI, because a data URI is a string and cannot
-   * interpolate a custom property. */
-  --sn-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23767681' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
-  --sn-border: #2a2a32;
-  --sn-border-strong: #3d3d47;
-
-  /* GOLIA Lab ink — the family blue (#155dfc, shared with the
-   * hourglass and tiktoken marks), lifted on dark so it carries on
-   * #17171c. Purple deliberately vacated the accent slot: it means
-   * `assert` in the five-kind palette, and an accent that shared
-   * that hue blurred the concept model. */
-  --sn-accent: #3d7dff;
-  --sn-accent-hover: #5b8cff;
-  --sn-accent-fg: #ffffff;
-
-  /* The five-kind hues. The signal timeline borrows them
-   * (nav=trace, tap=warn, http=assert, trace-signal=probe,
-   * freeze=error), and the status roles below alias them — the
-   * palette keeps teaching the same model. */
-  --s-kind-error: #ff5d5d;
-  --s-kind-warn: #ffb340;
-  --s-kind-trace: #7fa7c9;
-  --s-kind-assert: #b18cff;
-  --s-kind-probe: #4cd97b;
-
-  /* the canvas replay player samples these off the document */
+  --sn-bg: var(--ui-canvas);
+  --sn-canvas: var(--ui-canvas);
+  --sn-surface: var(--ui-surface);
+  --sn-raised: var(--ui-raised);
+  --sn-fg: var(--ui-ink);
+  --sn-fg-muted: var(--ui-secondary);
+  --sn-fg-subtle: var(--ui-muted);
+  --sn-border: var(--ui-line);
+  --sn-border-strong: var(--ui-control);
+  --sn-accent: var(--ui-action);
+  --sn-accent-hover: var(--ui-action-hover);
+  --sn-accent-fg: var(--ui-on-action);
+  --sn-site-glow: color-mix(in srgb, var(--ui-brand) 12%, transparent);
+  --s-kind-error: var(--ui-danger);
+  --s-kind-warn: var(--ui-warning);
+  --s-kind-trace: var(--ui-info);
+  --s-kind-assert: var(--ui-chart-3);
+  --s-kind-probe: var(--ui-success);
   --s-bg: var(--sn-bg);
   --s-surface: var(--sn-surface);
   --s-border-strong: var(--sn-border-strong);
   --s-fg-muted: var(--sn-fg-muted);
   --sn-mono-ink: var(--sn-fg-muted);
+  --sn-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23657087' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
 }
-
-:root[data-theme='light'] {
-  /* ── light, Jira-calibre ink: hairlines that exist, secondary
-   * text that reads. The four grey levels are deliberately far
-   * apart — canvas clearly grey, chrome a step lighter, cards pure
-   * white, hover/selection clearly darker than a card — so the
-   * stacking order reads at a glance. ── */
-  --sn-bg: #f3f4f7;
-  --sn-canvas: #e9ebef;
-  --sn-surface: #ffffff;
-  --sn-raised: #e2e5ea;
-  --sn-fg: #1c2128;
-  --sn-fg-muted: #404854;
-  --sn-fg-subtle: #68707e;
-  --sn-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%2368707e' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
-  --sn-border: #d5d9e0;
-  --sn-border-strong: #aab1bc;
-
-  --sn-accent: #155dfc;
-  --sn-accent-hover: #0a4ad9;
-  --sn-accent-fg: #ffffff;
-
-  /* the same five hues, re-inked for white paper */
-  --s-kind-error: #c93838;
-  --s-kind-warn: #9a6700;
-  --s-kind-trace: #3d6e99;
-  --s-kind-assert: #6f42c1;
-  --s-kind-probe: #1a7f4b;
+:root[data-theme='dark'] {
+  --sn-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23a4a6ad' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
 }
 
 @theme inline {
@@ -112,16 +75,7 @@
   --color-kind-assert: var(--s-kind-assert);
   --color-kind-probe: var(--s-kind-probe);
 
-  /* Atlassian's own stack (platform faces, no downloads), with the
-   * CJK faces appended so 中文/日本語 pick a matching grotesque.
-   * Mono is reserved for code and identifiers — prose never sets it. */
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
-    'Fira Sans', 'Droid Sans', 'Helvetica Neue', 'Hiragino Sans',
-    'Noto Sans CJK JP', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-mono:
-    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
-    'Liberation Mono', monospace;
+
 }
 
 html,
@@ -137,15 +91,13 @@ body,
  */
 body {
   margin: 0;
-  /* The app is absolutely positioned into the viewport; the page
-   * itself must never scroll — every scroll area is an explicit
-   * interior region. */
-  overflow: hidden;
+  /* Public pages use document scrolling. The fixed dashboard shell
+   * contains its own scrolling panes. */
   background-color: var(--sn-canvas);
   color: var(--sn-fg);
   font-family: var(--font-sans);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -397,3 +349,18 @@ time {
 .sn-doc :is(h1, h2, h3, h4)[id] {
   scroll-margin-top: 5rem;
 }
+
+.production-page { height: 100%; overflow: auto; padding: var(--space-page-block) var(--space-page-inline) var(--space-12); }
+.production-page h1 { font-size: 28px; line-height: 1.3; font-weight: 650; letter-spacing: -.025em; }
+.production-page > .control-bar > .control { width: auto; max-width: 100%; }
+
+
+.issue-list-title { white-space: normal; min-width: 220px; max-width: 600px; overflow-wrap: anywhere; }
+
+.integration-deliveries { display: grid; }
+.integration-deliveries > article { display: flex; flex-wrap: wrap; align-items: start; gap: var(--space-3); padding-block: var(--space-4); border-bottom: 1px solid var(--ui-line); min-width: 0; }
+.integration-deliveries > article > div:first-child { display: grid; gap: var(--space-2); flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+.integration-deliveries strong { font-size: 13px; line-height: 20px; }
+.integration-delivery-result { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); font-size: 12px; min-width: 0; overflow-wrap: anywhere; }
+.integration-delivery-result .text-link { display: inline-flex; align-items: center; gap: var(--space-2); }
+.team-monitor-controls { display: flex; align-items: center; gap: var(--space-2); }

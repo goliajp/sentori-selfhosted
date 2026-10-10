@@ -32,12 +32,8 @@ public final class Sentori: NSObject {
         SentoriConfig.set(config)
         SentoriTransport.start()
 
-        // The crash handler runs from inside an uncaught-exception
-        // handler where almost nothing is safe, so it reads its
-        // release and environment from `UserDefaults` rather than
-        // from a live object. Without this a crash ships as
-        // `unknown` / `prod` and matches no release, which means no
-        // symbolication.
+        // Capture metadata before installing the exception handler. Each
+        // persisted crash already retains this launch's release/environment.
         SentoriCrashHandler.setConfig([
             "release": config.release,
             "environment": config.environment,
@@ -68,7 +64,7 @@ public final class Sentori: NSObject {
         // The crash that killed the last launch. Until now the
         // handler wrote files into a directory nothing emptied — a
         // crash reporter that captured crashes and never sent one.
-        SentoriPendingCrash.ship()
+        SentoriTransport.background { SentoriPendingCrash.ship() }
     }
 
     /// Identify the person using the app. Only a hash of `id` (or
@@ -197,22 +193,19 @@ public final class Sentori: NSObject {
         if let error { payload["error"] = error }
         if let data { payload["data"] = data }
         if let ctx = SentoriScope.context { payload["context"] = ctx }
-        if withSignals {
-            let signals = SentoriSignalRing.snapshot()
-            if !signals.isEmpty { payload["signals"] = signals }
-        }
         payload["device"] = SentoriDevice.snapshot()
 
         var event: [String: Any] = [
             "id": id,
             "kind": kind,
-            "occurredAt": iso8601(Date()),
+            pendingTimestampKey: Date().timeIntervalSince1970,
             "platform": "ios",
             "release": config.release,
             "environment": config.environment,
             "payload": payload,
         ]
         if let name { event["name"] = name }
+        if withSignals { event[pendingSignalsKey] = SentoriSignalRing.capture() }
         if let userKey = SentoriScope.userKey { event["userKey"] = userKey }
 
         SentoriTransport.enqueue(event)
@@ -255,6 +248,23 @@ public final class Sentori: NSObject {
 
     static func iso8601(_ date: Date) -> String { formatter.string(from: date) }
 
+    static let pendingTimestampKey = "_sentoriOccurredAtSeconds"
+    private static let pendingSignalsKey = "_sentoriSignalSnapshot"
+
+    static func prepareEvent(_ event: [String: Any]) -> [String: Any] {
+        var out = event
+        if let seconds = out.removeValue(forKey: pendingTimestampKey) as? TimeInterval {
+            out["occurredAt"] = iso8601(Date(timeIntervalSince1970: seconds))
+        }
+        if let capture = out.removeValue(forKey: pendingSignalsKey) as? () -> [[String: Any]] {
+            let signals = capture()
+            var payload = out["payload"] as? [String: Any] ?? [:]
+            if !signals.isEmpty { payload["signals"] = signals }
+            out["payload"] = payload
+        }
+        return out
+    }
+
     /// UUIDv7: 48 bits of milliseconds then random, so ids sort by
     /// creation time. The server stores them as the event's primary
     /// key and the dashboard orders by it, so a v4 here would scatter
@@ -273,13 +283,12 @@ public final class Sentori: NSObject {
         bytes[6] = (bytes[6] & 0x0f) | 0x70  // version 7
         bytes[8] = (bytes[8] & 0x3f) | 0x80  // variant
 
-        let hex = bytes.map { String(format: "%02x", $0) }.joined()
-        let s = Array(hex)
-        return String(s[0..<8]) + "-" + String(s[8..<12]) + "-" + String(s[12..<16]) + "-"
-            + String(s[16..<20]) + "-" + String(s[20..<32])
+        let digits = Array("0123456789abcdef".utf8)
+        var text = [UInt8](); text.reserveCapacity(36)
+        for (index, byte) in bytes.enumerated() {
+            if index == 4 || index == 6 || index == 8 || index == 10 { text.append(45) }
+            text.append(digits[Int(byte >> 4)]); text.append(digits[Int(byte & 15)])
+        }
+        return String(decoding: text, as: UTF8.self)
     }
-}
-
-extension String {
-    fileprivate init(_ slice: ArraySlice<Character>) { self.init(String(Array(slice))) }
 }

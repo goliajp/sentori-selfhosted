@@ -18,6 +18,7 @@ final class SentoriCrashHandlerTests: XCTestCase {
     private var pendingDir: URL!
 
     override func setUpWithError() throws {
+        SentoriCrashHandler.setConfig(["release": "cold-start@1", "environment": "test"])
         let docs = try FileManager.default.url(
             for: .documentDirectory,
             in: .userDomainMask,
@@ -27,6 +28,11 @@ final class SentoriCrashHandlerTests: XCTestCase {
         pendingDir = docs.appendingPathComponent("sentori/pending", isDirectory: true)
         try? FileManager.default.removeItem(at: pendingDir)
         try FileManager.default.createDirectory(at: pendingDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        SentoriCrashHandler.setConfig([:])
+        super.tearDown()
     }
 
     func testWritePendingProducesValidEventJson() throws {
@@ -50,6 +56,8 @@ final class SentoriCrashHandlerTests: XCTestCase {
         // Spot-check the protocol shape (Phase 1 schema).
         XCTAssertEqual(payload?["kind"] as? String, "error")
         XCTAssertEqual(payload?["platform"] as? String, "ios")
+        XCTAssertEqual(payload?["release"] as? String, "cold-start@1")
+        XCTAssertEqual(payload?["environment"] as? String, "test")
         XCTAssertNotNil(payload?["id"] as? String)
         XCTAssertNotNil(payload?["timestamp"] as? String)
         let error = payload?["error"] as? [String: Any]

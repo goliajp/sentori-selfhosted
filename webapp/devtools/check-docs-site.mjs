@@ -25,7 +25,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const DOCS = new URL('../../docs/', import.meta.url).pathname
-const SRC = new URL('../src/lib/docs.ts', import.meta.url).pathname
+const SRC = new URL('../shared/documents/model.ts', import.meta.url).pathname
 
 if (!existsSync(DOCS)) {
   console.error('✗ no docs/ next to webapp. This checker is reading nothing.')
@@ -50,7 +50,7 @@ if (slugs.length < 10) {
 const source = readFileSync(SRC, 'utf8')
 const sectionBlock = /export const SECTIONS[\s\S]*?\n\]/.exec(source)
 if (!sectionBlock) {
-  console.error('✗ SECTIONS has moved in src/lib/docs.ts — this checker now reads nothing.')
+  console.error('✗ SECTIONS has moved in shared/documents/model.ts — this checker now reads nothing.')
   process.exit(1)
 }
 const listed = [...sectionBlock[0].matchAll(/'([\w/-]+)'/g)]
@@ -74,7 +74,7 @@ for (const slug of slugs) {
 // Frontmatter is allowed in the file; it must not reach the body. The
 // loader splits it, and this asserts the split still happens.
 if (!/splitFrontmatter/.test(source)) {
-  problems.push('src/lib/docs.ts no longer splits frontmatter — it will render as a heading')
+  problems.push('shared/documents/model.ts no longer splits frontmatter — it will render as a heading')
 }
 
 if (problems.length > 0) {

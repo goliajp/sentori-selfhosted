@@ -1,0 +1,32 @@
+.file-drop {
+  border: 1px dashed var(--ui-control);
+  padding: var(--space-6);
+  text-align: center;
+  border-radius: var(--radius-panel);
+  background: var(--ui-canvas);
+  display: grid;
+  gap: var(--space-3);
+  justify-items: center;
+}
+.file-drop.dragging {
+  border-color: var(--ui-action);
+  background: var(--ui-tint);
+}
+.file-input { min-width: 0; }
+.file-input[data-disabled] .file-drop { opacity: .6; }
+.file-picker-row { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px 16px; max-width: 100%; }
+.file-selection-label { font-size: 14px; line-height: 20px; color: var(--ui-secondary); }
+.file-drop > .field-note { display: grid; gap: 4px; overflow-wrap: anywhere; }
+.file-drop > .field-note p { margin: 0; }
+.file-list-heading { margin-top: 16px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.file-list { list-style: none; padding: 0; margin: 8px 0 0; }
+.file-list > li { display: flex; align-items: center; gap: 12px; padding-block: 12px; border-top: 1px solid var(--ui-line); }
+.file-item-copy { min-width: 0; flex: 1; font-size: 14px; line-height: 20px; }
+.file-item-copy strong { display: block; overflow-wrap: anywhere; font-weight: 600; }
+.file-item-copy > span { display: block; margin-top: 4px; font-size: 12px; color: var(--ui-secondary); }
+.button.file-preview-button, .file-preview-placeholder { width: 48px; height: 48px; min-height: 48px; aspect-ratio: 1; padding: 4px; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; flex-shrink: 0; background: var(--ui-raised); border-radius: var(--radius-control); overflow: hidden; }
+.file-preview-button .button-content { width: 100%; height: 100%; }
+.file-image-thumb { display: block; width: 100%; height: 100%; object-fit: contain; }
+.file-image-full { display: block; width: 100%; height: auto; max-height: 65dvh; object-fit: contain; }
+.file-text-preview { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/20px var(--font-code); margin: 0; }
+.file-errors { color: var(--ui-danger); font-size: 12px; line-height: 20px; margin: 12px 0 0; padding-inline-start: 20px; list-style: disc; }

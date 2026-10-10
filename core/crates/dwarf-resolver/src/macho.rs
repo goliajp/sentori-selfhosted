@@ -329,8 +329,8 @@ mod tests {
 
     #[test]
     fn junk_reports_nothing_rather_than_panicking() {
-        assert!(MachoSlicer::debug_ids(b"not a mach-o at all").is_empty());
-        assert!(MachoSlicer::debug_ids(&[]).is_empty());
+        assert_eq!(MachoSlicer::debug_ids(b"not a mach-o at all").len(), 0);
+        assert_eq!(MachoSlicer::debug_ids(&[]).len(), 0);
     }
 
     /// A real linker's output, not ours. Only where one is to hand.
@@ -341,7 +341,7 @@ mod tests {
             return;
         };
         let ids = MachoSlicer::debug_ids(&bytes);
-        assert!(!ids.is_empty(), "/bin/ls carries an LC_UUID; we read none");
+        assert_ne!(ids.len(), 0, "/bin/ls carries an LC_UUID; we read none");
         for id in &ids {
             assert_eq!(id.len(), 32, "not a 16-byte uuid: {id}");
             assert!(

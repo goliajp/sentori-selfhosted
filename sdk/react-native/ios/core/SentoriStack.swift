@@ -130,6 +130,7 @@ private func swift_demangle(
 /// LC_UUID of a loaded Mach-O image — the identity a dSYM slice is
 /// matched by. Read-only walk of the in-memory load commands.
 enum SentoriImage {
+    private static let digits = Array("0123456789abcdef".utf8)
     static func uuid(atBase base: UnsafeRawPointer) -> String? {
         let header = base.assumingMemoryBound(to: mach_header_64.self)
         guard header.pointee.magic == MH_MAGIC_64 else { return nil }
@@ -148,8 +149,14 @@ enum SentoriImage {
     /// Lowercase, no dashes — the form the CLI stores a dSYM slice
     /// under, so the two sides compare as written.
     private static func hex(_ uuid: uuid_t) -> String {
-        let bytes = [uuid.0, uuid.1, uuid.2, uuid.3, uuid.4, uuid.5, uuid.6, uuid.7,
-                     uuid.8, uuid.9, uuid.10, uuid.11, uuid.12, uuid.13, uuid.14, uuid.15]
-        return bytes.map { String(format: "%02x", $0) }.joined()
+        withUnsafeBytes(of: uuid) { bytes in
+            String(unsafeUninitializedCapacity: 32) { text in
+                for index in 0..<16 {
+                    text[index * 2] = digits[Int(bytes[index] >> 4)]
+                    text[index * 2 + 1] = digits[Int(bytes[index] & 15)]
+                }
+                return 32
+            }
+        }
     }
 }

@@ -16,7 +16,9 @@ import { ChevronRight } from 'lucide-react';
 import { useState } from 'react';
 
 import { useT } from '../i18n';
-import { highlightLines, languageForPath } from '../lib/highlight';
+import { languageForPath } from '../lib/highlight';
+import { Code } from '../../shared/documents/Code';
+import { useSharedT } from '../i18n/shared';
 
 export type StackFrame = {
   file?: string;
@@ -67,7 +69,16 @@ function looksMinified(f: StackFrame): boolean {
 
 export function StackTrace({ frames }: { frames: StackFrame[] }) {
   const t = useT();
-  const shown = frames.slice(0, MAX_FRAMES);
+  const shown = frames.slice(0, MAX_FRAMES).map(frame=>({
+    ...frame,
+    file: typeof frame.file==='string'?frame.file:undefined,
+    function: typeof frame.function==='string'?frame.function:undefined,
+    line: typeof frame.line==='number'&&Number.isFinite(frame.line)?frame.line:undefined,
+    column: typeof frame.column==='number'&&Number.isFinite(frame.column)?frame.column:undefined,
+    contextLine: typeof frame.contextLine==='string'?frame.contextLine:undefined,
+    preContext: Array.isArray(frame.preContext)?frame.preContext.filter(line=>typeof line==='string'):[],
+    postContext: Array.isArray(frame.postContext)?frame.postContext.filter(line=>typeof line==='string'):[],
+  }));
   const anyInApp = shown.some((f) => f.inApp === true);
   const strip = commonPrefix(shown.map((f) => f.file ?? ''));
 
@@ -147,7 +158,7 @@ function AppFrame({
             part that gets cut is the end, which is the part that
             says which method. */}
         <span
-          className="w-64 shrink-0 truncate font-medium text-fg xl:w-96"
+          className="min-w-0 w-1/3 shrink-0 truncate font-medium text-fg"
           title={frame.function}
         >
           {frame.function ?? '?'}
@@ -186,60 +197,13 @@ function AppFrame({
 /** The reading window around the failing line, numbered from the
  *  resolved position. The hit line carries the tint + red gutter. */
 function SourceWindow({ frame }: { frame: StackFrame }) {
-  const pre = frame.preContext ?? [];
-  const post = frame.postContext ?? [];
-  const hitLine = frame.line ?? 0;
-  const start = hitLine - pre.length;
-  const texts = [...pre, frame.contextLine ?? '', ...post];
-  // Highlighted as one block, then cut — a comment or a template
-  // literal spanning rows is one thing, and cutting first is what
-  // made it several.
-  const lit = highlightLines(texts.join('\n'), languageForPath(frame.file));
-  const rows = texts.map((text, i) => ({
-    hit: i === pre.length,
-    html: lit[i] ?? '',
-    n: start + i,
-    text,
-  }));
-
-  return (
-    <div className="overflow-x-auto border-t border-border bg-bg">
-      {/* code sits a step below the UI floor on purpose — density is
-          the point of a reading window */}
-      <table className="w-full border-collapse font-mono text-xs leading-5">
-        <tbody>
-          {rows.map((r) => (
-            <tr
-              key={r.n}
-              style={
-                r.hit
-                  ? { backgroundColor: 'color-mix(in srgb, var(--s-kind-error) 9%, transparent)' }
-                  : undefined
-              }
-            >
-              <td
-                className={`w-px select-none border-r py-0 pl-3.5 pr-2 text-right align-top ${
-                  r.hit
-                    ? 'border-kind-error text-kind-error'
-                    : 'border-border text-fg-subtle/70'
-                }`}
-              >
-                {r.n}
-              </td>
-              {/* The grammar's own escaped output. The input is a
-                  source window the server read out of a sourcemap, and
-                  highlight.js escapes everything it does not colour —
-                  the check in devtools proves the round trip. */}
-              <td
-                className="whitespace-pre py-0 pl-3.5 pr-4 text-fg"
-                dangerouslySetInnerHTML={{ __html: r.text ? r.html : ' ' }}
-              />
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  const t=useSharedT();
+  const pre=frame.preContext??[],post=frame.postContext??[];
+  const start=frame.line===undefined?1:Math.max(1,frame.line-pre.length);
+  return <Code t={t} code={[...pre,frame.contextLine??'',...post].join('\n')}
+    fileName={frame.file} language={languageForPath(frame.file)??'text'}
+    startLine={start} lineNumbers={frame.line!==undefined}
+    highlightedLines={{[start+pre.length]:'error'}}/>;
 }
 
 /** A run of consecutive library frames, folded to one row. */
@@ -276,7 +240,7 @@ function LibraryRun({
             className="flex items-baseline gap-2 py-0.5 pl-8 pr-3.5 font-mono text-xs text-fg-subtle"
           >
             {/* same two-column discipline as the app frames */}
-            <span className="w-60 shrink-0 truncate xl:w-80" title={f.function}>
+            <span className="min-w-0 w-1/3 shrink-0 truncate" title={f.function}>
               {f.function ?? '?'}
             </span>
             <span className="min-w-0 flex-1 truncate" title={f.file}>

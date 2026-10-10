@@ -87,10 +87,28 @@ pub async fn session_middleware(
     mut req: Request<Body>,
     next: Next,
 ) -> Response {
-    let Some(token) = extract_token(&headers) else {
+    let token = state.cloud.as_ref().map_or_else(
+        || extract_token(&headers),
+        |cloud| cloud.session_token(&headers),
+    );
+    let Some(token) = token else {
         return reject("session token missing");
     };
     let hash = hash_token(&token);
+
+    if state.cloud.is_some() {
+        return match crate::cloud::resolve(&state, &hash).await {
+            Ok((user_id, role)) => {
+                req.extensions_mut().insert(SessionContext {
+                    user_id,
+                    role,
+                    session_id_hash: hash,
+                });
+                next.run(req).await
+            }
+            Err(error) => error.into_response(),
+        };
+    }
 
     let row: Result<Option<(Uuid, String)>, sqlx::Error> = sqlx::query_as(
         "SELECT u.id, u.role FROM auth_sessions s \

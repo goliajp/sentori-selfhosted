@@ -35,6 +35,23 @@ final class SentoriVerbsTests: XCTestCase {
 
     private func queued() -> [[String: Any]] { SentoriTransport.__peekQueue() }
 
+    func testDeferredAssemblyKeepsCaptureTimeAndExcludesFutureSignals() {
+        started()
+        Sentori.pushSignal(kind: "before")
+        let before = Date()
+        Sentori.error(message: "captured")
+        let after = Date()
+        Sentori.pushSignal(kind: "after")
+        let event = queued().last!
+        let payload = event["payload"] as! [String: Any]
+        let signals = payload["signals"] as! [[String: Any]]
+        XCTAssertEqual(signals.compactMap { $0["kind"] as? String }, ["before"])
+        let occurred = event["occurredAt"] as! String
+        XCTAssertGreaterThanOrEqual(occurred, Sentori.iso8601(before))
+        XCTAssertLessThanOrEqual(occurred, Sentori.iso8601(after))
+        XCTAssertFalse(event.keys.contains { $0.hasPrefix("_sentori") })
+    }
+
     func testEveryVerbBeforeStartIsASilentNoOpThatStillReturnsAnId() {
         // The failure-isolation rule: an app that mis-wired its token
         // must not have call sites that behave differently, and must

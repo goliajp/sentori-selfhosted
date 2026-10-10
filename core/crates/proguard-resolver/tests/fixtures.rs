@@ -56,7 +56,7 @@ fn resolves_method_via_public_api() {
 fn resolves_method_with_range_lookup() {
     let m = ParsedMapping::parse(FIXTURE.as_bytes().to_vec()).expect("parse");
     let frames = m.resolve_method("p.q.r", "b", 205).expect("ok");
-    assert!(!frames.is_empty(), "expected match for line within range");
+    assert_ne!(frames.len(), 0, "expected match for line within range");
     assert_eq!(
         frames.first().map(|f| f.method.as_str()),
         Some("formatResults")

@@ -90,3 +90,20 @@ self-hosted/docker/.env.e2e.*
 
 # smix session state (local device driver)
 .smix/
+
+# Local diagnosis environment: generated credentials, tokens, fixtures and reports.
+.tmp/sentori-devenv/
+.local/sentori/
+
+# Design review captures and generated preview bundles; source assets stay versioned.
+/output/
+/webapp/output/
+/testsuite/browser/chromium
+/testsuite/**/__pycache__/
+__pycache__/
+/scripts/devenv/workbench/studio/
+/webapp/vis/public/downloads/*.zip
+/scripts/devenv/workbench/vis/*.zip
+/scripts/devenv/workbench/vis/ab/*.zip
+# Approved brand handoff is an input to the portable source kit.
+!/scripts/devenv/workbench/vis/ab/sentori-brand-1.0.zip

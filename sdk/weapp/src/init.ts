@@ -14,6 +14,8 @@ export const init = safeFn('init', (config: WeappInitConfig): void => {
   // A second call would register a second set of handlers and double
   // every event.
   if (_initialized) return
+  if (!config || typeof config.token !== 'string' || !config.token
+    || typeof config.ingestUrl !== 'string' || !config.ingestUrl) return
   _initialized = true
 
   setConfig({
@@ -30,7 +32,7 @@ export const init = safeFn('init', (config: WeappInitConfig): void => {
       breadcrumbs: config.detect?.breadcrumbs !== false,
     },
   })
-  setLogLevel(config.logLevel ?? 'warn')
+  setLogLevel(config.logLevel)
   setInternalReporter(internalFault)
 
   startTransport()

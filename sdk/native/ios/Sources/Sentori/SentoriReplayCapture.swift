@@ -44,7 +44,6 @@ import UIKit
     @objc public static var lastDiagSizeBytes: Int = 0
     @objc public static var totalTicks: Int = 0
     @objc public static var totalEmptyResultTicks: Int = 0
-    private static var loggedFirstResult = false
 
     private static func captureSync(maskedIds: Set<String>) -> String? {
         totalTicks += 1
@@ -54,15 +53,7 @@ import UIKit
         lastDiagWindowCount = currentWindowCount()
         guard let window = winOpt else {
             totalEmptyResultTicks += 1
-            if !loggedFirstResult {
-                NSLog(
-                    "[sentori] wireframe: returning nil — keyWindow path=%@ scenes=%d windows=%d",
-                    path,
-                    lastDiagSceneCount,
-                    lastDiagWindowCount
-                )
-                loggedFirstResult = true
-            }
+
             return nil
         }
         var nodes: [[String: Any]] = []
@@ -82,17 +73,7 @@ import UIKit
         if nodes.isEmpty {
             totalEmptyResultTicks += 1
         }
-        if !loggedFirstResult {
-            NSLog(
-                "[sentori] wireframe: first capture ok — keyWindow path=%@ bounds=%.0fx%.0f nodes=%d depthMax=%d",
-                path,
-                window.bounds.width,
-                window.bounds.height,
-                nodes.count,
-                depthMax
-            )
-            loggedFirstResult = true
-        }
+
         let payload: [String: Any] = [
             "ts": Int(Date().timeIntervalSince1970 * 1000),
             "width": Double(window.bounds.width),

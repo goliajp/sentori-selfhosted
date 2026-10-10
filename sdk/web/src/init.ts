@@ -25,6 +25,8 @@ export const init = safeFn('init', (config: WebInitConfig): void => {
   // Calling `init` twice is a mistake, not a reconfiguration — a
   // second set of listeners would double every event.
   if (_initialized) return
+  if (!config || typeof config.token !== 'string' || !config.token
+    || typeof config.ingestUrl !== 'string' || !config.ingestUrl) return
   _initialized = true
 
   setConfig({
@@ -43,7 +45,7 @@ export const init = safeFn('init', (config: WebInitConfig): void => {
     replaySeconds: config.replaySeconds ?? 30,
     replayScreens: config.replayScreens ?? false,
   })
-  setLogLevel(config.logLevel ?? 'warn')
+  setLogLevel(config.logLevel)
   setInternalReporter(internalFault)
 
   startTransport()

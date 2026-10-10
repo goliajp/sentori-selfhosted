@@ -1,0 +1,10 @@
+
+.release-coverage, .release-legend { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.release-legend { font-size: 12px; color: var(--ui-secondary); margin-block: var(--space-4); }
+.release-coverage > span, .release-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.release-coverage i, .release-legend i { width: 7px; height: 7px; border-radius: 50%; background: var(--ui-muted); }
+.release-coverage [data-state="ok"] i, .release-legend [data-state="ok"] i { background: var(--ui-success); }
+.release-coverage [data-state="broken"] i, .release-legend [data-state="broken"] i { background: var(--ui-warning); }
+.release-coverage [data-state="missing"] i, .release-legend [data-state="missing"] i { background: var(--ui-danger); }
+.release-coverage { column-gap: 10px; row-gap: 4px; font-size: 11px; }
+.release-coverage > span { white-space: nowrap; }

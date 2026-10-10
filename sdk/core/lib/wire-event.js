@@ -72,6 +72,12 @@ export function applyBeforeSend(event, hook) {
         const out = hook(event);
         if (out === null)
             return null;
+        if (out && typeof out.then === 'function') {
+            // The API is synchronous; accidental async hooks are ignored, but their
+            // rejection still belongs to the SDK callback boundary, never the host.
+            void Promise.resolve(out).catch(() => { });
+            return event;
+        }
         if (out && typeof out === 'object')
             return out;
         return event;

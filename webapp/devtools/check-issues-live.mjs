@@ -1,0 +1,104 @@
+import assert from 'node:assert/strict';
+import {writeFileSync} from 'node:fs';
+import {withLiveBrowsers} from './live-browser.mjs';
+const results=[];
+await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,password,call})=>{
+  await call('/auth/login',{email:'owner@example.test',password});
+  const project=await call('/admin/api/projects',{name:`Issues ${engine}`,platform:'web'});
+  const second=await call('/admin/api/projects',{name:`Other issues ${engine}`,platform:'android'});
+  const key=await call(`/admin/api/projects/${project.id}/tokens`,{name:'event fixture',scope:'ingest'});
+  const otherKey=await call(`/admin/api/projects/${second.id}/tokens`,{name:'other fixture',scope:'ingest'});
+  const report=async(index,token=key.token)=>{
+    const response=await context.request.post(origin+'/v1/events',{headers:{Authorization:`Bearer ${token}`},data:{kind:'error',occurredAt:new Date(Date.now()-900000).toISOString(),platform:'android',release:'test@1.0.0',environment:'qa',userId:'test-user',payload:{context:{tenant:'A'},signals:[{t:-6,kind:'tap',data:{x:20,y:30}}],error:{type:'TypeError',message:index===0?'Checkout failed — '+engine:`Problem ${index} — ${engine}`,stack:[{file:index===0?'index.android.bundle':`problem-${index}.js`,line:1,column:20,function:'checkout',inApp:true}]}}}});
+    assert.equal(response.status(),202,await response.text());return response.json();
+  };
+  const deployed=await context.request.post(origin+'/v1/deploys',{headers:{Authorization:`Bearer ${key.token}`},data:{release:'test@1.0.0'}});assert.equal(deployed.status(),202,await deployed.text());
+  const receipts=[];for(let index=0;index<55;index++)receipts.push(await report(index));
+  const foreign=await report('foreign',otherKey.token);
+  const list=(await call(`/admin/api/issues?project_id=${project.id}&status=all`)).issues;
+  assert.equal(list.length,55);
+  const target=receipts[0],issueId=(await call('/admin/api/events/'+target.eventId)).issueId;
+  const member=await call('/admin/api/users',{email:`issues-member-${engine}@example.test`,password});
+  await call(`/admin/api/users/${member.id}/projects/${project.id}`,{},'PUT');
+  // Real attachment upload. Two rotations and a malformed tail exercise decoding.
+  await page.goto(origin+`/issues?project=${project.id}`);await page.locator('[data-issue-id]').first().waitFor();
+  const png=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=1000;canvas.height=500;const ctx=canvas.getContext('2d');ctx.fillStyle='#6a8bef';ctx.fillRect(0,0,1000,500);ctx.fillStyle='#fff';ctx.fillRect(100,100,200,200);return canvas.toDataURL('image/png').split(',')[1];});
+  const attachment=await context.request.post(origin+`/v1/events/${target.eventId}/attachments/screens`,{headers:{Authorization:`Bearer ${key.token}`},multipart:{source:'js',file:{name:'screens.ndjson',mimeType:'application/x-ndjson',buffer:Buffer.from([{t:-9,mediaType:'image/png',base64:png,w:500,h:1000},{t:-6,mediaType:'image/png',base64:png,w:1000,h:500}].map(JSON.stringify).join('\n')+'\n{"t":')}}});
+  assert.equal(attachment.status(),202,await attachment.text());
+  const queue=origin+`/issues?project=${project.id}`;
+  const detail=origin+`/issues/${issueId}?project=${project.id}`;
+  const release=(await call(`/admin/api/projects/${project.id}/releases`)).releases[0];assert.ok(release);
+  const releaseUrl=origin+`/releases?project=${project.id}&detail=${release.id}`;
+  const locales=process.env.VIS_TEST_WORKFLOW_ONLY?[]:process.env.VIS_TEST_QUICK?['en']:['zh','ja','en'];
+  const widths=process.env.VIS_TEST_QUICK?[320,1440]:[320,768,1440,3840];
+  for(const locale of locales)for(const theme of ['light','dark'])for(const width of widths){
+    await page.evaluate(({locale,theme})=>{localStorage.setItem('sentori_locale',locale);localStorage.setItem('sentori-theme',theme);},{locale,theme});
+    await page.setViewportSize({width,height:1100});
+    for(const [name,url,selector]of [['queue',queue,'[data-issue-id]'],['detail',detail,'[data-event-id]'],['occurrences',detail+'&tab=occurrences','[role=tabpanel] [role=button]'],['activity',detail+'&tab=activity','textarea'],['releases',releaseUrl,'dialog[open] .file-input']].filter(([name])=>!process.env.VIS_TEST_ROUTES||process.env.VIS_TEST_ROUTES.split(',').includes(name))){
+      await page.goto(url);await page.locator(selector).first().waitFor();
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,`${engine}/${locale}/${theme}/${width}/${name}`);
+      if(name==='releases')assert.equal(await page.locator('dialog[open] > .dialog-content').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
+      if(locale==='en'&&theme==='light'&&[320,1440].includes(width))await page.screenshot({path:out+`${engine}-${width}-${name}.png`});
+      results.push({engine,locale,theme,width,name});writeFileSync(out+'results.json',JSON.stringify({results},null,2));
+    }
+  }
+  await page.evaluate(()=>localStorage.setItem('sentori_locale','en'));await page.setViewportSize({width:1440,height:1100});
+  await page.goto(queue);await page.locator('[data-issue-id]').first().waitFor();
+  assert.equal(await page.locator('[data-issue-id]').count(),50);
+  const firstIds=await page.locator('[data-issue-id]').evaluateAll(elements=>elements.map(el=>el.dataset.issueId));
+  await page.getByRole('button',{name:'Next',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('[data-issue-id]').length===5);
+  const lastIds=await page.locator('[data-issue-id]').evaluateAll(elements=>elements.map(el=>el.dataset.issueId));assert.equal(new Set([...firstIds,...lastIds]).size,55);
+  await page.getByRole('button',{name:'Previous',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('[data-issue-id]').length===50);
+  await page.getByLabel('Search issues',{exact:true}).fill('Checkout failed');await page.waitForFunction(()=>document.querySelectorAll('[data-issue-id]').length===1);
+  assert.ok(new URL(page.url()).searchParams.get('q'));await page.locator('[data-issue-id]').click();await page.locator('[data-event-id]').waitFor();
+  await page.getByRole('link',{name:'Back to issues'}).click();await page.locator('[data-issue-id]').waitFor();assert.equal(await page.getByLabel('Search issues',{exact:true}).inputValue(),'Checkout failed');
+  // A partial mutation preserves the failed selection and says what happened.
+  await page.goto(queue);await page.locator('[data-issue-id]').first().waitFor();
+  const chosen=await page.locator('[data-issue-id]').evaluateAll(elements=>elements.slice(0,2).map(el=>el.dataset.issueId));
+  await page.route(`**/admin/api/issues/${chosen[1]}/resolve`,route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"injected_failure"}'}));
+  await page.locator('tbody input[type=checkbox]').nth(0).check();await page.locator('tbody input[type=checkbox]').nth(1).check();
+  await page.getByRole('button',{name:'Resolve',exact:true}).click();await page.getByRole('alert').filter({hasText:'1 of 2'}).waitFor();
+  assert.equal((await call('/admin/api/issues/'+chosen[0])).status,'resolved');assert.equal((await call('/admin/api/issues/'+chosen[1])).status,'open');
+  await page.unroute(`**/admin/api/issues/${chosen[1]}/resolve`);
+  // Project switches hide old rows before the delayed new response arrives.
+  await page.route(`**/admin/api/issues?*`,async route=>{const parsed=new URL(route.request().url());if(parsed.searchParams.get('project_id')===second.id)await new Promise(resolve=>setTimeout(resolve,500));await route.continue();});
+  await page.evaluate(next=>{history.pushState({},'',next);dispatchEvent(new PopStateEvent('popstate'));},`/issues?project=${second.id}`);
+  await page.waitForTimeout(100);assert.equal(await page.locator('[data-issue-id]').count(),0);await page.locator('[data-issue-id]').waitFor();assert.equal(await page.locator('[data-issue-id]').count(),1);
+  await page.unroute(`**/admin/api/issues?*`);
+  await page.goto(detail);await page.locator('[data-event-id]').waitFor();
+  await page.getByLabel('Assignee',{exact:true}).selectOption(member.id);await page.waitForFunction(()=>![...document.querySelectorAll('select')].find(el=>el.closest('.field')?.textContent.includes('Assignee'))?.disabled);
+  await page.waitForTimeout(150);assert.equal((await call('/admin/api/issues/'+issueId)).assigneeUserId,member.id);
+  await page.getByRole('tab',{name:'Activity',exact:true}).click();await page.getByRole('textbox',{name:'Note',exact:true}).fill('Investigating the checkout');await page.getByRole('button',{name:'Save note'}).click();await page.getByText('Investigating the checkout',{exact:true}).waitFor();
+  await page.getByRole('tab',{name:'Evidence',exact:true}).click();await page.getByRole('group',{name:'Session replay',exact:true}).waitFor();
+  const replay=page.getByRole('group',{name:'Session replay',exact:true});await replay.getByRole('button',{name:'Previous frame'}).click();await page.waitForTimeout(100);
+  let dims=await replay.locator('.replay-frame').evaluate(el=>({width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height}));assert.ok(Math.abs(dims.width/dims.height-.5)<.01);
+  await replay.getByRole('button',{name:'Next frame'}).click();await page.waitForTimeout(100);dims=await replay.locator('.replay-frame').evaluate(el=>({width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height}));assert.ok(Math.abs(dims.width/dims.height-2)<.01);
+  await replay.focus();await page.keyboard.press('Space');await replay.getByRole('button',{name:'Pause',exact:true}).waitFor();await page.keyboard.press('Space');
+  await page.getByRole('button',{name:'Raw event',exact:true}).click();await page.locator('dialog[open] .code-block').waitFor();await page.keyboard.press('Escape');
+  await page.goto(detail+'&occurrence='+foreign.eventId);await page.getByRole('alert').filter({hasText:'does not belong'}).waitFor();assert.equal(await page.locator('[data-event-id]').count(),0);
+  // Real form upload, one failed attempt, then the source actually becomes readable.
+  await page.goto(releaseUrl);await page.locator('dialog[open] .file-input').waitFor();
+  const map={version:3,file:'index.android.bundle',sources:['src/checkout.ts'],sourcesContent:["export function charge(userId) {\n  const token = mintToken(userId)\n  return post('/pay', { token })\n}\n"],names:[],mappings:'oBAEI'};
+  const dialog=page.locator('dialog[open]');await dialog.locator('input[type=file]').setInputFiles({name:'index.android.bundle.map',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(map))});
+  const uploadPath=`**/admin/api/projects/${project.id}/releases/${release.id}/artifacts`;
+  await page.route(uploadPath,route=>route.request().method()==='POST'?route.fulfill({status:503,contentType:'application/json',body:'{"error":"injected_failure"}'}):route.continue());
+  await dialog.getByRole('button',{name:'Upload debug file',exact:true}).click();await dialog.getByRole('alert').waitFor();assert.equal(await dialog.locator('.file-list strong').textContent(),'index.android.bundle.map');
+  await page.unroute(uploadPath);await dialog.getByRole('button',{name:'Upload debug file',exact:true}).click();await dialog.getByRole('status').filter({hasText:'File stored and readable'}).waitFor();
+  assert.ok((await call(`/admin/api/projects/${project.id}/releases/${release.id}/artifacts`)).artifacts.some(artifact=>artifact.usable===true));
+  for(let attempt=0;attempt<50;attempt++){const event=await call('/admin/api/events/'+target.eventId);if(event.payload.error.stack[0].contextLine)break;await new Promise(resolve=>setTimeout(resolve,100));}
+  await page.goto(detail);await page.locator('[data-evidence-code] .code-block').waitFor();assert.ok((await page.locator('[data-evidence-code] .code-block').innerText()).includes("return post('/pay'"));
+  // Wireframe timestamp is relative to the event, not the final captured frame.
+  const plain=await report('wireframe');const plainEvent=await call('/admin/api/events/'+plain.eventId),at=Date.parse(plainEvent.occurredAt);
+  const wf=await context.request.post(origin+`/v1/events/${plain.eventId}/attachments/replay`,{headers:{Authorization:`Bearer ${key.token}`},multipart:{source:'android',file:{name:'replay.ndjson',mimeType:'application/x-ndjson',buffer:Buffer.from(JSON.stringify({ts:at-10000,kind:'key',width:1000,height:500,nodes:[{x:0,y:0,w:1000,h:500,color:'#123456'}]})+'\n'+JSON.stringify({ts:at-5000,kind:'delta',added:[],changed:[],removed:[]})+'\n{"kind":')}}});assert.equal(wf.status(),202,await wf.text());
+  await page.goto(origin+`/issues/${plainEvent.issueId}?project=${project.id}`);await page.locator('canvas').waitFor();assert.ok((await page.locator('.replay-controls').innerText()).includes('-5.0s'));
+  // Nested confirmation temporarily hides its drawer without discarding it.
+  await page.goto(releaseUrl);await page.locator('dialog[open].drawer').waitFor();
+  await page.locator('dialog[open].drawer').getByRole('button',{name:'Delete release',exact:true}).click();
+  await page.locator('dialog[open]:not(.drawer)').waitFor();await page.keyboard.press('Escape');
+  await page.locator('dialog[open].drawer').waitFor();assert.ok((await call(`/admin/api/projects/${project.id}/releases`)).releases.some(row=>row.id===release.id));
+  await page.locator('dialog[open].drawer').getByRole('button',{name:'Delete release',exact:true}).click();
+  await page.locator('dialog[open]:not(.drawer)').getByRole('button',{name:'Delete release',exact:true}).click();
+  await page.waitForFunction(()=>!document.querySelector('dialog[open]'));assert.ok(!(await call(`/admin/api/projects/${project.id}/releases`)).releases.some(row=>row.id===release.id));
+  console.log('PASS',engine,'pagination, search/back URL, partial bulk failure, assignee/note, raw evidence, replay rotation, foreign event guard, real upload retry and retro-symbolication, wireframe event clock, delete confirmation');
+});
+console.log(`PASS ${results.length} issue and release layouts`);

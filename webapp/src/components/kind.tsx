@@ -5,6 +5,7 @@
 // here may name a hex.
 
 import type { IssueSummary } from '../lib/api';
+import { useLocale, useT } from '../i18n';
 
 export const kindColor = (kind: IssueSummary['kind']): string =>
   `var(--s-kind-${kind})`;
@@ -25,9 +26,10 @@ export function KindBadge({ kind }: { kind: IssueSummary['kind'] }) {
 }
 
 export function RegressedBadge() {
+  const t = useT();
   return (
     <span className="inline-block rounded bg-kind-error px-1.5 py-0.5 text-xs font-semibold text-white">
-      REGRESSED
+      {t('inbox.groupRegressed')}
     </span>
   );
 }
@@ -55,10 +57,13 @@ export function ImpactCell({
   events: number;
   title?: string;
 }) {
+  const t = useT();
+  const locale = useLocale();
+  const format = (n: number) => n.toLocaleString(locale);
   return (
-    <span className="text-xs tabular-nums text-fg-muted" title={title}>
-      {users > 0 ? `${users}u×${maxPerUser} · ` : ''}
-      {events}ev
+    <span className="text-xs tabular-nums text-fg-muted" title={title ?? t('impact.maximum', { max: format(maxPerUser) })}>
+      {users > 0 ? `${t('impact.users', { count: format(users) })} · ` : ''}
+      {t('impact.events', { count: format(events) })}
     </span>
   );
 }

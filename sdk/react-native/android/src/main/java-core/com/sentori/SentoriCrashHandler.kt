@@ -29,7 +29,7 @@ import java.util.UUID
  */
 object SentoriCrashHandler {
 
-    private const val PREFS = "sentori"
+    @Volatile private var currentConfig: Map<String, String> = emptyMap()
     private const val PENDING_DIR_NAME = "sentori/pending"
 
     @Volatile private var appCtx: Context? = null
@@ -50,10 +50,9 @@ object SentoriCrashHandler {
         // Phase 42 sub-F.01: have the screenshot helper track the
         // foreground Activity so it knows which Window to PixelCopy.
         (appCtx as? android.app.Application)?.let {
-            SentoriScreenshotCapture.register(it)
-            // v0.9.6 #2 — replay capture also tracks the activity for
-            // wireframe view-tree walks.
-            SentoriReplayCapture.register(it)
+            // Both helpers delegate to this tracker. Calling both also eagerly
+            // loads capture machinery and repeats reflective activity discovery.
+            SentoriForegroundActivity.install(it)
         }
     }
 
@@ -87,19 +86,11 @@ object SentoriCrashHandler {
 
     @JvmStatic
     fun setConfig(config: Map<String, Any?>) {
-        val ctx = appCtx ?: return
-        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val edit = prefs.edit()
-        edit.clear()
-        for ((k, v) in config) {
-            when (v) {
-                is String -> edit.putString(k, v)
-                is Int -> edit.putInt(k, v)
-                is Boolean -> edit.putBoolean(k, v)
-                else -> {}
-            }
-        }
-        edit.apply()
+        // This is also called before register() binds the first Context.
+        // Each crash file already contains its launch's metadata.
+        currentConfig = config.mapNotNull { (key, value) ->
+            (value as? String)?.let { key to it }
+        }.toMap()
     }
 
     @JvmStatic
@@ -129,11 +120,7 @@ object SentoriCrashHandler {
     }
 
     private fun configMap(): Map<String, String> {
-        val ctx = appCtx ?: return emptyMap()
-        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val out = mutableMapOf<String, String>()
-        for ((k, v) in prefs.all) if (v is String) out[k] = v
-        return out
+        return currentConfig
     }
 
     private fun write(throwable: Throwable) {

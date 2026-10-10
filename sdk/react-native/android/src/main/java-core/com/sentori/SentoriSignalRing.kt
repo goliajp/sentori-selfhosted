@@ -60,17 +60,20 @@ object SentoriSignalRing {
      */
     @JvmStatic
     @JvmOverloads
-    fun snapshot(now: Long = System.currentTimeMillis()): List<Map<String, Any?>> {
+    fun snapshot(now: Long = System.currentTimeMillis()): List<Map<String, Any?>> = capture(now).invoke()
+
+    /** Freeze membership/time now; materialize wire dictionaries on the worker. */
+    internal fun capture(now: Long = System.currentTimeMillis()): () -> List<Map<String, Any?>> {
         val (all, window) = synchronized(lock) { entries.toList() to windowMs }
         val cutoff = now - window
-        return all.filter { it.at >= cutoff }.map { e ->
+        return { all.filter { it.at >= cutoff }.map { e ->
             val out = mutableMapOf<String, Any?>(
                 "t" to ((e.at - now) / 100.0).roundToLong() / 10.0,
                 "kind" to e.kind,
             )
             if (e.data != null) out["data"] = e.data
             out
-        }
+        } }
     }
 
     @JvmStatic

@@ -1,3 +1,6 @@
+import { Button } from '../../shared/design/controls';
+import { fitReplayViewport } from '../../shared/replay/viewport';
+import { ReplayControls } from '../../shared/replay/Controls';
 // The visual replay player — the minute before the event, as the
 // user saw it.
 //
@@ -5,48 +8,15 @@
 // phone-shaped viewport that fills its column instead of a letter-
 // boxed landscape strip. The `screens` attachment is NDJSON: one
 // low-bitrate frame per line, `t` in seconds relative to the event
-// (negative). Playback runs at 4× real time (frames arrive ~2.5 s
-// apart; a minute of context should take fifteen seconds to review,
-// not sixty). Scrubbing pauses; ←/→ step frames while focused.
+// (negative). Playback follows the recorded inter-frame gaps with a selectable
+// speed, defaulting to real time. Scrubbing pauses; ←/→ step frames while focused.
 
-import { Pause, Play } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useT } from '../i18n';
 import { api } from '../lib/api';
 
-type ReplayFrame = {
-  t: number;
-  mediaType: string;
-  base64: string;
-  /** Window logical size (pt/dp) — present from SDK native ≥ 5.4;
-   *  the tap markers need it to map coordinates onto the JPEG. */
-  w?: number;
-  h?: number;
-};
-
-/** NDJSON to frames, one line at a time. The upload is append-only,
- *  so a half-written last line is the expected damage — and the
- *  moment it is most likely is the one this player exists for: the
- *  process died mid-flush. Mapping `JSON.parse` over the lines threw
- *  the whole recording away for one bad byte, and the page said the
- *  replay failed to load. The wireframe decoder has always been
- *  per-line tolerant; this one now matches it. */
-function decodeFrames(text: string): ReplayFrame[] {
-  const out: ReplayFrame[] = [];
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const f = JSON.parse(line) as ReplayFrame;
-      if (typeof f.base64 === 'string') out.push(f);
-    } catch {
-      /* a partial last line is normal */
-    }
-  }
-  return out;
-}
-
-const PLAYBACK_SPEED = 4;
+import { decodeScreenFrames, type ReplayFrame } from '../lib/replay-screens';
 
 export function ReplayPlayer({
   attachmentRef,
@@ -73,8 +43,10 @@ export function ReplayPlayer({
   const t = useT();
   const [frames, setFrames] = useState<null | ReplayFrame[]>(null);
   const [failed, setFailed] = useState(false);
+  const [attempt,setAttempt] = useState(0);
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState('1');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -83,7 +55,7 @@ export function ReplayPlayer({
       .fetchAttachmentText(attachmentRef)
       .then((text) => {
         if (!alive) return;
-        const parsed = decodeFrames(text);
+        const parsed = decodeScreenFrames(text);
         setFrames(parsed);
         setIdx(Math.max(0, parsed.length - 1));
       })
@@ -93,7 +65,7 @@ export function ReplayPlayer({
     return () => {
       alive = false;
     };
-  }, [attachmentRef]);
+  }, [attachmentRef,attempt]);
 
   // Report loaded frame moments upward. A separate effect, NOT the
   // fetch closure: the player can mount via the occurrence-fallback
@@ -118,7 +90,7 @@ export function ReplayPlayer({
     if (!playing || !frames || frames.length === 0 || idx >= frames.length - 1) return;
     const gapMs = Math.max(
       100,
-      ((frames[idx + 1]!.t - frames[idx]!.t) * 1000) / PLAYBACK_SPEED,
+      ((frames[idx + 1]!.t - frames[idx]!.t) * 1000) / Number(speed),
     );
     timerRef.current = setTimeout(() => {
       setIdx((i) => {
@@ -130,7 +102,7 @@ export function ReplayPlayer({
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [playing, idx, frames]);
+  }, [playing, idx, frames, speed]);
 
   // Seek applies during render (the adjust-state-from-props pattern)
   // — an effect would be a cascading second render for no gain.
@@ -151,13 +123,24 @@ export function ReplayPlayer({
   }
 
   const current = frames?.[idx];
+  const stage = useRef<HTMLDivElement>(null);
+  const [stageWidth,setStageWidth] = useState(0);
+  const [natural,setNatural] = useState<{src:string;width:number;height:number}|null>(null);
+  useLayoutEffect(()=>{
+    if(!stage.current)return;
+    const observer=new ResizeObserver(([entry])=>setStageWidth(entry.contentRect.width));
+    observer.observe(stage.current);return()=>observer.disconnect();
+  },[frames]);
   const src = useMemo(
     () => (current ? `data:${current.mediaType};base64,${current.base64}` : null),
     [current],
   );
 
+  const viewport = current?.w && current?.h ? {width:current.w,height:current.h} : natural?.src===src ? natural : null;
+  const fit = viewport ? fitReplayViewport(stageWidth,viewport) : null;
+
   if (failed) {
-    return <p className="text-sm text-fg-subtle">{t('replay.loadFailed')}</p>;
+    return <div className="p-5" role="alert"><p>{t('replay.loadFailed')}</p><Button className="mt-3" onClick={()=>{setFailed(false);setFrames(null);setAttempt(n=>n+1);}}>{t('common.retry')}</Button></div>;
   }
   if (!frames) {
     return <p className="text-sm text-fg-subtle">{t('shell.loading')}</p>;
@@ -168,11 +151,12 @@ export function ReplayPlayer({
 
   return (
     <div
-      className="overflow-hidden"
+      className="replay-surface p-5"
       tabIndex={0}
       role="group"
       aria-label={t('replay.title')}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'ArrowRight') {
           e.preventDefault();
           setPlaying(false);
@@ -183,7 +167,10 @@ export function ReplayPlayer({
           setIdx((i) => Math.max(i - 1, 0));
         } else if (e.key === ' ') {
           e.preventDefault();
-          setPlaying((p) => !p);
+          if (frames.length > 1) {
+            if (!playing && idx >= frames.length - 1) setIdx(0);
+            setPlaying(!playing);
+          }
         }
       }}
     >
@@ -194,15 +181,17 @@ export function ReplayPlayer({
       {/* Always a bounded square: below the xl split the panel goes
           full-width and an uncapped aspect-square balloons into a
           viewport-sized block. */}
-      <div className="mx-auto flex aspect-square w-full max-w-[440px] items-center justify-center bg-bg p-3">
+      <div className="replay-stage" ref={stage}>
         {src && (
           // relative wrapper shrink-wraps the img, so percentage
           // positions inside it ARE positions on the frame
-          <span className="relative inline-flex max-h-full max-w-full">
+          <span className="replay-frame" style={fit ? {width:fit.width,height:fit.height} : {width:'100%',height:'100%'}}>
             <img
               src={src}
               alt={t('replay.frameAlt', { t: current!.t.toFixed(1) })}
-              className="max-h-full max-w-full rounded-sm border border-border object-contain"
+              className="h-full w-full object-contain"
+              onError={()=>setFailed(true)}
+              onLoad={event=>setNatural({src:src!,width:event.currentTarget.naturalWidth,height:event.currentTarget.naturalHeight})}
             />
             {typeof current!.w === 'number' &&
               typeof current!.h === 'number' &&
@@ -225,38 +214,11 @@ export function ReplayPlayer({
           </span>
         )}
       </div>
-      <div className="flex items-center gap-2.5 border-t border-border px-3 py-2">
-        <button
-          type="button"
-          onClick={() => {
-            if (!playing && idx >= frames.length - 1) setIdx(0);
-            setPlaying((p) => !p);
-          }}
-          aria-label={playing ? t('replay.pause') : t('replay.play')}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border-strong text-fg hover:bg-raised"
-        >
-          {playing ? (
-            <Pause aria-hidden className="h-3.5 w-3.5" />
-          ) : (
-            <Play aria-hidden className="h-3.5 w-3.5" />
-          )}
-        </button>
-        <input
-          type="range"
-          min={0}
-          max={frames.length - 1}
-          value={idx}
-          onChange={(e) => {
-            setPlaying(false);
-            setIdx(Number(e.target.value));
-          }}
-          aria-label={t('replay.scrubber')}
-          className="min-w-0 flex-1 accent-accent"
-        />
-        <span className="shrink-0 text-right font-mono text-xs tabular-nums text-fg-muted">
-          {current!.t.toFixed(1)}s · {idx + 1}/{frames.length}
-        </span>
-      </div>
+      <ReplayControls index={idx} last={frames.length - 1} playing={playing} speed={speed} onSpeed={setSpeed}
+        time={`${(current!.t).toFixed(1)}s · ${idx+1}/${frames.length}`}
+        onIndex={value=>{setPlaying(false);setIdx(value);}}
+        onToggle={()=>{if(!playing&&idx>=frames.length - 1)setIdx(0);setPlaying(!playing);}}
+        labels={{play:t('replay.play'),pause:t('replay.pause'),back:t('replay.stepBack'),forward:t('replay.stepForward'),seek:t('replay.scrubber'),speed:t('replay.speed')}}/>
     </div>
   );
 }

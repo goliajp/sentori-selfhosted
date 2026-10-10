@@ -37,11 +37,18 @@ pub async fn login(
     headers: axum::http::HeaderMap,
     Json(body): Json<LoginBody>,
 ) -> axum::response::Response {
+    let mut tx = match state.pool.begin().await {
+        Ok(tx) => tx,
+        Err(error) => {
+            warn!(%error, "login transaction failed");
+            return internal();
+        }
+    };
     let row: Option<(Uuid, String, String)> = match sqlx::query_as(
-        "SELECT id, password_hash, role FROM users WHERE LOWER(email) = LOWER($1)",
+        "SELECT id, password_hash, role FROM users WHERE LOWER(email) = LOWER($1) FOR UPDATE",
     )
     .bind(&body.email)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await
     {
         Ok(r) => r,
@@ -81,16 +88,24 @@ pub async fn login(
     .bind(expires)
     .bind(ip.as_deref())
     .bind(ua.as_deref())
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await
     {
         warn!(error = %e, "session insert failed");
         return internal();
     }
-    let _ = sqlx::query("UPDATE users SET last_login_at = now() WHERE id = $1")
+    if let Err(error) = sqlx::query("UPDATE users SET last_login_at = now() WHERE id = $1")
         .bind(user_id)
-        .execute(&state.pool)
-        .await;
+        .execute(&mut *tx)
+        .await
+    {
+        warn!(%error, "login timestamp failed");
+        return internal();
+    }
+    if let Err(error) = tx.commit().await {
+        warn!(%error, "login commit failed");
+        return internal();
+    }
 
     info!(%user_id, "auth.login");
     let cookie = format!(
@@ -109,14 +124,21 @@ pub async fn logout(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
 ) -> axum::response::Response {
-    let _ = sqlx::query("DELETE FROM auth_sessions WHERE id_hash = $1")
+    if let Err(error) = sqlx::query("DELETE FROM auth_sessions WHERE id_hash = $1")
         .bind(ctx.session_id_hash.as_slice())
         .execute(&state.pool)
-        .await;
-    let clear = "sentori_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0";
+        .await
+    {
+        warn!(%error, "logout revocation failed");
+        return internal();
+    }
+    let clear = state.cloud.as_ref().map_or_else(
+        || "sentori_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0".to_owned(),
+        |cloud| cloud.session_cookie("", 0),
+    );
     (
         StatusCode::OK,
-        [(axum::http::header::SET_COOKIE, clear.to_string())],
+        [(axum::http::header::SET_COOKIE, clear)],
         Json(json!({ "ok": true })),
     )
         .into_response()
@@ -156,56 +178,99 @@ pub struct ChangePasswordBody {
     pub new_password: String,
 }
 
+type AuthReply = (StatusCode, Json<serde_json::Value>);
+
+fn auth_failure(error: &sqlx::Error) -> AuthReply {
+    warn!(%error, "password transaction failed");
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({"error": "internal"})),
+    )
+}
+
+fn password_rule(password: &str) -> Result<(), AuthReply> {
+    if password.chars().count() < 12 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "password_too_short", "min": 12})),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn change_password(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Json(body): Json<ChangePasswordBody>,
-) -> (StatusCode, Json<serde_json::Value>) {
-    if body.new_password.len() < 8 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "password_too_short", "min": 8 })),
-        );
-    }
-    let row: Option<(String,)> = sqlx::query_as("SELECT password_hash FROM users WHERE id = $1")
-        .bind(ctx.user_id)
-        .fetch_optional(&state.pool)
+) -> Result<AuthReply, AuthReply> {
+    password_rule(&body.new_password)?;
+    let mut tx = state
+        .pool
+        .begin()
         .await
-        .unwrap_or(None);
+        .map_err(|error| auth_failure(&error))?;
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT password_hash FROM users WHERE id = $1 FOR UPDATE")
+            .bind(ctx.user_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|error| auth_failure(&error))?;
     let Some((phc,)) = row else {
-        return (
+        return Err((
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "user_not_found" })),
-        );
+            Json(json!({"error": "user_not_found"})),
+        ));
     };
-    if !sentori_argon2_password::PasswordHash::verify(&body.current_password, &phc).unwrap_or(false)
+    let live: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM auth_sessions WHERE id_hash = $1 AND user_id = $2 AND expires_at > now())")
+        .bind(ctx.session_id_hash.as_slice()).bind(ctx.user_id).fetch_one(&mut *tx).await.map_err(|error| auth_failure(&error))?;
+    if !live
+        || !sentori_argon2_password::PasswordHash::verify(&body.current_password, &phc)
+            .unwrap_or(false)
     {
-        return (
+        return Err((
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "wrong_password" })),
-        );
+            Json(json!({"error": "wrong_password"})),
+        ));
     }
-    let Ok(new_phc) = sentori_argon2_password::PasswordHash::hash(&body.new_password) else {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "hash_failed" })),
-        );
-    };
-    match sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
-        .bind(&new_phc)
-        .bind(ctx.user_id)
-        .execute(&state.pool)
-        .await
-    {
-        Ok(_) => (StatusCode::OK, Json(json!({ "ok": true }))),
-        Err(e) => {
-            warn!(error = %e, "password update failed");
+    let new_phc =
+        sentori_argon2_password::PasswordHash::hash(&body.new_password).map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal" })),
+                Json(json!({"error": "hash_failed"})),
             )
-        }
-    }
+        })?;
+    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+        .bind(new_phc)
+        .bind(ctx.user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| auth_failure(&error))?;
+    sqlx::query(
+        "UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL",
+    )
+    .bind(ctx.user_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| auth_failure(&error))?;
+    sqlx::query("DELETE FROM auth_sessions WHERE user_id = $1 AND id_hash <> $2")
+        .bind(ctx.user_id)
+        .bind(ctx.session_id_hash.as_slice())
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| auth_failure(&error))?;
+    crate::audit::record_in_transaction(
+        &mut tx,
+        None,
+        ctx.user_id,
+        "auth.password_changed",
+        "user",
+        &ctx.user_id.to_string(),
+        json!({}),
+    )
+    .await
+    .map_err(|error| auth_failure(&error))?;
+    tx.commit().await.map_err(|error| auth_failure(&error))?;
+    Ok((StatusCode::OK, Json(json!({"ok": true}))))
 }
 
 #[derive(Deserialize)]
@@ -258,55 +323,75 @@ pub struct ResetBody {
 pub async fn reset_password(
     State(state): State<Arc<AppState>>,
     Json(body): Json<ResetBody>,
-) -> (StatusCode, Json<serde_json::Value>) {
-    if body.new_password.len() < 8 {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "password_too_short", "min": 8 })),
-        );
-    }
+) -> Result<AuthReply, AuthReply> {
+    password_rule(&body.new_password)?;
     let hash = hash_token(&body.token);
-    let row: Option<(Uuid, Uuid)> = sqlx::query_as(
-        "SELECT id, user_id FROM password_resets \
-         WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()",
-    )
-    .bind(hash.as_slice())
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
-    let Some((reset_id, user_id)) = row else {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "invalid_or_expired_token" })),
-        );
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(|error| auth_failure(&error))?;
+    // Lock users first everywhere. Different reset links for the same account
+    // must serialize too, as must a concurrent login or password change.
+    let user: Option<Uuid> = sqlx::query_scalar(
+        "SELECT u.id FROM users u WHERE EXISTS(SELECT 1 FROM password_resets r \
+         WHERE r.user_id = u.id AND r.token_hash = $1 AND r.used_at IS NULL AND r.expires_at > now()) FOR UPDATE",
+    ).bind(hash.as_slice()).fetch_optional(&mut *tx).await.map_err(|error| auth_failure(&error))?;
+    let Some(user_id) = user else {
+        return Err(invalid_reset());
     };
-    let Ok(new_phc) = sentori_argon2_password::PasswordHash::hash(&body.new_password) else {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "hash_failed" })),
-        );
-    };
-    let ok = sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
-        .bind(&new_phc)
-        .bind(user_id)
-        .execute(&state.pool)
-        .await;
-    if ok.is_err() {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "internal" })),
-        );
+    // Recheck after obtaining the lock: another request may have consumed it
+    // while this transaction waited for the user row.
+    let consumed = sqlx::query("UPDATE password_resets SET used_at = now() WHERE token_hash = $1 AND user_id = $2 AND used_at IS NULL AND expires_at > now()")
+        .bind(hash.as_slice()).bind(user_id).execute(&mut *tx).await.map_err(|error| auth_failure(&error))?;
+    if consumed.rows_affected() == 0 {
+        return Err(invalid_reset());
     }
-    let _ = sqlx::query("UPDATE password_resets SET used_at = now() WHERE id = $1")
-        .bind(reset_id)
-        .execute(&state.pool)
-        .await;
-    // Every live session for this user dies with the old password.
-    let _ = sqlx::query("DELETE FROM auth_sessions WHERE user_id = $1")
+    let new_phc =
+        sentori_argon2_password::PasswordHash::hash(&body.new_password).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "hash_failed"})),
+            )
+        })?;
+    sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+        .bind(new_phc)
         .bind(user_id)
-        .execute(&state.pool)
-        .await;
-    (StatusCode::OK, Json(json!({ "ok": true })))
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| auth_failure(&error))?;
+    sqlx::query(
+        "UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL",
+    )
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| auth_failure(&error))?;
+    sqlx::query("DELETE FROM auth_sessions WHERE user_id = $1")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| auth_failure(&error))?;
+    crate::audit::record_in_transaction(
+        &mut tx,
+        None,
+        user_id,
+        "auth.password_reset",
+        "user",
+        &user_id.to_string(),
+        json!({}),
+    )
+    .await
+    .map_err(|error| auth_failure(&error))?;
+    tx.commit().await.map_err(|error| auth_failure(&error))?;
+    Ok((StatusCode::OK, Json(json!({"ok": true}))))
+}
+
+fn invalid_reset() -> AuthReply {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({"error": "invalid_or_expired_token"})),
+    )
 }
 
 /// 32 random bytes, base32 — same entropy family as ingest tokens.

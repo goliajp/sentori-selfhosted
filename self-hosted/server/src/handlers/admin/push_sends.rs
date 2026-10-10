@@ -1,10 +1,6 @@
-//! GET /admin/api/projects/:project_id/push/sends
-//!
-//! Recent push attempts for ops triage — failed retries, slow
-//! sends, vendor-error pattern hunting.
-
-use std::sync::Arc;
-
+//! Project-scoped push sends and actual provider attempts / SDK acknowledgements.
+use super::push_commands::{self, Action, Command, Error, database_error, error};
+use crate::{session_mw::SessionContext, state::AppState};
 use axum::{
     Json,
     extract::{Extension, Path, Query, State},
@@ -13,184 +9,133 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::Row;
+use std::sync::Arc;
 use uuid::Uuid;
-
-use crate::session_mw::SessionContext;
-use crate::state::AppState;
-
 #[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ListQuery {
     pub status: Option<String>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
+    pub q: Option<String>,
+    pub provider: Option<String>,
 }
-
-pub async fn retry(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<SessionContext>,
-    Path((project_id, send_id)): Path<(Uuid, Uuid)>,
-) -> (axum::http::StatusCode, Json<Value>) {
-    use axum::http::StatusCode;
-    if let Err(e) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
-        return e;
-    }
-    // `AND project_id` ties the send to the guarded project so a
-    // send_id from another project (even in this workspace) can't be
-    // retried through the wrong project's URL.
-    let res = sqlx::query(
-        "UPDATE push_sends SET status = 'queued', next_attempt_at = now(), \
-            retry_count = 0, error = NULL \
-         WHERE id = $1 AND project_id = $2 AND status = 'failed' RETURNING id",
-    )
-    .bind(send_id)
-    .bind(project_id)
-    .fetch_optional(&state.pool)
-    .await;
-    match res {
-        Ok(Some(_)) => {
-            crate::audit::record(
-                &state.pool,
-                None,
-                ctx.user_id,
-                "push.retry",
-                "push_send",
-                &send_id.to_string(),
-                json!({}),
-            )
-            .await;
-            (
-                StatusCode::ACCEPTED,
-                Json(json!({ "send_id": send_id.to_string(), "status": "queued" })),
-            )
-        }
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(json!({ "error": "not_failed_or_missing" })),
-        ),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "internal" })),
-        ),
-    }
+fn wire(row: &sqlx::postgres::PgRow) -> Value {
+    let status: String = row.get("status");
+    let outcome: Option<String> = row.get("provider_outcome");
+    let display = if row.get::<Option<Uuid>, _>("lease_owner").is_some() {
+        "sending"
+    } else if status == "failed" && outcome.as_deref() == Some("uncertain") {
+        "uncertain"
+    } else if status == "failed" && outcome.as_deref() == Some("cancelled") {
+        "cancelled"
+    } else {
+        &status
+    };
+    json!({"id":row.get::<Uuid,_>("id"),"token_id":row.get::<Uuid,_>("token_id"),"provider":row.get::<String,_>("provider"),"status":status,"displayState":display,"provider_outcome":outcome,"error":row.get::<Option<String>,_>("error"),"version":row.get::<i64,_>("version"),"retry_count":row.get::<i32,_>("retry_count"),"payload":row.get::<Value,_>("payload"),"credentialId":row.get::<Option<Uuid>,_>("credential_id"),"created_at":crate::wire_time::rfc3339(row.get("created_at")),"sent_at":crate::wire_time::rfc3339_opt(row.get("sent_at")),"next_attempt_at":crate::wire_time::rfc3339(row.get("next_attempt_at")),"deliveredAt":crate::wire_time::rfc3339_opt(row.get("acked_at"))})
 }
-
-/// POST /admin/api/projects/:project_id/push/sends/_retry_all_failed
-/// Unstuck the whole DLQ at once. Useful after fixing a bad
-/// credential — all the rows that piled up while the cred was
-/// wrong get one more chance.
-pub async fn retry_all_failed(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<SessionContext>,
-    Path(project_id): Path<Uuid>,
-) -> (axum::http::StatusCode, Json<Value>) {
-    // 403, like the eleven sibling routes on this project.
-    // Answering `[]` made "you may not look" indistinguishable
-    // from "there are none", which is the exact question a
-    // setup screen is asking.
-    if let Err(e) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
-        return e;
-    }
-    let res = sqlx::query(
-        "UPDATE push_sends SET status = 'queued', next_attempt_at = now(), \
-            retry_count = 0, error = NULL \
-         WHERE project_id = $1 AND status = 'failed' RETURNING id",
-    )
-    .bind(project_id)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
-    let count = res.len();
-    crate::audit::record(
-        &state.pool,
-        Some(project_id),
-        ctx.user_id,
-        "push.retry_all_failed",
-        "push_send",
-        "",
-        json!({ "count": count }),
-    )
-    .await;
-    (
-        axum::http::StatusCode::OK,
-        Json(json!({ "requeued": count })),
-    )
-}
-
 pub async fn list(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
-    Path(project_id): Path<Uuid>,
-    Query(q): Query<ListQuery>,
-) -> (axum::http::StatusCode, Json<Value>) {
-    // 403, like the eleven sibling routes on this project.
-    // Answering `[]` made "you may not look" indistinguishable
-    // from "there are none", which is the exact question a
-    // setup screen is asking.
-    if let Err(e) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
-        return e;
+    Path(project): Path<Uuid>,
+    Query(query): Query<ListQuery>,
+) -> Result<Json<Value>, Error> {
+    super::tokens::ensure_project_access(&state, &ctx, project).await?;
+    let limit = i64::from(query.limit.unwrap_or(50).clamp(1, 100));
+    let offset = i64::from(query.offset.unwrap_or(0));
+    let status = query.status.as_deref().filter(|s| !s.is_empty());
+    let provider = query.provider.as_deref().filter(|s| !s.is_empty());
+    let search = query.q.unwrap_or_default();
+    if status.is_some_and(|s| {
+        ![
+            "queued",
+            "sent",
+            "failed",
+            "uncertain",
+            "sending",
+            "cancelled",
+        ]
+        .contains(&s)
+    }) || provider.is_some_and(|p| push_commands::config_keys(p).is_empty())
+        || search.chars().count() > 200
+    {
+        return Err(error(StatusCode::BAD_REQUEST, "invalid_push_filter"));
     }
-    let limit = i64::from(q.limit.unwrap_or(50).clamp(1, 1000));
-    let offset = i64::from(q.offset.unwrap_or(0));
-    // One statement with a nullable filter, rather than two that had
-    // to be kept identical by hand. They already differed by a
-    // placeholder number, which is the kind of divergence that ends
-    // with one branch selecting a column the other does not.
-    let status = q.status.as_deref().filter(|s| !s.is_empty());
-
-    let total: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM push_sends \
-         WHERE project_id = $1 AND ($2::text IS NULL OR status = $2)",
-    )
-    .bind(project_id)
+    let predicate = "project_id=$1 AND ($2::text IS NULL OR status=$2 OR ($2='sending' AND lease_owner IS NOT NULL) OR ($2 IN ('uncertain','cancelled') AND status='failed' AND provider_outcome=$2)) AND ($3::text IS NULL OR provider=$3) AND ($4='' OR position(lower($4) in lower(COALESCE(payload->>'title','')||' '||COALESCE(payload->>'body','')))>0)";
+    let total: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "SELECT count(*) FROM push_sends WHERE {predicate}"
+    )))
+    .bind(project)
     .bind(status)
+    .bind(provider)
+    .bind(&search)
     .fetch_one(&state.pool)
     .await
-    .unwrap_or(0);
-
-    let rows = sqlx::query(
-        "SELECT id, token_id, provider, status, provider_outcome, error, retry_count, \
-                payload, created_at, sent_at, next_attempt_at \
-         FROM push_sends \
-         WHERE project_id = $1 AND ($2::text IS NULL OR status = $2) \
-         ORDER BY created_at DESC LIMIT $3 OFFSET $4",
-    )
-    .bind(project_id)
-    .bind(status)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
-    let out: Vec<Value> = rows
-        .iter()
-        .map(|r| {
-            json!({
-                "id": r.get::<Uuid, _>("id").to_string(),
-                "token_id": r.get::<Uuid, _>("token_id").to_string(),
-                "provider": r.get::<String, _>("provider"),
-                "status": r.get::<String, _>("status"),
-                "provider_outcome": r.try_get::<Option<String>, _>("provider_outcome").ok().flatten(),
-                "error": r.try_get::<Option<String>, _>("error").ok().flatten(),
-                "retry_count": r.try_get::<i32, _>("retry_count").unwrap_or(0),
-                // What was actually sent. The table listed rows and
-                // their outcomes and never said which notification
-                // they were, so a failed row could not be matched to
-                // the send that produced it — and nothing anywhere
-                // could observe that a queued row carried the right
-                // message at all.
-                "payload": r.try_get::<Value, _>("payload").unwrap_or_else(|_| json!({})),
-                "created_at": crate::wire_time::rfc3339(r.get::<time::OffsetDateTime, _>("created_at")),
-                "sent_at": crate::wire_time::rfc3339_opt(r.try_get::<Option<time::OffsetDateTime>, _>("sent_at").ok().flatten()),
-                "next_attempt_at": crate::wire_time::rfc3339_opt(r.try_get::<Option<time::OffsetDateTime>, _>("next_attempt_at").ok().flatten()),
-            })
-        })
-        .collect();
-    (
-        axum::http::StatusCode::OK,
-        Json(json!({ "sends": out, "total": total, "offset": offset })),
-    )
+    .map_err(database_error)?;
+    let rows=sqlx::query(sqlx::AssertSqlSafe(format!("SELECT * FROM push_sends WHERE {predicate} ORDER BY created_at DESC,id DESC LIMIT $5 OFFSET $6"))).bind(project).bind(status).bind(provider).bind(search).bind(limit).bind(offset).fetch_all(&state.pool).await.map_err(database_error)?;
+    Ok(Json(
+        json!({"sends":rows.iter().map(wire).collect::<Vec<_>>(),"total":total,"offset":offset}),
+    ))
 }
-
+pub async fn detail(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<SessionContext>,
+    Path((project, id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<Value>, Error> {
+    super::tokens::ensure_project_access(&state, &ctx, project).await?;
+    let row = sqlx::query("SELECT * FROM push_sends WHERE id=$1 AND project_id=$2")
+        .bind(id)
+        .bind(project)
+        .fetch_optional(&state.pool)
+        .await
+        .map_err(database_error)?
+        .ok_or_else(|| error(StatusCode::NOT_FOUND, "send_not_found"))?;
+    let attempts:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',id,'attempt',attempt,'outcome',outcome,'httpStatus',provider_status,'durationMs',duration_ms,'at',created_at) FROM push_delivery_logs WHERE send_id=$1 ORDER BY created_at DESC,id DESC LIMIT 50").bind(id).fetch_all(&state.pool).await.map_err(database_error)?;
+    Ok(Json(json!({"send":wire(&row),"attempts":attempts})))
+}
+pub async fn retry(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<SessionContext>,
+    Path((project, id)): Path<(Uuid, Uuid)>,
+) -> Result<(StatusCode, Json<Value>), Error> {
+    let value = push_commands::execute(
+        &state,
+        &ctx,
+        project,
+        Command {
+            command_id: Uuid::now_v7().to_string(),
+            action: Action::RetrySend {
+                id,
+                expected_version: None,
+                acknowledge_duplicate: false,
+            },
+        },
+    )
+    .await?;
+    Ok((StatusCode::ACCEPTED, Json(value)))
+}
+pub async fn retry_all_failed(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<SessionContext>,
+    Path(project): Path<Uuid>,
+) -> Result<Json<Value>, Error> {
+    super::tokens::ensure_project_access(&state, &ctx, project).await?;
+    let ids:Vec<Uuid>=sqlx::query_scalar("SELECT p.id FROM push_sends p JOIN instance_settings s ON s.singleton AND s.generation=p.generation WHERE p.project_id=$1 AND p.status='failed' AND p.provider_outcome IS DISTINCT FROM 'uncertain' ORDER BY p.id LIMIT 1001").bind(project).fetch_all(&state.pool).await.map_err(database_error)?;
+    if ids.is_empty() {
+        return Ok(Json(json!({"requeued":0})));
+    }
+    push_commands::execute(
+        &state,
+        &ctx,
+        project,
+        Command {
+            command_id: Uuid::now_v7().to_string(),
+            action: Action::RetryFailed { ids },
+        },
+    )
+    .await
+    .map(Json)
+}
 /// `GET /admin/api/projects/:project_id/push/health`
 ///
 /// One request behind the delivery card. The dashboard used to have

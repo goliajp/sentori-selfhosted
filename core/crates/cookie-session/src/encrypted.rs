@@ -129,7 +129,7 @@ mod tests {
         let k = key();
         let sealed = EncryptedCookie::seal(&k, b"").expect("seal");
         let opened = EncryptedCookie::open(&k, &sealed).expect("open");
-        assert!(opened.is_empty());
+        assert_eq!(opened.len(), 0);
     }
 
     #[test]

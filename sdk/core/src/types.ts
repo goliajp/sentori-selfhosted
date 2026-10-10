@@ -248,7 +248,7 @@ export type InitConfig = {
    *  probes it once a minute and shows availability next to the
    *  project — the SDK only carries the URL, the app never pings. */
   backendHealthUrl?: string
-  /** Console gate: default `warn` — silent unless genuinely broken. */
+  /** Diagnostics are opt-in: default `silent`, including SDK failures. */
   logLevel?: 'debug' | 'error' | 'info' | 'silent' | 'warn'
   /** Last-resort event filter; exceptions fall back to the event. */
   beforeSend?: (event: WireEvent) => WireEvent | null

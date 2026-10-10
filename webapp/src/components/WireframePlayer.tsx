@@ -1,3 +1,5 @@
+import { Button } from '../../shared/design/controls';
+import { ReplayControls } from '../../shared/replay/Controls';
 // The wireframe replay — the minute before the event, redrawn.
 //
 // What the SDK captures here is not video: per tick, the rectangles
@@ -14,50 +16,12 @@
 // visual player's: portrait and landscape recordings both letterbox
 // inside the canvas.
 
-import { Pause, Play } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useT } from '../i18n';
 import { api } from '../lib/api';
 
-type Node = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  kind?: string;
-  text?: string;
-  color?: string;
-};
-
-type WireNode = Node & { at?: number; id?: string };
-
-type Frame =
-  | { ts: number; kind: 'key'; width: number; height: number; nodes: Node[] }
-  | {
-      ts: number;
-      kind: 'delta';
-      added: WireNode[];
-      changed: WireNode[];
-      removed: (Pick<Node, 'x' | 'y' | 'w' | 'h'> & { id?: string })[];
-    };
-
-/** NDJSON to frames. One malformed line must not cost the whole
- *  recording: the format is append-only, so a truncated tail is the
- *  expected failure rather than a corrupt file. */
-function decodeFrames(text: string): Frame[] {
-  const out: Frame[] = [];
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      out.push(JSON.parse(line) as Frame);
-    } catch {
-      /* a partial last line is normal */
-    }
-  }
-  return out;
-}
-
+import { decodeWireframes, type ReplayNode as Node, type Wireframe as Frame } from '../lib/replay-wireframe';
 const fp = (n: Pick<Node, 'x' | 'y' | 'w' | 'h'>) =>
   `${n.x | 0},${n.y | 0},${n.w | 0},${n.h | 0}`;
 
@@ -88,15 +52,18 @@ const CANVAS_PX = 640;
 
 export function WireframePlayer({
   attachmentRef,
+  eventAt,
   seek,
   onFrames,
   onTime,
   taps,
 }: {
   attachmentRef: string;
+  /** Event device timestamp, in milliseconds. Capture can end before it. */
+  eventAt: number;
   /** Timeline → replay: jump to the frame nearest this moment
    *  (seconds relative to the event, negative). Frame timestamps
-   *  are absolute ms; the last frame is ~the event moment. */
+   *  are absolute ms and are anchored to the actual event timestamp. */
   seek?: { t: number; n: number } | null;
   /** Replay → timeline: the loaded frame moments (relative s). */
   onFrames?: (times: number[]) => void;
@@ -111,8 +78,10 @@ export function WireframePlayer({
   const t = useT();
   const [frames, setFrames] = useState<Frame[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [attempt,setAttempt] = useState(0);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState('1');
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -121,7 +90,7 @@ export function WireframePlayer({
       .fetchAttachmentText(attachmentRef)
       .then((text) => {
         if (!alive) return;
-        const decoded = decodeFrames(text);
+        const decoded = decodeWireframes(text);
         setFrames(decoded);
         setIndex(Math.max(0, decoded.length - 1));
       })
@@ -131,26 +100,25 @@ export function WireframePlayer({
     return () => {
       alive = false;
     };
-  }, [attachmentRef]);
+  }, [attachmentRef,attempt]);
 
-  // Report loaded frame moments upward (relative seconds; the last
-  // frame anchors the event). A separate effect, NOT the fetch
+  // Report loaded frame moments upward relative to the actual event. A separate effect, NOT the fetch
   // closure — see ReplayPlayer for the fallback-race rationale.
   useEffect(() => {
     if (frames && frames.length > 0) {
-      const last = frames[frames.length - 1]!.ts;
+      const last = eventAt;
       onFrames?.(frames.map((f) => (f.ts - last) / 1000));
     }
-  }, [frames, onFrames]);
+  }, [frames, onFrames, eventAt]);
 
   // Playhead position, up to the page (drives the signal-list
   // highlight). Cheap: fires at frame pacing, ~2–4 Hz.
   useEffect(() => {
     if (frames && frames.length > 0 && onTime) {
-      const lastTs = frames[frames.length - 1]!.ts;
+      const lastTs = eventAt;
       onTime((frames[Math.min(index, frames.length - 1)]!.ts - lastTs) / 1000);
     }
-  }, [frames, index, onTime]);
+  }, [frames, index, onTime, eventAt]);
 
   // Seek applies during render (the adjust-state-from-props pattern)
   // — an effect would be a cascading second render for no gain.
@@ -158,7 +126,7 @@ export function WireframePlayer({
   if (seek && frames && frames.length > 0 && seek.n !== appliedSeek) {
     setAppliedSeek(seek.n);
     setPlaying(false);
-    const eventTs = frames[frames.length - 1]!.ts;
+    const eventTs = eventAt;
     const target = eventTs + seek.t * 1000;
     let best = 0;
     let bestGap = Infinity;
@@ -219,19 +187,19 @@ export function WireframePlayer({
   }, [frames, index]);
 
   // Playback steps frame-to-frame at the recording's own pacing,
-  // clamped so a long idle gap doesn't stall the playhead.
+  // scaled by the chosen playback speed.
   useEffect(() => {
     if (!playing || !frames?.length) return;
     const last = frames.length - 1;
     if (index >= last) return;
-    const gap = Math.min(2000, Math.max(60, frames[index + 1]!.ts - frames[index]!.ts));
+    const gap = Math.max(16, (frames[index + 1]!.ts - frames[index]!.ts) / Number(speed));
     const id = setTimeout(() => {
       const next = index + 1;
       setIndex(next);
       if (next >= last) setPlaying(false);
     }, gap);
     return () => clearTimeout(id);
-  }, [playing, frames, index]);
+  }, [playing, frames, index, speed]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -302,7 +270,7 @@ export function WireframePlayer({
     if (taps?.length && frames?.length) {
       const tapInk = css.getPropertyValue('--s-kind-warn').trim() || '#ffb340';
       const playheadTs = frames[Math.min(index, frames.length - 1)]!.ts;
-      const eventTs = frames[frames.length - 1]!.ts;
+      const eventTs = eventAt;
       for (const tap of taps) {
         const tapTs = eventTs + tap.t * 1000;
         const age = playheadTs - tapTs;
@@ -325,12 +293,12 @@ export function WireframePlayer({
         ctx.restore();
       }
     }
-  }, [nodes, width, height, taps, frames, index]);
+  }, [nodes, width, height, taps, frames, index, eventAt]);
 
   useEffect(draw, [draw]);
 
   if (failed) {
-    return <p className="text-sm text-fg-subtle">{t('replay.loadFailed')}</p>;
+    return <div className="p-5" role="alert"><p>{t('replay.loadFailed')}</p><Button className="mt-3" onClick={()=>{setFailed(false);setFrames(null);setAttempt(n=>n+1);}}>{t('common.retry')}</Button></div>;
   }
   if (!frames) {
     return <p className="text-sm text-fg-subtle">{t('shell.loading')}</p>;
@@ -340,16 +308,15 @@ export function WireframePlayer({
   }
 
   const last = frames.length - 1;
-  const elapsed = ((frames[index]!.ts - frames[0]!.ts) / 1000).toFixed(1);
-  const total = ((frames[last]!.ts - frames[0]!.ts) / 1000).toFixed(1);
 
   return (
     <div
-      className="overflow-hidden"
+      className="replay-surface p-5"
       tabIndex={0}
       role="group"
       aria-label={t('replay.title')}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'ArrowRight') {
           e.preventDefault();
           setPlaying(false);
@@ -360,14 +327,17 @@ export function WireframePlayer({
           setIndex((i) => Math.max(i - 1, 0));
         } else if (e.key === ' ') {
           e.preventDefault();
-          setPlaying((p) => !p);
+          if (last > 0) {
+            if (!playing && index >= last) setIndex(0);
+            setPlaying(!playing);
+          }
         }
       }}
     >
       {/* Always a bounded square: below the xl split the panel goes
           full-width and an uncapped aspect-square balloons into a
           viewport-sized block. */}
-      <div className="mx-auto flex aspect-square w-full max-w-[440px] items-center justify-center bg-bg p-3">
+      <div className="replay-stage">
         <canvas
           ref={canvasRef}
           width={CANVAS_PX}
@@ -375,38 +345,11 @@ export function WireframePlayer({
           className="h-full w-full"
         />
       </div>
-      <div className="flex items-center gap-2.5 border-t border-border px-3 py-2">
-        <button
-          type="button"
-          onClick={() => {
-            if (!playing && index >= last) setIndex(0);
-            setPlaying((p) => !p);
-          }}
-          aria-label={playing ? t('replay.pause') : t('replay.play')}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-border-strong text-fg hover:bg-raised"
-        >
-          {playing ? (
-            <Pause aria-hidden className="h-3.5 w-3.5" />
-          ) : (
-            <Play aria-hidden className="h-3.5 w-3.5" />
-          )}
-        </button>
-        <input
-          type="range"
-          min={0}
-          max={last}
-          value={index}
-          onChange={(e) => {
-            setPlaying(false);
-            setIndex(Number(e.target.value));
-          }}
-          aria-label={t('replay.scrubber')}
-          className="min-w-0 flex-1 accent-accent"
-        />
-        <span className="shrink-0 text-right font-mono text-xs tabular-nums text-fg-muted">
-          {elapsed}s / {total}s · {index + 1}/{frames.length}
-        </span>
-      </div>
+      <ReplayControls index={index} last={last} playing={playing} speed={speed} onSpeed={setSpeed}
+        time={`${((frames[index]!.ts-eventAt)/1000).toFixed(1)}s · ${index+1}/${frames.length}`}
+        onIndex={value=>{setPlaying(false);setIndex(value);}}
+        onToggle={()=>{if(!playing&&index>=last)setIndex(0);setPlaying(!playing);}}
+        labels={{play:t('replay.play'),pause:t('replay.pause'),back:t('replay.stepBack'),forward:t('replay.stepForward'),seek:t('replay.scrubber'),speed:t('replay.speed')}}/>
     </div>
   );
 }

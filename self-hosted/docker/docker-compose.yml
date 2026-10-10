@@ -29,7 +29,9 @@ services:
       SENTORI_OWNER_EMAIL: ${SENTORI_OWNER_EMAIL:?set SENTORI_OWNER_EMAIL in .env}
       SENTORI_OWNER_PASSWORD: ${SENTORI_OWNER_PASSWORD:-}
       SENTORI_BASE_URL: ${SENTORI_BASE_URL:-http://localhost:8080}
-      SENTORI_ATTACHMENT_STORE: fs:/data/blobs
+      SENTORI_ATTACHMENT_STORE: ${SENTORI_ATTACHMENT_STORE:-fs:/data/blobs}
+      SENTORI_BACKUP_DIR: ${SENTORI_BACKUP_DIR:-/data/backups}
+      SENTORI_MASTER_KEY: ${SENTORI_MASTER_KEY:-}
       SENTORI_SMTP_HOST: ${SENTORI_SMTP_HOST:-}
       SENTORI_SMTP_PORT: ${SENTORI_SMTP_PORT:-587}
       SENTORI_SMTP_USER: ${SENTORI_SMTP_USER:-}
@@ -76,7 +78,8 @@ services:
       # pg_isready but no /bin/sh, and CMD-SHELL needs a shell. The
       # stack then never starts, because the server waits on a
       # health condition the database cannot answer.
-      test: ["CMD", "pg_isready", "-U", "sentori"]
+      # initdb briefly starts a Unix-socket-only server; wait for final TCP readiness.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "sentori"]
       interval: 5s
       timeout: 3s
       retries: 10

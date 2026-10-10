@@ -131,7 +131,7 @@ mod tests {
         let k = key();
         let cookie = SignedCookie::seal(&k, b"");
         let recovered = SignedCookie::open(&k, &cookie).expect("verify");
-        assert!(recovered.is_empty());
+        assert_eq!(recovered.len(), 0);
     }
 
     #[test]

@@ -228,11 +228,7 @@ object SentoriPush {
             when (val r = registerWithServer(appContext, token, config)) {
                 is Result.Success -> rememberHandle(appContext, r.handle, token)
                 is Result.Failure ->
-                    android.util.Log.w(
-                        "sentori",
-                        "push re-register after token rotation failed " +
-                            "(${r.reason.reason}): ${r.message}",
-                    )
+                    Unit // SDK failures stay silent in the host.
             }
         }
     }
@@ -316,11 +312,7 @@ object SentoriPush {
                     // The row still names the previous person, so the
                     // next change has to be allowed to try again.
                     lastSentIdentity = null
-                    android.util.Log.w(
-                        "sentori",
-                        "updating the device after a sign-in failed " +
-                            "(${r.reason.reason}): ${r.message}",
-                    )
+                    Unit // SDK failures stay silent in the host.
                 }
             }
         }
@@ -357,28 +349,8 @@ object SentoriPush {
         return fresh
     }
 
-    /**
-     * Say it out loud, once, where the person wiring this up is
-     * looking.
-     *
-     * A failed `register` reported only to the server is invisible on
-     * the machine where the mistake was made: the integrator has to
-     * finish connecting the dashboard before it can tell them they
-     * have not finished connecting the dashboard. insight found their
-     * first-launch failure by adding a `Log.w` of their own and
-     * taking it out again.
-     *
-     * Warning, never error. A red line in someone else's logcat reads
-     * as "your app is broken", and a host team that believes that
-     * pulls the SDK out.
-     */
+    /** Explicit results reach the callback; background failures never log. */
     private fun deliver(completion: (Result) -> Unit, result: Result) {
-        if (result is Result.Failure) {
-            android.util.Log.w(
-                "sentori",
-                "push register failed (${result.reason.reason}): ${result.message}",
-            )
-        }
         // The host's callback is the host's code. A registration that
         // succeeded must not be undone by what the host does with the
         // news, and this runs on the single worker thread — an
@@ -638,7 +610,7 @@ object SentoriPush {
         try {
             body()
         } catch (t: Throwable) {
-            android.util.Log.w("sentori", "push $what threw — carrying on", t)
+            Unit // SDK failures stay silent in the host.
         }
     }
 

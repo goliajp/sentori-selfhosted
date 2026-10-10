@@ -1,0 +1,39 @@
+[workspace]
+
+[package]
+name = "sentori-snapshot"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "uuid", "time", "json"] }
+tokio = { version = "1", features = ["fs", "io-util"] }
+futures-util = "0.3"
+tempfile = "3"
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["serde-well-known", "formatting", "parsing"] }
+sentori-secrets-vault = { path = "../../core/crates/secrets-vault" }
+sentori-attachment-store = { path = "../../core/crates/attachment-store" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+
+[profile.dev]
+debug = 1
+split-debuginfo = "packed"

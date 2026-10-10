@@ -13,7 +13,8 @@ import MachO
 ///     "explicitly out" list. Only Objective-C exceptions are caught here.
 @objc public final class SentoriCrashHandler: NSObject {
 
-    private static let configKey = "com.sentori.config"
+    private static let configLock = NSLock()
+    private static var currentConfig: [String: Any] = [:]
     private static let pendingDirName = "sentori/pending"
 
     /// Install the global uncaught-exception handler. C function pointer,
@@ -31,7 +32,11 @@ import MachO
     /// JS side calls this on `sentori.init(...)` so the crash handler
     /// has release / environment when an exception fires later.
     @objc public static func setConfig(_ config: [String: Any]) {
-        UserDefaults.standard.set(config, forKey: configKey)
+        // Crash records already retain release/environment. Touching preferences
+        // at every start adds synchronous I/O without preserving extra evidence.
+        configLock.lock()
+        currentConfig = config
+        configLock.unlock()
     }
 
     /// Read all pending-crash files, return their contents (UTF-8 JSON
@@ -69,7 +74,9 @@ import MachO
     }
 
     private static func config() -> [String: Any] {
-        return UserDefaults.standard.dictionary(forKey: configKey) ?? [:]
+        configLock.lock()
+        defer { configLock.unlock() }
+        return currentConfig
     }
 
     /// Test-only seam onto `write`, which the real path reaches from
