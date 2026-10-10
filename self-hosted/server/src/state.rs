@@ -30,6 +30,8 @@ pub struct RecentEventTick {
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
+    pub cloud: Option<std::sync::Arc<crate::cloud::Cloud>>,
+    pub vault: Option<std::sync::Arc<sentori_secrets_vault::Vault>>,
     /// Parsed source maps, keyed by content hash. Shared so one parse
     /// serves every event of a crashing release.
     pub source_maps: std::sync::Arc<crate::symbolicate::MapCache>,
@@ -65,6 +67,8 @@ impl AppState {
         let pool_for_push = pool.clone();
         Self {
             pool,
+            cloud: None,
+            vault: crate::credential_vault::from_env().map(std::sync::Arc::new),
             source_maps: std::sync::Arc::new(crate::symbolicate::new_cache()),
             rate_limit: std::sync::Arc::new(crate::rate_limit::RateLimiter::from_env()),
             auth_rate_limit: std::sync::Arc::new(crate::rate_limit::RateLimiter::auth_from_env()),

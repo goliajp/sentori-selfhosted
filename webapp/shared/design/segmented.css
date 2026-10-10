@@ -1,0 +1,99 @@
+.selection-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}.selection-group > legend {
+  float: none;
+  padding: 0;
+  margin-bottom: var(--space-2);
+}.selection-group > .field-note,
+.selection-group > .field-error,
+.selection-group > .field-feedback {
+  margin-top: var(--space-2);
+}
+.selection-choice:has(:disabled),
+.segment:has(:disabled),
+.tag-option:has(:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.segmented-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--ui-line);
+  border-radius: var(--radius-panel);
+  background: var(--ui-chrome);
+  min-width: 0;
+}
+.segment {
+  font-weight: 500;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: calc(var(--control-size, var(--control-height)) - 8px);
+  padding: max(0px, calc((var(--control-size, var(--control-height)) - 8px - var(--control-line-height) - 2px) / 2)) 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font-size: var(--control-font-size);
+  line-height: var(--control-line-height);
+  color: var(--ui-secondary);
+  cursor: pointer;
+  text-align: center;
+}
+.segment svg {
+  width: 16px;
+  height: 16px;
+}
+.segment.is-selected {
+  background: var(--ui-surface);
+  border-color: var(--ui-control);
+  color: var(--ui-ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px #00000012;
+}
+.segment:hover:not(:has(:disabled)) {
+  color: var(--ui-action);
+}
+.segment:has(:focus-visible),
+.tag-option:has(:focus-visible) {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 1px;
+  z-index: 1;
+}
+.control-row > .segmented-field {
+  flex: 0 1 auto;
+}
+.control-bar > .selection-group {
+  flex: 1 1 180px;
+}
+.control-bar > .selection-group.narrow {
+  flex: 0 1 auto;
+}
+@media (max-width: 639px) {
+  .segment,
+  .toggle-group > button {
+    min-height: calc(var(--control-size, var(--control-height)) - 8px);
+  }
+  .segmented-control {
+    gap: 2px;
+  }
+  .segment {
+    padding-inline: 8px;
+  }
+}
+@media (forced-colors: active) {
+  .segment.is-selected,
+  .tag-option.is-selected,
+  .toggle-group > button[aria-pressed="true"],
+  .selection-cards > .is-selected,
+  .picker-option[aria-selected="true"] {
+    border: 2px solid Highlight;
+  }
+}

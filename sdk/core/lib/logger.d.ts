@@ -22,10 +22,8 @@
  *            retries. Off by default — only host devs debugging
  *            Sentori turn this on.
  *
- * Default level: **`warn`**. That means a clean Sentori install
- * shows exactly one line (the init banner) and is otherwise
- * silent. If the host's metro / browser console has `[sentori]`
- * lines beyond that, Sentori is doing something wrong.
+ * Default level: **`silent`**, including SDK failures. Diagnostics
+ * require explicit opt-in and are bounded; they cannot break the host.
  *
  * To opt into more output:
  *
@@ -43,10 +41,8 @@ export type LogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug';
  * into the host's own log aggregator (Datadog, Bugsnag, OpenTelemetry,
  * etc.). Pass `null` to restore console output.
  *
- * The transport itself runs inside SDK code paths — if it throws,
- * it's swallowed and a single one-shot internal warning is logged
- * to console as fallback (NEVER-rule: SDK internals must not
- * propagate to host).
+ * A throwing/rejecting transport is disabled silently. No console
+ * fallback: choosing a transport does not authorize console output.
  */
 export type LogTransport = (level: LogLevel, tag: string, args: unknown[]) => void;
 /**

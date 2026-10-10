@@ -1,0 +1,122 @@
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-group);
+  min-inline-size: 0;
+}
+.form-stack > * {
+  margin-block: 0;
+  min-inline-size: 0;
+}
+.form-stack > legend {
+  margin-block-end: var(--space-related);
+}
+.native-dialog {
+  /* Overlays own their spacing; toolbar/workbench density cannot change their insets. */
+  --control-size: var(--control-height);
+  --dialog-bar-inset: var(--space-4);
+  --dialog-action-gap: var(--space-4);
+  margin: auto;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  border: 0;
+  border-radius: var(--radius-overlay);
+  padding: 0;
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+  box-shadow: 0 24px 80px var(--ui-shadow);
+  overflow: hidden;
+}
+.native-dialog[open] { display: flex; flex-direction: column; }
+.native-dialog::backdrop {
+  background: var(--ui-scrim);
+}
+.native-dialog .dialog-head {
+  position: sticky;
+  top: 0;
+  background: var(--ui-overlay);
+  z-index: 1;
+  flex-shrink: 0;
+  min-height: calc(var(--control-height-small) + var(--dialog-bar-inset) * 2 + 1px);
+  padding: var(--dialog-bar-inset) var(--space-dialog);
+  border-bottom: 1px solid var(--ui-line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+.native-dialog .dialog-head h2 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding-inline-start: 0;
+}
+.native-dialog .dialog-head > .button {
+  flex-shrink: 0;
+}
+.native-dialog .dialog-content {
+  flex: 1 1 auto;
+  min-height: min(160px, 35dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-dialog);
+}
+.native-dialog.drawer .dialog-content { min-height: 0; }
+.native-dialog .dialog-footer {
+  flex-shrink: 0;
+  padding: var(--space-dialog);
+  border-top: 1px solid var(--ui-line);
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: var(--dialog-action-gap);
+  flex-wrap: wrap;
+  background: var(--ui-overlay);
+}
+.native-dialog .dialog-footer > .button,
+.native-dialog .dialog-footer > .flow-actions > .button {
+  height: auto;
+  min-height: 48px;
+  min-width: 112px;
+  max-inline-size: 100%;
+  inline-size: auto;
+  padding-block: var(--space-3);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.native-dialog .dialog-footer > .flow-actions {
+  flex: 1;
+  gap: inherit;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+.native-dialog.drawer {
+  inset: 0 0 0 auto;
+  margin: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  border-radius: 0;
+  width: min(560px, 100vw);
+  border-right: 0;
+}
+@media (max-width: 639px) {
+  .control-bar {
+    gap: var(--space-3);
+  }
+  .control-bar .field {
+    flex: 1 1 130px;
+  }
+  .native-dialog {
+    max-height: calc(100dvh - 24px);
+    width: calc(100vw - 24px);
+  }}
+@media (max-width: 639px) {
+  .native-dialog { --dialog-action-gap: var(--space-3); }
+  .native-dialog .dialog-footer > .button,
+  .native-dialog .dialog-footer > .flow-actions > .button { flex: 1; min-width: 0; }}
+@media (max-height: 480px) { .native-dialog .dialog-content { min-height: 0; }}
+.control-bar:not(:has(> .field, > .selection-group)) { align-items: center; }
+.control-bar:has(> .field, > .selection-group) > .button { margin-top: calc(20px + var(--field-label-gap, 8px)); }

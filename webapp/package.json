@@ -1,8 +1,8 @@
 {
   "name": "@sentori/webapp",
-  "version": "3.50.0",
+  "version": "5.0.0",
   "private": true,
-  "description": "Sentori v0.1 minimal dashboard shell. Imports from self-hosted/web + saas/web.",
+  "description": "Sentori dashboard, public product pages and SDK documentation.",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,14 +10,10 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc -b --noEmit",
-    "check": "tsc -b --noEmit && eslint . && node devtools/check-i18n.mjs && node devtools/check-hardcoded-text.mjs && node devtools/check-error-format.mjs && node devtools/check-cjk-punctuation.mjs && node devtools/check-unreferenced.mjs && bun devtools/check-highlight.mjs && bun devtools/check-byte-format.mjs && bun devtools/check-timeline-labels.mjs && bun devtools/check-select-appearance.mjs && bun devtools/check-error-reason.mjs && bun devtools/check-no-raw-fetch.mjs && node --experimental-strip-types devtools/check-credential-recognition.mjs && node --experimental-strip-types devtools/check-release-lights.mjs && node devtools/check-release-format.mjs && node --experimental-strip-types devtools/check-crash-free-format.mjs && node devtools/check-audit-columns.mjs && node devtools/check-platform-label.mjs && node devtools/check-ui-sentence-final.mjs && node devtools/check-docs-site.mjs",
-    "mock": "node devtools/mock-api.mjs",
-    "mock:fail": "MOCK_FAIL=019e358a-adac node devtools/mock-api.mjs",
-    "sweep": "node devtools/sweep.mjs",
-    "check:i18n": "node devtools/check-i18n.mjs",
-    "check:text": "node devtools/check-hardcoded-text.mjs"
+    "check": "tsc -b --noEmit && eslint . && node devtools/check-production-boundary.mjs && bun test devtools/documents.test.ts devtools/replay.test.ts"
   },
   "dependencies": {
+    "echarts": "6.1.0",
     "highlight.js": "^11.12.0",
     "lucide-react": "^1.31.0",
     "marked": "^18.0.14",

@@ -11,7 +11,7 @@
     "directory": "sdk/core"
   },
   "bugs": {
-    "url": "https://github.com/goliajp/sentori/issues"
+    "url": "https://github.com/goliajp/sentori-selfhosted/issues"
   },
   "keywords": [
     "sentori",

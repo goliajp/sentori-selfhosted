@@ -54,13 +54,27 @@ pub async fn upload(
     Path((project_id, release_id)): Path<(Uuid, Uuid)>,
     multipart: Multipart,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    super::admin::tokens::ensure_project_access(&state, &ctx, project_id).await?;
+    super::admin::releases::ensure_release_access(&state, &ctx, project_id, release_id).await?;
 
     let (kind, name, bytes) = read_upload(multipart)
         .await
         .map_err(|m| (StatusCode::BAD_REQUEST, Json(json!({ "error": m }))))?;
 
-    store(&state, release_id, kind, name, &bytes).await
+    let tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(super::jobs::database_error)?;
+    store(
+        &state,
+        release_id,
+        kind,
+        name,
+        &bytes,
+        Some(ctx.user_id),
+        tx,
+    )
+    .await
 }
 
 /// `POST /v1/releases/{release}/artifacts`
@@ -102,6 +116,16 @@ pub async fn upload_by_release_name(
 
     // Same UPSERT `/v1/deploys` uses, so an upload before the deploy
     // marker and a deploy marker before an upload land on one row.
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(super::jobs::database_error)?;
+    if state.cloud.is_some() {
+        crate::cloud_quota::hold(&mut tx)
+            .await
+            .map_err(|error| error.reply())?;
+    }
     let release_id: Uuid = sqlx::query_scalar(
         "INSERT INTO releases (id, project_id, name) \
          VALUES (gen_random_uuid(), $1, $2) \
@@ -110,7 +134,7 @@ pub async fn upload_by_release_name(
     )
     .bind(ctx.project_id)
     .bind(&release)
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
         (
@@ -119,7 +143,7 @@ pub async fn upload_by_release_name(
         )
     })?;
 
-    store(&state, release_id, kind, name, &bytes).await
+    store(&state, release_id, kind, name, &bytes, None, tx).await
 }
 
 /// `GET /v1/releases/{release}/artifacts`
@@ -293,14 +317,9 @@ async fn store(
     kind: String,
     name: String,
     bytes: &[u8],
+    actor: Option<Uuid>,
+    mut tx: sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    let hash = state.attachments.put(bytes).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-    })?;
-
     // A stack finds its dSYM by the debug id embedded in the stored
     // *name*, and the id lives in the file, not the filename.
     // `sentori-cli` builds a name that carries it. The manual path
@@ -343,6 +362,38 @@ async fn store(
     // guarantee the same debug id as the build that shipped, and an
     // uploader with no way to tell cannot know whether the re-upload
     // was worth anything.
+    if state.cloud.is_some() {
+        crate::cloud_quota::artifact(&mut tx, release_id, &kind, &name, bytes.len())
+            .await
+            .map_err(|error| error.reply())?;
+    }
+    sqlx::query("SELECT pg_advisory_xact_lock_shared($1)")
+        .bind(sentori_snapshot::BLOB_GC_LOCK)
+        .execute(&mut *tx)
+        .await
+        .map_err(super::jobs::database_error)?;
+    let hash = state.attachments.put(bytes).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": e.to_string() })),
+        )
+    })?;
+    let project_id: Uuid = sqlx::query_scalar("SELECT project_id FROM releases WHERE id=$1")
+        .bind(release_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(super::jobs::database_error)?;
+    // Enqueue before taking the artifact row lock: every upload locks project
+    // then artifact in the same order. A failed command rolls back both.
+    let job_id = crate::jobs::enqueue(
+        &mut tx,
+        project_id,
+        release_id,
+        actor,
+        &Uuid::now_v7().to_string(),
+    )
+    .await
+    .map_err(super::jobs::enqueue_error)?;
     let row = sqlx::query(
         "WITH prev AS ( \
            SELECT content_hash FROM release_artifacts \
@@ -367,36 +418,9 @@ async fn store(
     .bind(hash.to_hex())
     .bind(i64::try_from(bytes.len()).unwrap_or(i64::MAX))
     .bind(usable)
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e.to_string() })),
-        )
-    })?;
-
-    // The crashes that arrived before this artifact did are stored
-    // with unreadable stacks. Re-read them now — that recovery is the
-    // whole reason the upload CLI is allowed to fail without failing
-    // a build. Behind the response: the uploader asked whether the
-    // artifact landed, and it did.
-    if let Ok(r) = sqlx::query("SELECT project_id, name FROM releases WHERE id = $1")
-        .bind(release_id)
-        .fetch_one(&state.pool)
-        .await
-    {
-        // Best-effort by design — this re-reads crashes that arrived
-        // before the artifact. Failing to read the row means no
-        // re-symbolication, which is what happened anyway before the
-        // upload; it is not worth a panic.
-        if let (Ok(pid), Ok(rel)) = (
-            r.try_get::<Uuid, _>("project_id"),
-            r.try_get::<String, _>("name"),
-        ) {
-            crate::resymbolicate::spawn_for_release(state, pid, rel);
-        }
-    }
+    .map_err(super::jobs::database_error)?;
 
     // `try_get`, not `get`. `Row::get` panics on a column the result
     // does not carry, and a panic here takes a tokio worker down over
@@ -421,6 +445,7 @@ async fn store(
             Json(json!({ "error": "artifact stored but the insert returned no id" })),
         ));
     };
+    tx.commit().await.map_err(super::jobs::database_error)?;
     let hash_hex = hash.to_hex();
     Ok((
         StatusCode::CREATED,
@@ -429,6 +454,7 @@ async fn store(
             "kind": kind,
             "name": name,
             "contentHash": hash_hex,
+            "jobId": job_id,
             "sizeBytes": bytes.len(),
             // Was this slice already on the release, and did its
             // bytes change? A re-archived dSYM whose debug id the
@@ -664,7 +690,7 @@ mod tests {
         // the symbolicator cannot find is a lie with a hex face.
         let name = "Insight.app-arm64-E63A748C-3F0E-302D-95EC-8DA5B55C97D9";
         let id = debug_id_from_name(name).unwrap_or_default();
-        assert!(!id.is_empty(), "expected a debug id in {name}");
+        assert_ne!(id.len(), 0, "expected a debug id in {name}");
         let normalised: String = name
             .chars()
             .filter(char::is_ascii_alphanumeric)

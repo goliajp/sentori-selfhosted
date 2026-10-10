@@ -72,18 +72,48 @@ pub async fn symbolicate_payload(
     release: &str,
     payload: &mut Value,
 ) -> usize {
+    resolve(
+        pool,
+        attachments,
+        cache,
+        project_id,
+        release,
+        payload,
+        false,
+    )
+    .await
+    .unwrap_or(0)
+}
+
+/// Background work must retry storage failures instead of checkpointing them as
+/// an ordinary missing mapping. Ingest retains its existing best-effort behavior.
+pub async fn symbolicate_payload_checked(
+    pool: &PgPool,
+    attachments: &crate::blob_store::AttachmentStore,
+    cache: &MapCache,
+    project_id: Uuid,
+    release: &str,
+    payload: &mut Value,
+) -> anyhow::Result<usize> {
+    resolve(pool, attachments, cache, project_id, release, payload, true).await
+}
+
+async fn resolve(
+    pool: &PgPool,
+    attachments: &crate::blob_store::AttachmentStore,
+    cache: &MapCache,
+    project_id: Uuid,
+    release: &str,
+    payload: &mut Value,
+    strict: bool,
+) -> anyhow::Result<usize> {
     if release.is_empty() {
-        return 0;
+        return Ok(0);
     }
-    let maps = maps_for_release(pool, attachments, cache, project_id, release).await;
-    if maps.is_empty() {
-        return 0;
-    }
-    let mut rewritten = 0;
-    if let Some(error) = payload.get_mut("error") {
-        rewritten += walk_causes(&maps, error);
-    }
-    rewritten
+    let maps = maps_for_release(pool, attachments, cache, project_id, release, strict).await?;
+    Ok(payload
+        .get_mut("error")
+        .map_or(0, |error| walk_causes(&maps, error)))
 }
 
 /// One candidate map: the artifact's name, so a frame can be matched
@@ -329,8 +359,9 @@ async fn maps_for_release(
     cache: &MapCache,
     project_id: Uuid,
     release: &str,
-) -> Vec<Candidate> {
-    let Ok(rows) = sqlx::query(
+    strict: bool,
+) -> anyhow::Result<Vec<Candidate>> {
+    let rows = sqlx::query(
         "SELECT a.name, a.content_hash \
          FROM release_artifacts a \
          JOIN releases r ON r.id = a.release_id \
@@ -341,9 +372,11 @@ async fn maps_for_release(
     .bind(release)
     .bind(MAX_MAPS_PER_RELEASE)
     .fetch_all(pool)
-    .await
-    else {
-        return Vec::new();
+    .await;
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(error) if strict => return Err(error.into()),
+        Err(_) => return Ok(Vec::new()),
     };
 
     let mut out = Vec::with_capacity(rows.len());
@@ -354,33 +387,38 @@ async fn maps_for_release(
             out.push(Candidate { name, map: hit });
             continue;
         }
-        let Some(parsed) = load_map(attachments, &hash, release).await else {
-            continue;
+        let parsed = match load_map(attachments, &hash, release).await {
+            Ok(Some(parsed)) => parsed,
+            Err(error) if strict => return Err(error),
+            _ => continue,
         };
         cache.insert(hash, Arc::clone(&parsed));
         out.push(Candidate { name, map: parsed });
     }
-    out
+    Ok(out)
 }
 
 async fn load_map(
     attachments: &crate::blob_store::AttachmentStore,
     hash: &str,
     release: &str,
-) -> Option<Arc<ParsedMap>> {
+) -> anyhow::Result<Option<Arc<ParsedMap>>> {
     let bytes = attachments
-        .get(&hash.parse().ok()?)
+        .get(
+            &hash
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid artifact hash"))?,
+        )
         .await
-        .inspect_err(|e| warn!(error = %e, %release, "symbolicate: blob read failed"))
-        .ok()?;
+        .inspect_err(|e| warn!(error = %e, %release, "symbolicate: blob read failed"))?;
     // Not every artifact filed as a sourcemap is one — a bundle
     // uploaded under `kind=sourcemap` parses to nothing. Skipping it
     // is right; before, being the newest upload made it the only
     // candidate and the whole release went unsymbolicated.
     let parsed = ParsedMap::parse(&bytes)
         .inspect_err(|e| warn!(error = %e, %release, "symbolicate: map unparseable"))
-        .ok()?;
-    Some(Arc::new(parsed))
+        .ok();
+    Ok(parsed.map(Arc::new))
 }
 
 #[cfg(test)]
@@ -610,7 +648,7 @@ mod tests {
         let pre = frame["preContext"].as_array().expect("pre");
         let post = frame["postContext"].as_array().expect("post");
         assert_eq!(pre.len(), CONTEXT_LINES.min(line - 1));
-        assert!(!post.is_empty());
+        assert_ne!(post.len(), 0);
         assert_eq!(
             pre.last().expect("last"),
             &json!(format!("line {} of pay.ts", line - 1))

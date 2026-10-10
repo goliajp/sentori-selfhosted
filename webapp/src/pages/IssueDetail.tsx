@@ -1,32 +1,26 @@
-// The case file — the right half of the triage split.
-//
-// Shape (insight feedback round 4): a pinned header that reads as
-// one sentence (what broke, how wide, how long, still happening,
-// where), then the evidence — replay, the failing code, the user's
-// own actions (signals), and the occurrence list. The occurrence
-// list is not an appendix: it is the set of concrete events this
-// issue aggregates, and picking one switches the whole case view
-// (replay / stack / signals) to that event. No comment stream, no
-// duplicate environment box, no AI-paste block — density over
-// furniture.
+import { Code } from '../../shared/documents/Code';
+import { Dialog } from '../../shared/design/Dialog';
+import { useSharedT } from '../i18n/shared';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { Heading, Surface } from '../../shared/design/Surface';
+import { Metric } from '../../shared/design/Metric';
+import { Tabs } from '../../shared/design/Tabs';
+import { Button, Input, Field, Badge } from '../../shared/design/controls';
 
-import { useCallback, useState } from 'react';
-import { Link } from 'react-router-dom';
-
-import { useShell } from '../App';
 import { KindBadge, RegressedBadge } from '../components/kind';
 import { UserChip } from '../components/identity';
-import { Button, Input, Panel, PanelEmpty, TimeAgo, clsx, formatRelative, formatRelease, formatReleaseIn } from '../components/ui';
+import { PanelEmpty, Select, ErrorBanner, TimeAgo, clsx, formatRelative, formatRelease, formatReleaseIn } from '../components/ui';
 import { useT } from '../i18n';
 import { platformLabel } from '../lib/platform-label';
 import {
   api,
-  type EventDetail,
   type IssueReleaseRow,
   type OccurrenceRow,
 } from '../lib/api';
 import { isBareTypeTitle } from '../lib/issue-title';
-import { useAsyncData } from '../lib/useAsyncData';
+import { formatApiError } from '../lib/useAsyncData';
+import { useScopedAsyncData } from '../lib/useScopedAsyncData';
 
 import { ReplayPlayer } from '../components/ReplayPlayer';
 import { StackTrace, type StackFrame as Frame } from '../components/StackTrace';
@@ -49,35 +43,34 @@ export function IssueDetailPane({
   onChanged?: () => void;
 }) {
   const t = useT();
-  useShell();
+  const sharedT = useSharedT();
+  const [rawOpen,setRawOpen] = useState(false);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const tab = ['evidence','occurrences','activity'].includes(params.get('tab') ?? '') ? params.get('tab')! : 'evidence';
+  const rawOffset = Number(params.get('occurrenceOffset') ?? 0);
+  const occurrenceOffset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
+  function updateParams(changes: Record<string,string>) {
+    const next = new URLSearchParams(params);
+    for (const [key,value] of Object.entries(changes)) { if(value)next.set(key,value);else next.delete(key); }
+    setParams(next,{replace:true});
+  }
+  const [note,setNote] = useState('');
+  const [failure,setFailure] = useState<string|null>(null);
+  const actionBusy = useRef(false);
 
-  const { data: issue, error, loading, reload } = useAsyncData(
-    () => api.getIssue(issueId),
-    [issueId],
-  );
-  const { data: occ } = useAsyncData(() => api.listOccurrences(issueId), [issueId]);
+  const { data: issue, error, loading, reload } = useScopedAsyncData(issueId, () => api.getIssue(issueId));
+  const occurrences = useScopedAsyncData(JSON.stringify([issueId,occurrenceOffset]), () => api.listOccurrences(issueId,occurrenceOffset,50));
+  const occ = occurrences.data;
+  const currentId = params.get('occurrence') || occ?.events[0]?.id;
+  const event = useScopedAsyncData(currentId ?? '', () => currentId ? api.getEvent(currentId) : Promise.resolve(null));
+  // A pasted occurrence ID is not evidence for this issue, even if the viewer
+  // can access its project. Never combine its payload with this issue's header.
+  const current = event.data?.issueId === issueId ? event.data : null;
+  const context = useScopedAsyncData(current?.id ?? '', () => current ? api.eventContext(current.id) : Promise.resolve({events:[]}));
+  const ctx = context.data;
 
-  // The selected occurrence drives the whole case view. Reset when
-  // the issue changes (adjust-during-render, no effect needed).
-  const [sel, setSel] = useState<{ issue: string; id: null | string }>({
-    issue: issueId,
-    id: null,
-  });
-  if (sel.issue !== issueId) setSel({ issue: issueId, id: null });
-  const currentId =
-    (sel.id && occ?.events.some((e) => e.id === sel.id) ? sel.id : null) ??
-    occ?.events[0]?.id;
-
-  const { data: current } = useAsyncData<EventDetail | null>(
-    () => (currentId ? api.getEvent(currentId) : Promise.resolve(null)),
-    [currentId],
-  );
-  const { data: ctx } = useAsyncData(
-    () => (currentId ? api.eventContext(currentId) : Promise.resolve({ events: [] })),
-    [currentId],
-  );
-
-  const [replaySeek, setReplaySeek] = useState<{ t: number; n: number } | null>(null);
+  const [replaySeek, setReplaySeek] = useState<{ id: string; t: number; n: number } | null>(null);
   // Frame moments arrive from whichever player loaded; tagged with
   // the event they belong to so switching events never shows stale
   // ticks (and needs no reset effect).
@@ -86,19 +79,20 @@ export function IssueDetailPane({
     times: [],
   });
   // The replay playhead, for highlighting the signal list.
-  const [playhead, setPlayhead] = useState<null | number>(null);
+  const [playhead, setPlayhead] = useState<{id:string; t:number}|null>(null);
   const [resolveRelease, setResolveRelease] = useState('');
   const [busy, setBusy] = useState(false);
 
   const act = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
+    if (actionBusy.current) return false;
+    actionBusy.current=true; setBusy(true); setFailure(null);
     try {
       await fn();
       reload();
       onChanged?.();
-    } finally {
-      setBusy(false);
-    }
+      return true;
+    } catch (error) { setFailure(formatApiError(error)); return false; }
+    finally { setBusy(false); actionBusy.current=false; }
   };
 
   // Replay ladder, same-event first, richest form first:
@@ -110,19 +104,19 @@ export function IssueDetailPane({
   const wireframeLatest =
     current?.attachments?.find((a) => a.kind === 'replay')?.ref ?? null;
   const screensFallback =
-    screensLatest || wireframeLatest
+    !current || screensLatest || wireframeLatest
       ? null
       : (occ?.events.find((e) => e.screensRef) ?? null);
   const screensRef = screensLatest ?? screensFallback?.screensRef ?? null;
   const replaySeekable = !!(screensLatest || wireframeLatest);
   const seekReplay = (tv: number) =>
-    setReplaySeek((prev) => ({ t: tv, n: (prev?.n ?? 0) + 1 }));
+    setReplaySeek((prev) => ({ id: currentId ?? '', t: tv, n: (prev?.n ?? 0) + 1 }));
   const frameTimes = framesFor.id === currentId ? framesFor.times : [];
   const reportFrames = useCallback(
     (times: number[]) => setFramesFor({ id: currentId ?? null, times }),
     [currentId],
   );
-  const reportTime = useCallback((tv: number) => setPlayhead(tv), []);
+  const reportTime = useCallback((tv: number) => setPlayhead({id:currentId ?? '',t:tv}), [currentId]);
   const eventAtMs = current ? new Date(current.occurredAt).getTime() : 0;
   const contextEvents: StripContextEvent[] = (ctx?.events ?? []).map((e) => ({
     id: e.id,
@@ -147,16 +141,16 @@ export function IssueDetailPane({
   if (error) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-fg-subtle">
-          {t('issue.loadFailed')}{' '}
+        <div className="text-sm text-fg-subtle">
+          <ErrorBanner reason={error}>{t('issue.loadFailed')}</ErrorBanner>
           <button type="button" className="underline" onClick={reload}>
             {t('common.retry')}
           </button>
-        </p>
+        </div>
       </div>
     );
   }
-  if (loading || !issue) {
+  if ((!issue && loading) || !issue) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-fg-subtle">
         …
@@ -169,10 +163,12 @@ export function IssueDetailPane({
   // on is worse than saying nothing.
   const screensArmed = payload?.replay?.screens === 'empty';
   const surface = issue.surface as { screen?: string; element?: string };
-  const hasStack = !!payload?.error?.stack && payload.error.stack.length > 0;
+  const stack = Array.isArray(payload?.error?.stack) ? payload.error.stack.filter(frame=>frame&&typeof frame==='object') : [];
+  const hasStack = stack.length > 0;
   const device = payload?.device;
-  const signals = ((payload?.signals ?? []) as Signal[])
-    .slice()
+  const signals = (Array.isArray(payload?.signals) ? payload.signals : [])
+    .filter(signal=>signal&&typeof signal.t==='number'&&Number.isFinite(signal.t)&&typeof signal.kind==='string')
+    .map(signal=>({...signal,data:signal.data&&typeof signal.data==='object'?signal.data:undefined}))
     .sort((a, b) => a.t - b.t);
   // Tap moments with coordinates (SDK ≥ 5.3) — drawn on the replay.
   const taps = signals
@@ -197,158 +193,53 @@ export function IssueDetailPane({
       : null;
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      {/* ── pinned case header: one readable sentence ── */}
-      <header className="shrink-0 border-b border-border bg-bg px-5 pb-3 pt-3.5">
-        <div className="flex items-center gap-2">
-          <KindBadge kind={issue.kind} />
-          {issue.regressedAt && issue.status === 'open' && <RegressedBadge />}
-          {demoteTitle && (
-            <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-fg-muted">
-              {subline}
-            </span>
-          )}
-          {surface.screen && (
-            <span className="rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-fg-muted">
-              {surface.screen}
-              {surface.element ? ` · ${surface.element}` : ''}
-            </span>
-          )}
-          {/* `flex-wrap` and a shrinkable release box: at a 900px window
-              this pane is about 350px, and a fixed w-52 input pushed
-              Resolve to the edge and Ignore off it entirely. The
-              actions must never be the part that overflows. */}
-          <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            {issue.status === 'open' ? (
-              <>
-                {/* labelled, so the release box reads as "anchor the
-                    fix to this release", not a mystery filter (A12) */}
-                <label className="flex min-w-0 flex-1 items-center gap-1.5">
-                  <span className="shrink-0 text-xs text-fg-muted">
-                    {t('issue.resolveInRelease')}
-                  </span>
-                  <Input
-                    value={resolveRelease}
-                    onChange={(e) => setResolveRelease(e.target.value)}
-                    placeholder={
-                      issue.lastRelease ? formatRelease(issue.lastRelease) : 'app@x.y.z'
-                    }
-                    className="h-7 w-full min-w-24 max-w-52 font-mono text-xs"
-                  />
-                </label>
-                <Button
-                  size="sm"
-                  disabled={busy}
-                  onClick={() =>
-                    void act(() => api.resolveIssue(issue.id, resolveRelease || undefined))
-                  }
-                >
-                  {t('issue.resolve')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void act(() => api.ignoreIssue(issue.id))}
-                >
-                  {t('issue.ignore')}
-                </Button>
-              </>
-            ) : (
-              <Button
-                size="sm"
-                disabled={busy}
-                onClick={() => void act(() => api.reopenIssue(issue.id))}
-              >
-                {t('issue.reopen')}
-              </Button>
-            )}
-          </span>
-        </div>
-        <h1 className="mt-1.5 truncate text-[20px] font-semibold tracking-tight">
-          {headline}
-        </h1>
-        {!demoteTitle && subline && (
-          <p className="mt-0.5 truncate text-sm text-fg-muted">{subline}</p>
-        )}
-        <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs tabular-nums text-fg-muted">
-          <span className="text-fg">
-            {issue.usersCount > 0
-              ? t('issue.impactUsers', {
-                  users: String(issue.usersCount),
-                  events: String(issue.eventCount),
-                  max: String(issue.maxPerUser),
-                })
-              : t('issue.impactAnon', { events: String(issue.eventCount) })}
-          </span>
-          {/* The trip from "this is fixed" to "tell the people it
-              happened to" was a person copying a uuid, if they knew
-              the audience could name an issue at all. It is a link
-              now — to the place that counts the audience first, not to
-              a send: nothing here should be one click from a
-              notification. Hidden when nobody identified hit it,
-              because then it targets nobody. */}
-          {issue.usersCount > 0 && (
-            <Link
-              to={`/push?tab=audience&issue=${issue.id}`}
-              className="text-accent hover:underline"
-            >
-              {t('issue.notifyAffected')}
-            </Link>
-          )}
-          <span>
-            {t('issue.firstSeen')} <TimeAgo iso={issue.firstSeen} />
-          </span>
-          {/* Two clocks. `lastSeen` is what the SDK said the event
-              happened at — the device's own, which can be months off —
-              and `lastReceivedAt` is when we took delivery. The header
-              read one and the occurrence list below read the other, both
-              in the same relative format, so a phone with a wrong clock
-              made the page contradict itself. Ours leads; the device's
-              appears beside it only when the two disagree enough to
-              matter, where the gap is itself worth seeing. */}
-          <span>
-            {t('issue.lastSeen')}{' '}
-            <TimeAgo iso={issue.lastReceivedAt ?? issue.lastSeen} />
-          </span>
-          {issue.lastReceivedAt &&
-            Math.abs(
-              new Date(issue.lastReceivedAt).getTime() - new Date(issue.lastSeen).getTime(),
-            ) > 5 * 60_000 && (
-              <span className="text-fg-subtle">
-                {t('issue.deviceClock')} <TimeAgo iso={issue.lastSeen} />
-              </span>
-            )}
-          {issue.lastRelease && (
-            <span title={issue.lastRelease}>{formatRelease(issue.lastRelease)}</span>
-          )}
-          {current && (
-            <span>
-              {[
-                device?.model,
-                device?.os &&
-                  `${String(device.os)} ${String(device.osVersion ?? '')}`.trim(),
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </span>
-          )}
-          <span>{platformLabel(issue.platform ?? current?.platform, t)}</span>
-          <span>{issue.environment ?? current?.environment}</span>
-        </div>
-      </header>
-
-      {/* ── the evidence: what the user saw (primary), the code +
-          the user's own actions + the occurrence set (secondary),
-          the minute itself pinned underneath ──
-
-          The split waits for 2xl, not xl. Behind a 190px rail and a
-          360px queue, 1280 left the stack column 222px wide: every
-          code line clipped, every signal truncated to "from=…". One
-          700px column beats two useless ones. */}
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <div className="grid h-full grid-cols-1 gap-4 overflow-y-auto p-4 2xl:grid-cols-[minmax(360px,460px)_minmax(0,1fr)] 2xl:overflow-hidden">
-          <div className="min-w-0 space-y-4 2xl:overflow-y-auto">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <Link className="text-link text-sm" to={`/tasks?project=${issue.projectId}&issue=${issue.id}`}>{t('team.issueTask')}</Link>
+      <Heading title={headline} description={issue.id} action={<div className="flex flex-wrap gap-2"><KindBadge kind={issue.kind}/><Badge tone={issue.status==='resolved'?'success':'neutral'}>{t(`inbox.group.${issue.status}`)}</Badge>{issue.regressedAt&&issue.status==='open'&&<RegressedBadge/>}</div>}/>
+      {subline&&<p className="muted mb-5 break-words">{subline}</p>}
+      <div className="control-bar">
+        <Field label={t('detail.assignee')}><Select disabled={busy||loading} value={issue.assigneeUserId ?? ''} onChange={e=>void act(()=>api.assignIssue(issue.id,e.target.value||null))}><option value="">{t('detail.unassigned')}</option>{issue.assigneeUserId&&!issue.assignees.some(user=>user.id===issue.assigneeUserId)&&<option value={issue.assigneeUserId}>{t('detail.previousAssignee',{id:issue.assigneeUserId})}</option>}{issue.assignees.map(user=><option key={user.id} value={user.id}>{user.displayName||user.email}</option>)}</Select></Field>
+        <Field label={t('issue.resolveInRelease')}><Input disabled={busy} value={resolveRelease} onChange={e=>setResolveRelease(e.target.value)} placeholder={issue.lastRelease ? formatRelease(issue.lastRelease) : undefined}/></Field>
+        {issue.status==='open'?<><Button variant="primary" disabled={busy||loading} onClick={()=>void act(()=>api.resolveIssue(issue.id,resolveRelease||undefined))}>{t('issue.resolve')}</Button><Button disabled={busy||loading} onClick={()=>void act(()=>api.ignoreIssue(issue.id))}>{t('issue.ignore')}</Button></>:<Button disabled={busy||loading} onClick={()=>void act(()=>api.reopenIssue(issue.id))}>{t('issue.reopen')}</Button>}
+        {issue.usersCount>0&&<Link className="text-link" to={`/push?project=${issue.projectId}&tab=audience&issue=${issue.id}`}>{t('issue.notifyAffected')}</Link>}
+      </div>
+      {failure&&<ErrorBanner reason={failure}>{t('queue.actionFailed')}</ErrorBanner>}
+      {issue.status==='resolved'&&<Surface className="mb-6"><p>{issue.resolvedInRelease?t('issue.guardAnchored',{release:issue.resolvedInRelease}):t('issue.guardUnanchored')}</p><p className="muted mt-2">{t('issue.guardProbeHint')}</p></Surface>}
+      <div className="metrics-grid mb-6">
+        <Metric label={t('queue.events')} value={issue.eventCount.toLocaleString()}/>
+        <Metric label={t('queue.users')} value={issue.usersCount?issue.usersCount.toLocaleString():'—'} note={issue.usersCount?undefined:t('queue.usersUnknown')}/>
+        <Metric label={t('detail.firstSeen')} value={<TimeAgo iso={issue.firstSeen}/>}/>
+        <Metric label={t('detail.lastReceived')} value={issue.lastReceivedAt?<TimeAgo iso={issue.lastReceivedAt}/>:'—'}/>
+      </div>
+      <Tabs value={tab} onChange={value=>updateParams({tab:value})} items={[["evidence",t('detail.evidence')],["occurrences",t('issue.occurrences')],["activity",t('detail.activity')]]}>
+      {tab==='evidence'&&<>
+        <div className="control-bar"><Button disabled={!current} onClick={()=>setRawOpen(true)}>{t('detail.rawEvent')}</Button><Field label={t('detail.event')}><Select value={currentId??''} onChange={e=>updateParams({occurrence:e.target.value})} disabled={occurrences.loading||!occ?.events.length}><option value="" disabled>{t('detail.selectEvent')}</option>{currentId&&!occ?.events.some(row=>row.id===currentId)&&<option value={currentId}>{currentId}</option>}{occ?.events.map(row=><option key={row.id} value={row.id}>{row.id} · {new Date(row.receivedAt).toLocaleString()}</option>)}</Select></Field></div>
+        {occurrences.error&&<ErrorBanner reason={occurrences.error}>{t('detail.eventsFailed')}</ErrorBanner>}
+        {event.error&&<div><ErrorBanner reason={event.error}>{t('detail.eventFailed')}</ErrorBanner><Button onClick={event.reload}>{t('common.retry')}</Button></div>}
+        {event.data&&!current&&<ErrorBanner reason={t('detail.foreignEvent')}>{t('detail.eventFailed')}</ErrorBanner>}
+        {current&&<div className="flex flex-wrap gap-x-6 gap-y-2 text-xs muted mb-5" data-event-id={current.id}>
+          <span>{t('detail.lastReceived')}: <TimeAgo iso={current.receivedAt}/></span>
+          <span>{t('issue.deviceClock')}: <TimeAgo iso={current.occurredAt}/></span>
+          <span>{formatRelease(current.release)} · {current.environment} · {platformLabel(current.platform,t)}</span>
+          <span>{[device?.model,device?.os,device?.osVersion,surface.screen,surface.element].filter(Boolean).map(String).join(' · ')}</span>
+        </div>}
+        {event.loading&&currentId&&<p role="status">{t('projects.loading')}</p>}
+        {context.error&&<ErrorBanner reason={context.error}>{t('detail.contextFailed')}</ErrorBanner>}
+        {current&&<>
+      {/* The same evidence order at every width: code first, then replay.
+          One scroll container keeps evidence reachable on a phone. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="grid grid-cols-1 items-start gap-4 p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)]">
+          <section data-evidence-code className="min-w-0">
+            <Panel title={t('issue.code')}>
+              {hasStack ? (
+                <StackTrace key={current.id} frames={stack} />
+              ) : (
+                <PanelEmpty>{t('issue.codeNone')}</PanelEmpty>
+              )}
+            </Panel>
+          </section>
+          <section className="min-w-0 space-y-4">
             <Panel
               title={t('replay.title')}
               action={
@@ -375,8 +266,9 @@ export function IssueDetailPane({
             >
               {screensRef ? (
                 <ReplayPlayer
+                  key={currentId+':'+screensRef}
                   attachmentRef={screensRef}
-                  seek={replaySeek}
+                  seek={replaySeek?.id===currentId?replaySeek:null}
                   onFrames={screensLatest ? reportFrames : undefined}
                   onTime={screensLatest ? reportTime : undefined}
                   taps={screensLatest ? taps : undefined}
@@ -384,8 +276,10 @@ export function IssueDetailPane({
               ) : wireframeLatest ? (
                 <>
                   <WireframePlayer
+                    key={currentId+':'+wireframeLatest}
                     attachmentRef={wireframeLatest}
-                    seek={replaySeek}
+                    eventAt={eventAtMs}
+                    seek={replaySeek?.id===currentId?replaySeek:null}
                     onFrames={reportFrames}
                     onTime={reportTime}
                     taps={taps}
@@ -410,54 +304,19 @@ export function IssueDetailPane({
               )}
             </Panel>
 
-            {issue.status === 'resolved' && (
-              <Panel title={<span className="text-ok">{t('issue.guardTitle')}</span>}>
-                <div className="space-y-1 p-3.5 text-sm text-fg-muted">
-                  <p>
-                    {issue.resolvedInRelease
-                      ? t('issue.guardAnchored', { release: issue.resolvedInRelease })
-                      : t('issue.guardUnanchored')}
-                  </p>
-                  <p>{t('issue.guardProbeHint')}</p>
-                </div>
-              </Panel>
-            )}
-          </div>
-
-          <div className="min-w-0 space-y-4 2xl:overflow-y-auto">
-            {/* The panel used to vanish when there was no stack, alone
-                among the panels here — replay and signals both explain
-                their absence. A page that simply omits the thing you
-                came for reads as a product that does not have it. */}
-            <Panel title={t('issue.code')}>
-              {hasStack ? (
-                <StackTrace frames={payload!.error!.stack!} />
-              ) : (
-                <PanelEmpty>{t('issue.codeNone')}</PanelEmpty>
-              )}
-            </Panel>
-
+          </section>
+          <div className="min-w-0 space-y-4 xl:col-span-2">
             <Panel title={`${t('issue.signals')}${signals.length ? ` (${signals.length})` : ''}`}>
               {signals.length === 0 ? (
                 <PanelEmpty>{t('issue.signalsNone')}</PanelEmpty>
               ) : (
                 <SignalList
                   signals={signals}
-                  playhead={playhead}
+                  playhead={playhead&&playhead.id===currentId?playhead.t:null}
                   onSeek={replaySeekable ? seekReplay : undefined}
                 />
               )}
             </Panel>
-
-            {occ && occ.events.length > 0 && (
-              <Panel title={`${t('issue.occurrences')} (${occ.events.length})`}>
-                <OccurrenceList
-                  rows={occ.events}
-                  currentId={currentId ?? null}
-                  onPick={(id) => setSel({ issue: issueId, id })}
-                />
-              </Panel>
-            )}
 
             {issue.releases && issue.releases.length > 0 && (
               <Panel title={`${t('issue.releasesTitle')} (${issue.releases.length})`}>
@@ -473,6 +332,10 @@ export function IssueDetailPane({
       </div>
 
       {/* ── the minute itself: the case's narrative spine ── */}
+      <button type="button" aria-expanded={timelineOpen} aria-controls="issue-timeline" onClick={() => setTimelineOpen(!timelineOpen)} className="min-h-10 shrink-0 border-t border-border px-4 text-left text-xs text-fg-muted sm:hidden">
+        {t(timelineOpen ? 'triage.hideTimeline' : 'triage.showTimeline')}
+      </button>
+      <div id="issue-timeline" className={clsx('shrink-0', timelineOpen ? 'block' : 'hidden sm:block')}>
       <TimelineStrip
         signals={signals as StripSignal[]}
         frameTimes={frameTimes}
@@ -480,9 +343,22 @@ export function IssueDetailPane({
         issueKind={issue.kind}
         onSeek={replaySeekable ? seekReplay : undefined}
       />
+      </div>
+      </>}
+      {!currentId&&!occurrences.loading&&!occurrences.error&&<Surface><p>{t('detail.noEvents')}</p></Surface>}
+      </>}
+      {tab==='occurrences'&&<Surface body={false}>
+        {occurrences.error&&<ErrorBanner reason={occurrences.error}>{t('detail.eventsFailed')}</ErrorBanner>}
+        {occurrences.loading?<p className="p-6" role="status">{t('projects.loading')}</p>:occ?.events.length?<OccurrenceList rows={occ.events} currentId={currentId??null} onPick={id=>updateParams({occurrence:id,tab:'evidence'})}/>:<p className="p-6">{t('detail.noEvents')}</p>}
+        <div className="table-pagination"><span>{occ?t('queue.pageCount',{first:String(occ.events.length?occurrenceOffset+1:0),last:String(occ.events.length?occurrenceOffset+occ.events.length:0),total:String(occ.total)}):'—'}</span><div className="flex gap-2"><Button small disabled={occurrences.loading||occurrenceOffset===0} onClick={()=>updateParams({occurrenceOffset:String(Math.max(0,occurrenceOffset-50))})}>{t('queue.previous')}</Button><Button small disabled={occurrences.loading||occ?.nextOffset==null} onClick={()=>updateParams({occurrenceOffset:String(occ!.nextOffset)})}>{t('queue.next')}</Button></div></div>
+      </Surface>}
+      {tab==='activity'&&<div className="section-stack"><Surface title={t('detail.addNote')}><form className="form-stack" onSubmit={async e=>{e.preventDefault();if(await act(()=>api.addNote(issue.id,note)))setNote('');}}><Field label={t('detail.note')}><textarea className="input" required maxLength={10000} value={note} disabled={busy} onChange={e=>setNote(e.target.value)}/></Field><Button type="submit" variant="primary" disabled={busy||!note.trim()}>{t('detail.saveNote')}</Button></form></Surface><Surface title={t('detail.activity')}><p className="subtle text-xs mb-4">{t('detail.activityLimit')}</p>{issue.activity.length?<ol className="space-y-5">{issue.activity.map(item=><li key={item.id}><div className="flex flex-wrap items-center gap-3 text-sm"><Badge>{t(`detail.activity.${item.kind}`)}</Badge><span>{item.actorEmail??t('detail.system')}</span><TimeAgo iso={item.at}/></div><p className="mt-2 whitespace-pre-wrap break-words text-sm">{item.kind==='note'?String(item.body.text??''):item.kind==='assign'?(issue.assignees.find(user=>user.id===item.body.assignee)?.displayName||issue.assignees.find(user=>user.id===item.body.assignee)?.email||String(item.body.assignee??t('detail.unassigned'))):JSON.stringify(item.body)}</p></li>)}</ol>:<p>{t('detail.noActivity')}</p>}</Surface></div>}
+      </Tabs>
+      <Dialog open={rawOpen&&!!current} title={t('detail.rawEvent')} closeLabel={t('common.close')} onClose={()=>setRawOpen(false)}>{current&&<Code key={current.id} t={sharedT} code={JSON.stringify(current,null,2)} language="json" fileName={current.id+'.json'}/>}</Dialog>
     </div>
   );
 }
+
 
 /** The user's own actions before the event, as a readable list —
  *  every row seeks the replay; the row nearest the playhead is
@@ -576,9 +452,9 @@ function ReleaseSpread({
   return (
     <div className="divide-y divide-border/60">
       {rows.map((r) => (
-        <div key={r.release} className="flex items-center gap-3 px-3.5 py-1.5 text-xs">
+        <div key={r.release} className="flex flex-wrap items-center gap-3 px-3.5 py-1.5 text-xs">
           <span
-            className="w-56 shrink-0 truncate font-mono text-fg"
+            className="w-28 sm:w-56 shrink-0 truncate font-mono text-fg"
             title={r.release}
           >
             {formatReleaseIn(
@@ -666,10 +542,10 @@ function OccurrenceList({
           tabIndex={0}
           onClick={() => onPick(r.id)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') onPick(r.id);
+            if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); onPick(r.id); }
           }}
           className={clsx(
-            'flex w-full cursor-pointer items-center gap-4 px-3.5 py-2 text-left text-sm transition-colors',
+            'flex w-full flex-wrap cursor-pointer items-center gap-4 px-3.5 py-2 text-left text-sm transition-colors',
             r.id === currentId ? 'bg-raised' : 'hover:bg-raised/50',
           )}
         >
@@ -706,3 +582,5 @@ function OccurrenceList({
     </div>
   );
 }
+
+function Panel({title,action,children}:{title:ReactNode;action?:ReactNode;children:ReactNode}) { return <section className="surface"><header className="surface-head"><h2>{title}</h2>{action}</header>{children}</section>; }

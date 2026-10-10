@@ -1,33 +1,13 @@
-//! Background push dispatcher worker.
-//!
-//! Drains `push_sends.status = 'queued'` every 5 seconds. For each
-//! send, looks up the device_token + push_credentials, invokes the
-//! configured vendor adapter (APNs / FCM / WebPush / HCM / MiPush),
-//! and writes a `push_delivery_logs` row + flips
-//! `push_sends.status` to `sent` or `failed`.
-//!
-//! v0.2 step 5 only ships a permissive "ack everything" mock
-//! dispatcher because the vendor adapter crates (K7.1-K7.5) are
-//! still being implemented. Production swaps in the real impls.
-//!
-//! Tunables (env-vars):
-//! - `SENTORI_PUSH_WORKER_ENABLED`: 1/true to start the worker
-//!   (default: enabled)
-//! - `SENTORI_PUSH_WORKER_INTERVAL_SEC`: poll interval (default 5s)
-//! - `SENTORI_PUSH_WORKER_BATCH`: max sends per poll (default 100)
-
+//! Durable push attempts with database leases; an interrupted send remains uncertain.
+use crate::{state::AppState, token_cache::TokenCache};
+use sqlx::{Row, postgres::PgRow};
 use std::sync::Arc;
 use std::time::Duration;
-
-use sqlx::{PgPool, Row};
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::token_cache::TokenCache;
-
-/// Spawn the worker as a long-running tokio task.
-pub fn spawn(pool: PgPool, cache: Arc<TokenCache>) {
+pub fn spawn(state: Arc<AppState>, cache: Arc<TokenCache>) {
     if !env_enabled() {
         info!("push worker disabled via SENTORI_PUSH_WORKER_ENABLED");
         return;
@@ -35,193 +15,241 @@ pub fn spawn(pool: PgPool, cache: Arc<TokenCache>) {
     let interval = env_interval();
     let batch = env_batch();
     tokio::spawn(async move {
-        info!(
-            interval_sec = interval.as_secs(),
-            batch, "push worker started"
-        );
         loop {
-            match drain_once(&pool, &cache, batch).await {
+            match drain_once(&state, &cache, batch).await {
                 Ok(0) => debug!("push worker idle"),
-                Ok(n) => info!(processed = n, "push worker drained batch"),
-                Err(e) => warn!(error = %e, "push worker batch failed"),
+                Ok(count) => info!(count, "push worker drained batch"),
+                Err(error) => warn!(%error,"push worker failed"),
             }
             sleep(interval).await;
         }
     });
 }
-
+const MAX_RETRIES: i32 = 5;
+struct Attempt {
+    id: Uuid,
+    token: Uuid,
+    retries: i32,
+    lease: Uuid,
+    provider: String,
+}
+struct Outcome {
+    status: &'static str,
+    code: String,
+    error: Option<String>,
+    http: u16,
+    duration: i32,
+    retries: i32,
+    backoff: i32,
+    device: DeviceEffect,
+}
+enum DeviceEffect {
+    None,
+    Success,
+    Transient,
+    Permanent,
+}
 async fn drain_once(
-    pool: &PgPool,
+    state: &AppState,
     cache: &Arc<TokenCache>,
     batch: usize,
 ) -> Result<usize, sqlx::Error> {
-    let rows = sqlx::query(
-        "SELECT id, token_id, provider, payload FROM push_sends \
-         WHERE status = 'queued' AND next_attempt_at <= now() \
-         ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED",
-    )
-    // Batch size is a small operator-set constant; saturating is
-    // unreachable and a clamped LIMIT is harmless regardless.
-    .bind(i64::try_from(batch).unwrap_or(i64::MAX))
-    .fetch_all(pool)
-    .await?;
-    if rows.is_empty() {
-        return Ok(0);
+    // These two statements also serve replicas: claims below exclude live leases.
+    sqlx::query("WITH expired AS (UPDATE push_sends SET status='failed',provider_outcome='uncertain',error='worker_interrupted',lease_owner=NULL,lease_until=NULL WHERE id IN (SELECT id FROM push_sends WHERE status='queued' AND lease_until<now() ORDER BY lease_until LIMIT 32 FOR UPDATE SKIP LOCKED) RETURNING id,retry_count) INSERT INTO push_delivery_logs(id,send_id,attempt,outcome) SELECT gen_random_uuid(),id,COALESCE((SELECT max(attempt) FROM push_delivery_logs WHERE send_id=expired.id),0)+1,'uncertain' FROM expired").execute(&state.pool).await?;
+    sqlx::query("UPDATE push_sends SET status='failed',provider_outcome='cancelled',error='instance_changed' WHERE id IN (SELECT p.id FROM push_sends p JOIN instance_settings s ON s.singleton WHERE p.status='queued' AND p.lease_owner IS NULL AND p.generation<>s.generation LIMIT 1000 FOR UPDATE OF p SKIP LOCKED)").execute(&state.pool).await?;
+    let mut count = 0;
+    for _ in 0..batch {
+        let lease = Uuid::now_v7();
+        let row=sqlx::query("WITH due AS (SELECT p.id FROM push_sends p JOIN instance_settings s ON s.singleton AND s.generation=p.generation WHERE p.status='queued' AND p.next_attempt_at<=now() AND p.lease_owner IS NULL ORDER BY p.created_at,p.id LIMIT 1 FOR UPDATE OF p SKIP LOCKED) UPDATE push_sends p SET lease_owner=$1,lease_until=now()+interval '45 seconds',credential_id=COALESCE(p.credential_id,(SELECT id FROM push_credentials WHERE project_id=p.project_id AND kind=p.provider AND active)) FROM due WHERE p.id=due.id RETURNING p.id,p.token_id,p.retry_count,p.provider").bind(lease).fetch_optional(&state.pool).await?;
+        let Some(row) = row else { break };
+        let attempt = Attempt {
+            id: row.get("id"),
+            token: row.get("token_id"),
+            retries: row.get("retry_count"),
+            lease,
+            provider: row.get("provider"),
+        };
+        dispatch_one(state, cache, &attempt).await?;
+        count += 1;
     }
-    let mut processed = 0;
-    for r in &rows {
-        let send_id: Uuid = r.get("id");
-        let provider: String = r.get("provider");
-        if let Err(e) = dispatch_one(pool, cache, send_id, &provider).await {
-            warn!(%send_id, error = %e, "push send dispatch failed");
-            continue;
-        }
-        processed += 1;
-    }
-    Ok(processed)
+    Ok(count)
 }
-
-const MAX_RETRIES: i32 = 5;
-
 async fn dispatch_one(
-    pool: &PgPool,
+    state: &AppState,
     cache: &Arc<TokenCache>,
-    send_id: Uuid,
-    provider: &str,
+    attempt: &Attempt,
 ) -> Result<(), sqlx::Error> {
-    use sqlx::Row;
-    let send_meta = sqlx::query("SELECT token_id, retry_count FROM push_sends WHERE id = $1")
-        .bind(send_id)
-        .fetch_optional(pool)
-        .await?;
-    let (token_id, retry_count): (Option<Uuid>, i32) = match send_meta {
-        Some(r) => (
-            r.try_get("token_id").ok(),
-            r.try_get("retry_count").unwrap_or(0),
-        ),
-        None => return Ok(()),
-    };
-    let attempt = retry_count + 1;
-
-    let real_outcome = match provider {
-        "webpush" => try_webpush(pool, send_id).await,
-        "apns" => try_apns(pool, cache, send_id).await,
-        "fcm" => try_fcm(pool, send_id).await,
-        "hcm" => try_hcm(pool, cache, send_id).await,
-        "mipush" => try_mipush(pool, send_id).await,
-        _ => Err("provider_not_wired".to_string()),
-    };
-
-    match real_outcome {
-        Ok((code, dur)) => {
-            if let Some(t) = token_id {
-                crate::push_quarantine::reset_streak(pool, t).await;
+    let allowed:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM push_sends p JOIN instance_settings s ON s.singleton AND s.generation=p.generation JOIN device_tokens d ON d.id=p.token_id AND d.project_id=p.project_id AND d.revoked_at IS NULL WHERE p.id=$1 AND p.status='queued' AND p.lease_owner=$2 AND p.lease_until>now())").bind(attempt.id).bind(attempt.lease).fetch_one(&state.pool).await?;
+    let outcome = if allowed {
+        let result = tokio::time::timeout(Duration::from_secs(30), async {
+            match attempt.provider.as_str() {
+                "webpush" => try_webpush(state, attempt.id).await,
+                "apns" => try_apns(state, cache, attempt.id).await,
+                "fcm" => try_fcm(state, attempt.id).await,
+                "hcm" => try_hcm(state, cache, attempt.id).await,
+                "mipush" => try_mipush(state, attempt.id).await,
+                _ => Err("provider_not_wired".into()),
             }
-            // Elapsed millis of a single HTTP send; saturates only
-            // after ~24 days, far beyond the client timeout.
-            let dur_ms = i32::try_from(dur).unwrap_or(i32::MAX);
-            log_attempt(pool, send_id, attempt, "ok", i32::from(code), dur_ms).await?;
-            mark_sent(pool, send_id, "ok").await?;
+        })
+        .await
+        .unwrap_or_else(|_| Err("send_timeout".into()));
+        outcome_for(attempt, result)
+    } else {
+        Outcome {
+            status: "failed",
+            code: "cancelled".into(),
+            error: Some("target_unavailable".into()),
+            http: 0,
+            duration: 0,
+            retries: attempt.retries,
+            backoff: 0,
+            device: DeviceEffect::None,
         }
+    };
+    finish(state, attempt, &outcome).await
+}
+fn outcome_for(attempt: &Attempt, result: Result<(u16, u128), String>) -> Outcome {
+    match result {
+        Ok((http, duration)) => Outcome {
+            status: "sent",
+            code: "ok".into(),
+            error: None,
+            http,
+            duration: i32::try_from(duration).unwrap_or(i32::MAX),
+            retries: attempt.retries,
+            backoff: 0,
+            device: DeviceEffect::Success,
+        },
         Err(reason) => {
-            let http_status = extract_http_status(&reason).unwrap_or(0);
-            let is_perm = http_status > 0
-                && crate::push_quarantine::is_permanent_token_failure(
-                    provider,
-                    http_status,
-                    &reason,
-                );
-            if let Some(t) = token_id {
-                if is_perm {
-                    crate::push_quarantine::quarantine_token(
-                        pool,
-                        t,
-                        &format!("{provider}: HTTP {http_status}"),
-                    )
-                    .await;
+            let http = extract_http_status(&reason).unwrap_or(0);
+            let permanent = crate::push_quarantine::is_permanent_token_failure(
+                &attempt.provider,
+                http,
+                &reason,
+            );
+            let uncertain = matches!(reason.as_str(), "send_timeout" | "send_uncertain")
+                || reason.starts_with("http:");
+            let terminal = permanent
+                || is_configuration_failure(&reason)
+                || (300..400).contains(&http)
+                || uncertain
+                || attempt.retries >= MAX_RETRIES;
+            Outcome {
+                status: if terminal { "failed" } else { "queued" },
+                code: if uncertain {
+                    "uncertain".into()
+                } else if permanent {
+                    "permanent_failure".into()
                 } else {
-                    crate::push_quarantine::bump_streak(pool, t).await;
-                }
-            }
-            log_attempt(
-                pool,
-                send_id,
-                attempt,
-                if is_perm {
-                    "permanent_failure"
-                } else {
-                    "transient_failure"
+                    format!("http_{http}")
                 },
-                i32::from(http_status),
-                0,
-            )
-            .await?;
-            if is_perm || is_configuration_failure(&reason) || retry_count >= MAX_RETRIES {
-                mark_failed(pool, send_id, http_status, &reason).await?;
-            } else {
-                // Schedule retry with exponential backoff (30s, 60s,
-                // 120s, 240s, 480s — cap 30min).
-                let backoff = (30u64 * (1 << retry_count.min(6))).min(1800);
-                requeue(pool, send_id, retry_count + 1, backoff, &reason).await?;
+                error: Some(safe_reason(&reason)),
+                http,
+                duration: 0,
+                retries: if terminal {
+                    attempt.retries
+                } else {
+                    attempt.retries + 1
+                },
+                backoff: if terminal {
+                    0
+                } else {
+                    30 * (1 << attempt.retries.min(6))
+                },
+                device: if permanent {
+                    DeviceEffect::Permanent
+                } else if uncertain {
+                    DeviceEffect::None
+                } else {
+                    DeviceEffect::Transient
+                },
             }
         }
     }
-    Ok(())
 }
-
-async fn log_attempt(
-    pool: &PgPool,
-    send_id: Uuid,
-    attempt: i32,
-    outcome: &str,
-    provider_status: i32,
-    duration_ms: i32,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "INSERT INTO push_delivery_logs (id, send_id, attempt, outcome, provider_status, duration_ms) \
-         VALUES ($1, $2, $3, $4, $5, $6)",
+fn safe_reason(reason: &str) -> String {
+    let reason = reason.strip_prefix("bad endpoint url: ").unwrap_or(reason);
+    for code in [
+        "credentials_missing",
+        "provider_not_wired",
+        "vault_unconfigured",
+        "decryption_failed",
+        "credential_scope_mismatch",
+        "invalid_credential",
+        "send_timeout",
+        "send_uncertain",
+        "non_public_address",
+        "invalid_url",
+        "https_required",
+        "redirect_refused",
+    ] {
+        if reason == code {
+            return code.into();
+        }
+    }
+    for code in [
+        "InvalidProviderToken",
+        "MissingProviderToken",
+        "TopicDisallowed",
+        "BadTopic",
+        "BadCertificateEnvironment",
+        "BadDeviceToken",
+        "DeviceTokenNotForTopic",
+        "MissingDeviceToken",
+        "UNREGISTERED",
+        "NotRegistered",
+        "ExpiredProviderToken",
+    ] {
+        if reason.contains(code) {
+            return code.into();
+        }
+    }
+    extract_http_status(reason).map_or_else(
+        || "provider_request_failed".into(),
+        |http| format!("http_{http}"),
     )
-    .bind(Uuid::now_v7())
-    .bind(send_id)
-    .bind(attempt)
-    .bind(outcome)
-    .bind(provider_status)
-    .bind(duration_ms)
-    .execute(pool)
-    .await?;
-    Ok(())
 }
-
-async fn mark_sent(pool: &PgPool, send_id: Uuid, outcome: &str) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE push_sends SET status = 'sent', provider_outcome = $1, sent_at = now() \
-         WHERE id = $2",
+async fn finish(state: &AppState, attempt: &Attempt, outcome: &Outcome) -> Result<(), sqlx::Error> {
+    let mut tx = state.pool.begin().await?;
+    let changed=sqlx::query("UPDATE push_sends SET status=$3,provider_outcome=$4,error=$5,retry_count=$6,next_attempt_at=now()+$7*interval '1 second',sent_at=CASE WHEN $3='sent' THEN now() ELSE sent_at END,lease_owner=NULL,lease_until=NULL WHERE id=$1 AND lease_owner=$2 AND lease_until>now() AND status='queued'")
+        .bind(attempt.id).bind(attempt.lease).bind(outcome.status).bind(&outcome.code).bind(&outcome.error).bind(outcome.retries).bind(outcome.backoff).execute(&mut *tx).await?;
+    if changed.rows_affected() == 0 {
+        return Ok(());
+    }
+    sqlx::query("INSERT INTO push_delivery_logs(id,send_id,attempt,outcome,provider_status,duration_ms) VALUES($1,$2,(SELECT COALESCE(max(attempt),0)+1 FROM push_delivery_logs WHERE send_id=$2),$3,$4,$5)").bind(Uuid::now_v7()).bind(attempt.id).bind(&outcome.code).bind(i32::from(outcome.http)).bind(outcome.duration).execute(&mut *tx).await?;
+    match outcome.device {
+        DeviceEffect::None => {}
+        DeviceEffect::Success => {
+            sqlx::query("UPDATE device_tokens SET bad_streak=0 WHERE id=$1 AND bad_streak>0")
+                .bind(attempt.token)
+                .execute(&mut *tx)
+                .await?;
+        }
+        DeviceEffect::Transient => {
+            sqlx::query(
+                "UPDATE device_tokens SET bad_streak=LEAST(bad_streak,2147483646)+1 WHERE id=$1",
+            )
+            .bind(attempt.token)
+            .execute(&mut *tx)
+            .await?;
+        }
+        DeviceEffect::Permanent => {
+            sqlx::query("UPDATE device_tokens SET revoked_at=now(),metadata=metadata||jsonb_build_object('quarantine_reason',$2::text) WHERE id=$1").bind(attempt.token).bind(format!("{}: HTTP {}",attempt.provider,outcome.http)).execute(&mut *tx).await?;
+        }
+    }
+    tx.commit().await
+}
+fn credential_secret(state: &AppState, row: &PgRow, kind: &str) -> Result<String, String> {
+    crate::push_secrets::open(
+        state.vault.as_deref(),
+        row.get("project_id"),
+        row.get("credential_id"),
+        kind,
+        &row.get::<String, _>("secret_format"),
+        &row.get::<Vec<u8>, _>("secret_blob"),
     )
-    .bind(outcome)
-    .bind(send_id)
-    .execute(pool)
-    .await?;
-    Ok(())
+    .map_err(str::to_owned)
 }
-
-async fn mark_failed(
-    pool: &PgPool,
-    send_id: Uuid,
-    http_status: u16,
-    reason: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        "UPDATE push_sends SET status = 'failed', provider_outcome = $1, error = $2 \
-         WHERE id = $3",
-    )
-    .bind(format!("http_{http_status}"))
-    .bind(reason.chars().take(500).collect::<String>())
-    .bind(send_id)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 /// A failure that waiting cannot fix.
 ///
 /// Retrying one of these five times over half an hour spends the
@@ -235,8 +263,10 @@ async fn mark_failed(
 /// Each of these is produced in exactly one place, and the test below
 /// pins them to the strings those places emit.
 fn is_configuration_failure(reason: &str) -> bool {
-    reason == "credentials_missing"
+    matches!(reason,"credentials_missing"|"vault_unconfigured"|"decryption_failed"|"credential_scope_mismatch"|"invalid_credential"|"non_public_address"|"invalid_url"|"https_required"|"redirect_refused")
         || reason == "provider_not_wired"
+        || reason.starts_with("bad endpoint url:")
+        || reason.starts_with("jwt sign:")
         // `FcmError::Credentials` — the JSON is not a service account.
         || reason.starts_with("service account json:")
         // `FcmError::OAuth` with a 4xx — Google refused the assertion,
@@ -263,58 +293,31 @@ fn is_apns_credential_rejection(reason: &str) -> bool {
         || reason.contains("BadCertificateEnvironment")
 }
 
-async fn requeue(
-    pool: &PgPool,
-    send_id: Uuid,
-    new_retry_count: i32,
-    backoff_sec: u64,
-    reason: &str,
-) -> Result<(), sqlx::Error> {
-    // The reason travels with the retry. It used to be written only
-    // when the send finally failed, so a receipt read during the
-    // retries said `queued` and `error: null` — true, and useless.
-    sqlx::query(
-        "UPDATE push_sends SET status = 'queued', retry_count = $1, \
-            next_attempt_at = now() + ($2 || ' seconds')::interval, \
-            error = $4 \
-         WHERE id = $3",
-    )
-    .bind(new_retry_count)
-    .bind(backoff_sec.to_string())
-    .bind(send_id)
-    .bind(reason.chars().take(500).collect::<String>())
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
 async fn try_hcm(
-    pool: &PgPool,
+    state: &AppState,
     cache: &Arc<TokenCache>,
     send_id: Uuid,
 ) -> Result<(u16, u128), String> {
     use std::time::Instant;
+    let pool = &state.pool;
     let row = sqlx::query(
-        "SELECT dt.native_token, ps.payload, ps.project_id, pc.config, pc.secret_blob \
+        "SELECT dt.native_token, ps.payload, ps.project_id, pc.config, pc.secret_blob, pc.id AS credential_id, pc.secret_format \
          FROM push_sends ps \
          JOIN device_tokens dt ON dt.id = ps.token_id \
          JOIN push_credentials pc ON pc.project_id = ps.project_id AND pc.kind = 'hcm' \
            AND pc.active \
-         WHERE ps.id = $1",
+         WHERE ps.id = $1 AND dt.project_id=ps.project_id AND dt.revoked_at IS NULL AND pc.id=ps.credential_id AND ps.generation=(SELECT generation FROM instance_settings WHERE singleton)",
     )
     .bind(send_id)
     .fetch_optional(pool)
     .await
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "credentials_missing".to_string())?;
-    let project_id: Uuid = row.get("project_id");
+    let credential_id: Uuid = row.get("credential_id");
     let device_token: String = row.get("native_token");
     let payload: serde_json::Value = row.get("payload");
     let config: serde_json::Value = row.get("config");
-    let client_secret = String::from_utf8(row.get::<Vec<u8>, _>("secret_blob"))
-        .map_err(|e| e.to_string())?
-        .trim()
-        .to_string();
+    let client_secret = credential_secret(state, &row, "hcm")?.trim().to_owned();
     let client_id = config
         .get("clientId")
         .and_then(|v| v.as_str())
@@ -337,13 +340,18 @@ async fn try_hcm(
     };
 
     let start = Instant::now();
-    let token = if let Some(t) = cache.get(project_id, "hcm_oauth") {
+    let token = if let Some(t) = cache.get(credential_id, "hcm_oauth") {
         t
     } else {
         let t = crate::hcm::fetch_oauth_token(&cfg)
             .await
             .map_err(|e| e.to_string())?;
-        cache.put(project_id, "hcm_oauth", t.clone(), Duration::from_mins(55));
+        cache.put(
+            credential_id,
+            "hcm_oauth",
+            t.clone(),
+            Duration::from_mins(55),
+        );
         t
     };
     let status = crate::hcm::send_with_token(&cfg, &token, &device_token, title, body_text)
@@ -352,15 +360,16 @@ async fn try_hcm(
     Ok((status, start.elapsed().as_millis()))
 }
 
-async fn try_mipush(pool: &PgPool, send_id: Uuid) -> Result<(u16, u128), String> {
+async fn try_mipush(state: &AppState, send_id: Uuid) -> Result<(u16, u128), String> {
     use std::time::Instant;
+    let pool = &state.pool;
     let row = sqlx::query(
-        "SELECT dt.native_token, ps.payload, pc.config, pc.secret_blob \
+        "SELECT dt.native_token, ps.payload, ps.project_id, pc.config, pc.secret_blob, pc.id AS credential_id, pc.secret_format \
          FROM push_sends ps \
          JOIN device_tokens dt ON dt.id = ps.token_id \
          JOIN push_credentials pc ON pc.project_id = ps.project_id AND pc.kind = 'mipush' \
            AND pc.active \
-         WHERE ps.id = $1",
+         WHERE ps.id = $1 AND dt.project_id=ps.project_id AND dt.revoked_at IS NULL AND pc.id=ps.credential_id AND ps.generation=(SELECT generation FROM instance_settings WHERE singleton)",
     )
     .bind(send_id)
     .fetch_optional(pool)
@@ -370,10 +379,7 @@ async fn try_mipush(pool: &PgPool, send_id: Uuid) -> Result<(u16, u128), String>
     let device_token: String = row.get("native_token");
     let payload: serde_json::Value = row.get("payload");
     let config: serde_json::Value = row.get("config");
-    let app_secret = String::from_utf8(row.get::<Vec<u8>, _>("secret_blob"))
-        .map_err(|e| e.to_string())?
-        .trim()
-        .to_string();
+    let app_secret = credential_secret(state, &row, "mipush")?.trim().to_owned();
     let package_name = config
         .get("packageName")
         .and_then(|v| v.as_str())
@@ -395,15 +401,16 @@ async fn try_mipush(pool: &PgPool, send_id: Uuid) -> Result<(u16, u128), String>
     Ok((status, start.elapsed().as_millis()))
 }
 
-async fn try_fcm(pool: &PgPool, send_id: Uuid) -> Result<(u16, u128), String> {
+async fn try_fcm(state: &AppState, send_id: Uuid) -> Result<(u16, u128), String> {
     use std::time::Instant;
+    let pool = &state.pool;
     let row = sqlx::query(
-        "SELECT dt.native_token, ps.payload, pc.secret_blob \
+        "SELECT dt.native_token, ps.payload, ps.project_id, pc.secret_blob, pc.id AS credential_id, pc.secret_format \
          FROM push_sends ps \
          JOIN device_tokens dt ON dt.id = ps.token_id \
          JOIN push_credentials pc ON pc.project_id = ps.project_id AND pc.kind = 'fcm' \
            AND pc.active \
-         WHERE ps.id = $1",
+         WHERE ps.id = $1 AND dt.project_id=ps.project_id AND dt.revoked_at IS NULL AND pc.id=ps.credential_id AND ps.generation=(SELECT generation FROM instance_settings WHERE singleton)",
     )
     .bind(send_id)
     .fetch_optional(pool)
@@ -412,10 +419,7 @@ async fn try_fcm(pool: &PgPool, send_id: Uuid) -> Result<(u16, u128), String> {
     .ok_or_else(|| "credentials_missing".to_string())?;
     let device_token: String = row.get("native_token");
     let payload: serde_json::Value = row.get("payload");
-    let service_account_json = String::from_utf8(row.get::<Vec<u8>, _>("secret_blob"))
-        .map_err(|e| e.to_string())?
-        .trim()
-        .to_string();
+    let service_account_json = credential_secret(state, &row, "fcm")?.trim().to_owned();
     let title = payload
         .get("title")
         .and_then(|v| v.as_str())
@@ -454,30 +458,30 @@ fn apns_is_production(device_env: Option<&str>, config: &serde_json::Value) -> b
 }
 
 async fn try_apns(
-    pool: &PgPool,
+    state: &AppState,
     cache: &Arc<TokenCache>,
     send_id: Uuid,
 ) -> Result<(u16, u128), String> {
     use std::time::Instant;
+    let pool = &state.pool;
     let row = sqlx::query(
-        "SELECT dt.native_token, dt.env, ps.payload, ps.project_id, pc.config, pc.secret_blob \
+        "SELECT dt.native_token, dt.env, ps.payload, ps.project_id, pc.config, pc.secret_blob, pc.id AS credential_id, pc.secret_format \
          FROM push_sends ps \
          JOIN device_tokens dt ON dt.id = ps.token_id \
          JOIN push_credentials pc ON pc.project_id = ps.project_id AND pc.kind = 'apns' \
            AND pc.active \
-         WHERE ps.id = $1",
+         WHERE ps.id = $1 AND dt.project_id=ps.project_id AND dt.revoked_at IS NULL AND pc.id=ps.credential_id AND ps.generation=(SELECT generation FROM instance_settings WHERE singleton)",
     )
     .bind(send_id)
     .fetch_optional(pool)
     .await
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "credentials_missing".to_string())?;
-    let project_id: Uuid = row.get("project_id");
+    let credential_id: Uuid = row.get("credential_id");
     let device_token: String = row.get("native_token");
     let payload: serde_json::Value = row.get("payload");
     let config: serde_json::Value = row.get("config");
-    let secret_pem =
-        String::from_utf8(row.get::<Vec<u8>, _>("secret_blob")).map_err(|e| e.to_string())?;
+    let secret_pem = credential_secret(state, &row, "apns")?;
 
     let team_id = config
         .get("teamId")
@@ -520,30 +524,38 @@ async fn try_apns(
     // Try cached JWT first; on cache miss, send-with-mint inside
     // apns crate (which also returns the freshly-minted JWT for
     // us to cache going forward).
-    let cached_jwt = cache.get(project_id, "apns_jwt");
+    let cached_jwt = cache.get(credential_id, "apns_jwt");
     let status = if let Some(jwt) = cached_jwt {
-        crate::apns::send_with_jwt(&cfg, &device_token, title, body_text, &jwt)
-            .await
-            .map_err(|e| e.to_string())?
+        match crate::apns::send_with_jwt(&cfg, &device_token, title, body_text, &jwt).await {
+            Ok(status) => status,
+            Err(error) => {
+                let reason = error.to_string();
+                if reason.contains("ExpiredProviderToken") {
+                    cache.remove(credential_id, "apns_jwt");
+                }
+                return Err(reason);
+            }
+        }
     } else {
         let (status, jwt) = crate::apns::send_returning_jwt(&cfg, &device_token, title, body_text)
             .await
             .map_err(|e| e.to_string())?;
-        cache.put(project_id, "apns_jwt", jwt, Duration::from_mins(55));
+        cache.put(credential_id, "apns_jwt", jwt, Duration::from_mins(55));
         status
     };
     Ok((status, start.elapsed().as_millis()))
 }
 
-async fn try_webpush(pool: &PgPool, send_id: Uuid) -> Result<(u16, u128), String> {
+async fn try_webpush(state: &AppState, send_id: Uuid) -> Result<(u16, u128), String> {
     use std::time::Instant;
+    let pool = &state.pool;
     let row = sqlx::query(
-        "SELECT dt.native_token, dt.metadata, ps.payload, pc.config, pc.secret_blob \
+        "SELECT dt.native_token, dt.metadata, ps.payload, ps.project_id, pc.config, pc.secret_blob, pc.id AS credential_id, pc.secret_format \
          FROM push_sends ps \
          JOIN device_tokens dt ON dt.id = ps.token_id \
          JOIN push_credentials pc ON pc.project_id = ps.project_id AND pc.kind = 'webpush' \
            AND pc.active \
-         WHERE ps.id = $1",
+         WHERE ps.id = $1 AND dt.project_id=ps.project_id AND dt.revoked_at IS NULL AND pc.id=ps.credential_id AND ps.generation=(SELECT generation FROM instance_settings WHERE singleton)",
     )
     .bind(send_id)
     .fetch_optional(pool)
@@ -554,8 +566,7 @@ async fn try_webpush(pool: &PgPool, send_id: Uuid) -> Result<(u16, u128), String
     let metadata: serde_json::Value = row.try_get("metadata").unwrap_or(serde_json::Value::Null);
     let payload: serde_json::Value = row.try_get("payload").unwrap_or(serde_json::Value::Null);
     let config: serde_json::Value = row.get("config");
-    let secret_pem =
-        String::from_utf8(row.get::<Vec<u8>, _>("secret_blob")).map_err(|e| e.to_string())?;
+    let secret_pem = credential_secret(state, &row, "webpush")?;
     let subject = config
         .get("subject")
         .and_then(|v| v.as_str())

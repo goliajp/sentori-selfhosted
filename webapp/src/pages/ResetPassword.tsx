@@ -1,10 +1,13 @@
+import { AuthenticationMode } from '../components/AuthenticationMode';
+import { AuthShell } from '../components/AuthShell';
+import { Button } from '../../shared/design/controls';
 // Password-reset landing — the link in the reset email points
 // here with ?token=…; the user picks a new password.
 
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import { AuthShell, Field, Input } from '../components/ui';
+import { Field, Input } from '../components/ui';
 import { useT } from '../i18n';
 import { api } from '../lib/api';
 
@@ -41,20 +44,20 @@ export default function ResetPassword() {
   }
 
   return (
-    <AuthShell>
+    <AuthShell><AuthenticationMode>
       {done ? (
-        <div className="space-y-3">
+        <div className="auth-form">
           <h1 className="text-lg font-semibold">{t('auth.resetPassword')}</h1>
           <p className="text-sm text-fg-muted">{t('auth.resetDone')}</p>
           <Link
             to="/login"
-            className="flex h-8 w-full items-center justify-center rounded-md bg-accent text-sm font-medium text-accent-fg transition hover:opacity-90"
+            className="button button-primary button-large"
           >
             {t('auth.signIn')}
           </Link>
         </div>
       ) : (
-        <form onSubmit={submit} className="space-y-3">
+        <form onSubmit={submit} className="auth-form">
           <h1 className="text-lg font-semibold">{t('auth.resetPassword')}</h1>
           {!token && <p className="text-xs text-danger">{t('auth.missingToken')}</p>}
           <Field label={t('auth.newPassword12')}>
@@ -63,6 +66,7 @@ export default function ResetPassword() {
               autoFocus
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              minLength={12}
               autoComplete="new-password"
               required
             />
@@ -72,18 +76,19 @@ export default function ResetPassword() {
               type="password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
+              minLength={12}
               autoComplete="new-password"
               required
             />
           </Field>
-          {err && <p className="break-all text-xs text-danger">{err}</p>}
-          <button
+          {err && <p role="alert" className="break-all text-xs text-danger">{err}</p>}
+          <Button size="large" variant="primary"
             type="submit"
             disabled={loading || !token}
-            className="h-8 w-full rounded-md bg-accent text-sm font-medium text-accent-fg transition hover:opacity-90 disabled:opacity-40"
+            busy={loading}
           >
             {loading ? t('auth.saving') : t('auth.setNewPassword')}
-          </button>
+          </Button>
           <p className="pt-1 text-center text-xs text-fg-subtle">
             <Link to="/login" className="hover:text-fg-muted">
               {t('auth.backToSignIn')}
@@ -91,6 +96,6 @@ export default function ResetPassword() {
           </p>
         </form>
       )}
-    </AuthShell>
+    </AuthenticationMode></AuthShell>
   );
 }

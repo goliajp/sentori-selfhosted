@@ -1,300 +1,106 @@
-// Projects — the layer above everything else. One card per
-// project, carrying the pulse its SDK traffic reports (heartbeat,
-// day counts, users, replay coverage, artifact lights). Picking a
-// card scopes the whole app to that project and lands in its inbox
-// — the Jira space model: the sidebar names where you are; this
-// page is where you choose.
-
+import { ArrowUpRight, Plus } from 'lucide-react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Heading, Surface } from '../../shared/design/Surface';
+import { Button, Badge, Field, Input } from '../../shared/design/controls';
+import { Dialog } from '../../shared/design/Dialog';
 import { useShell } from '../App';
-import { Button, ErrorBanner, Input, PageShell, TimeAgo, clsx, formatRelease } from '../components/ui';
+import { ErrorBanner, Select, TimeAgo, formatRelease } from '../components/ui';
 import { useT } from '../i18n';
-import { api, type Project, type ProjectHealth } from '../lib/api';
+import { api, ApiError, type Project, type ProjectHealth } from '../lib/api';
 import { platformLabel } from '../lib/platform-label';
+import { SETUP_PLATFORMS } from '../lib/setup';
 import { formatApiError, useAsyncData } from '../lib/useAsyncData';
 
-type Row = Project & { health: ProjectHealth | null };
-
+type Row = Project & { health: ProjectHealth | null; failure: string | null };
 export default function ProjectsPage() {
-  const t = useT();
-  const { me, projects, activeProject, setActiveProjectId, reloadProjects } =
-    useShell();
-  const navigate = useNavigate();
+  const t = useT(), navigate = useNavigate();
+  const { me, projects, activeProject, setActiveProjectId, reloadProjects } = useShell();
   const owner = me.role === 'superadmin';
-  const [name, setName] = useState('');
-  const [createError, setCreateError] = useState<null | string>(null);
-
-  // Captured per render, not called in render (react-hooks/purity).
-  const [now] = useState(() => Date.now());
-  const { data, loading } = useAsyncData<Row[]>(
-    () =>
-      Promise.all(
-        projects.map(async (p) => ({
-          ...p,
-          health: await api.projectHealth(p.id).catch(() => null),
-        })),
-      ),
-    [projects],
-  );
-  const rows = data ?? projects.map((p) => ({ ...p, health: null }));
-
-  const open = (row: Row) => {
-    setActiveProjectId(row.id);
-    navigate('/');
-  };
-
-  return (
-    <PageShell
-      title={t('nav.projects')}
-      toolbar={
-        owner ? (
-          <div className="ml-auto flex items-center gap-2">
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('settings.projectName')}
-              className="h-7 w-56 text-sm"
-            />
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={name.trim().length === 0}
-              onClick={() => {
-                setCreateError(null);
-                void api.createProject(name.trim()).then(
-                  () => {
-                    setName('');
-                    reloadProjects();
-                  },
-                  // Without this a rejected create — a duplicate name,
-                  // a 500 — left the button looking unpressed.
-                  (e: unknown) => setCreateError(formatApiError(e)),
-                );
-              }}
-            >
-              {t('settings.createProject')}
-            </Button>
-          </div>
-        ) : undefined
-      }
-    >
-      {createError && (
-        <div className="mb-4">
-          <ErrorBanner>
-            {t('settings.createProjectFailed')} {createError}
-          </ErrorBanner>
-        </div>
-      )}
-      {/* An instance with no projects is where every operator starts,
-          and the grid rendered nothing at all there — a blank page with
-          a form in the corner, on the one screen that has to explain
-          itself. */}
-      {rows.length === 0 && !loading && (
-        <div className="px-4 py-16 text-center">
-          <p className="text-sm text-fg-muted">{t('projects.emptyTitle')}</p>
-          <p className="mt-1.5 text-xs text-fg-subtle">
-            {t('projects.emptyHint')}
-          </p>
-        </div>
-      )}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {rows.map((r) => (
-          <ProjectCard
-            key={r.id}
-            row={r}
-            now={now}
-            active={r.id === activeProject?.id}
-            owner={owner}
-            onOpen={() => open(r)}
-            onDelete={() => {
-              if (window.confirm(t('settings.deleteProjectConfirm', { name: r.name }))) {
-                void api.deleteProject(r.id).then(reloadProjects);
-              }
-            }}
-          />
-        ))}
-      </div>
-    </PageShell>
-  );
-}
-
-function ProjectCard({
-  row,
-  now,
-  active,
-  owner,
-  onOpen,
-  onDelete,
-}: {
-  row: Row;
-  now: number;
-  active: boolean;
-  owner: boolean;
-  onOpen: () => void;
-  onDelete: () => void;
-}) {
-  const t = useT();
-  const h = row.health;
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') onOpen();
-      }}
-      className={clsx(
-        // Full-height flex column so neighbouring cards' footers sit
-        // on one baseline whether or not a card has a backend row.
-        'group flex h-full cursor-pointer flex-col rounded-lg border bg-surface p-4 transition-colors',
-        active
-          ? 'border-accent'
-          : 'border-border hover:border-border-strong',
-      )}
-    >
-      <div className="flex items-center gap-2">
-        <Pulse health={h} now={now} />
-        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-fg">
-          {row.name}
-        </span>
-        {row.platform && (
-          <span className="rounded bg-raised px-1.5 py-0.5 text-xs text-fg-muted">
-            {platformLabel(row.platform, t)}
-          </span>
-        )}
-        {owner && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            className="text-xs text-kind-error/0 transition-colors group-hover:text-kind-error/70 hover:!text-kind-error"
-          >
-            {t('common.delete')}
-          </button>
-        )}
-      </div>
-
-      <div className="mt-3 flex items-baseline gap-5 text-sm tabular-nums">
-        <span>
-          <Num n={h?.counts24h.error} tone="error" />{' '}
-          <span className="text-fg-subtle">err</span>
-        </span>
-        <span>
-          <Num n={h?.counts24h.warn} tone="warn" />{' '}
-          <span className="text-fg-subtle">warn</span>
-        </span>
-        <span>
-          {/* `u` beside `err` and `warn` read as a truncated word rather
-              than an abbreviation — the card has the width for it.
-              The title says which users: anyone who sent an event, not
-              only the ones who hit a problem. Three surfaces print a
-              user count and each counts a different population. */}
-          <span title={t('health.usersTitle')}>
-            <Num n={h?.users24h} /> <span className="text-fg-subtle">users</span>
-          </span>
-        </span>
-        {h && h.replay24h.eligible > 0 && (
-          <span className="ml-auto text-fg-muted">
-            {t('health.replay')} {h.replay24h.withScreens}/{h.replay24h.eligible}
-          </span>
-        )}
-      </div>
-
-      {h?.backend && (
-        <div
-          className="mt-2.5 flex items-center gap-2 text-sm tabular-nums"
-          title={h.backend.url}
-        >
-          <span
-            aria-hidden
-            className="h-2 w-2 shrink-0 rounded-full"
-            style={{
-              backgroundColor:
-                h.backend.lastOk === null
-                  ? 'var(--sn-fg-muted)'
-                  : h.backend.lastOk
-                    ? 'var(--s-kind-probe)'
-                    : 'var(--s-kind-error)',
-            }}
-          />
-          <span className="text-fg-subtle">{t('health.backend')}</span>
-          {h.backend.checks24h > 0 && (
-            <span className="text-fg-muted">
-              {((h.backend.ok24h / h.backend.checks24h) * 100).toFixed(1)}%
-            </span>
-          )}
-          {h.backend.lastLatencyMs !== null && (
-            <span className="ml-auto text-fg-subtle">{h.backend.lastLatencyMs}ms</span>
-          )}
-        </div>
-      )}
-
-      {/* the growing spacer pins the footer to the card's bottom,
-          with a guaranteed minimum gap when content fills the card */}
-      <div className="min-h-2.5 flex-1" />
-      <div className="flex items-center gap-2 border-t border-border/60 pt-2.5 text-xs text-fg-subtle">
-        {h?.latestRelease ? (
-          <>
-            <span className="min-w-0 flex-1 truncate font-mono" title={h.latestRelease}>
-              {formatRelease(h.latestRelease)}
-            </span>
-            <ArtifactLights
-              kinds={h.latestReleaseArtifacts}
-              used={h.platforms24h}
-            />
-          </>
-        ) : (
-          <span className="flex-1">—</span>
-        )}
-        <span className="shrink-0">
-          {h?.lastEventAt ? <TimeAgo iso={h.lastEventAt} /> : t('health.silent')}
-        </span>
-      </div>
+  const [params, setParams] = useSearchParams();
+  const query = params.get('q') ?? '', platformFilter = params.get('platform') ?? '';
+  const [editing, setEditing] = useState<Project | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<Project | null>(null);
+  const [name, setName] = useState(''), [platform, setPlatform] = useState('web');
+  const [confirmation, setConfirmation] = useState('');
+  const [conflict, setConflict] = useState(false);
+  const [busy, setBusy] = useState(false), [failure, setFailure] = useState<string | null>(null);
+  const { data, loading, reload } = useAsyncData<Row[]>(() => Promise.all(projects.map(async project => {
+    try { return {...project, health: await api.projectHealth(project.id), failure: null}; }
+    catch (error) { return {...project, health: null, failure: formatApiError(error)}; }
+  })), [projects]);
+  // Retain known cards while fetching, including freshly created projects.
+  const rows = projects.map(project => ({health: null, failure: null, ...data?.find(row => row.id === project.id), ...project}));
+  const visible = rows.filter(row => row.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()) && (!platformFilter || row.platform === platformFilter));
+  function filter(key: string, value: string) { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); setParams(next, { replace: true }); }
+  function edit(project: Project | 'new') { setEditing(project); setName(project === 'new' ? '' : project.name); setPlatform(project === 'new' ? 'web' : project.platform || ''); setFailure(null); setConflict(false); }
+  function open(project: Project, page: string) { setActiveProjectId(project.id); navigate({pathname: '/' + page, search: new URLSearchParams({project: project.id}).toString()}); }
+  async function save(event: React.FormEvent) {
+    event.preventDefault(); if (!owner || !editing || busy || !name.trim()) return;
+    setBusy(true); setFailure(null);
+    try {
+      if (editing === 'new') await api.createProject(name.trim(), platform);
+      else await api.updateProject(editing.id, {name: name.trim(), platform, expectedVersion: editing.version});
+      await reloadProjects(); setEditing(null);
+    } catch (error) { setFailure(formatApiError(error)); setConflict(error instanceof ApiError && error.status === 409); }
+    finally { setBusy(false); }
+  }
+  async function remove() {
+    if (!owner || !deleting || confirmation !== deleting.name || busy) return;
+    setBusy(true); setFailure(null);
+    try {
+      await api.deleteProject(deleting.id, deleting.version);
+      await reloadProjects();
+      if (activeProject?.id === deleting.id) setActiveProjectId(projects.find(p => p.id !== deleting.id)?.id ?? '');
+      setDeleting(null);
+    } catch (error) { setFailure(formatApiError(error)); setConflict(error instanceof ApiError && error.status === 409); }
+    finally { setBusy(false); }
+  }
+  async function refreshConflict() {
+    const target = editing && editing !== 'new' ? editing : deleting;
+    if (!target || busy) return;
+    setBusy(true);
+    try {
+      const fresh = await api.getProject(target.id);
+      if (deleting) { setDeleting(fresh); setConfirmation(''); setFailure(null); setConflict(false); }
+      else edit(fresh);
+      await reloadProjects();
+    } catch (error) { setFailure(formatApiError(error)); }
+    finally { setBusy(false); }
+  }
+  const problem = failure && <><ErrorBanner reason={failure}>{t(conflict ? 'projects.conflict' : 'projects.actionFailed')}</ErrorBanner>{conflict && <Button onClick={refreshConflict} disabled={busy}>{t('projects.reload')}</Button>}</>;
+  return <div className="production-page">
+    <Heading title={t('nav.projects')} description={t('projects.description')} action={owner && <Button variant="primary" onClick={() => edit('new')}><Plus size={16}/>{t('settings.createProject')}</Button>} />
+    <div className="control-bar">
+      <Input type="search" aria-label={t('projects.search')} placeholder={t('projects.search')} value={query} onChange={e => filter('q', e.target.value)} />
+      <Select aria-label={t('setup.platform')} value={platformFilter} onChange={e => filter('platform', e.target.value)}><option value="">{t('projects.allPlatforms')}</option>{[...new Set(projects.map(p => p.platform).filter((value): value is string => !!value))].map(value => <option key={value} value={value}>{platformLabel(value, t)}</option>)}</Select>
     </div>
-  );
+    <div className="grid gap-5 xl:grid-cols-2" aria-busy={loading}>
+      {visible.map(row => <Surface key={row.id} title={row.name} className="project-card" action={owner && <div className="flex flex-wrap gap-2"><Button small variant="ghost" onClick={() => edit(row)}>{t('projects.edit')}</Button><Button small variant="ghost" onClick={() => { setDeleting(row); setConfirmation(''); setFailure(null); setConflict(false); }}>{t('common.delete')}</Button></div>} footer={<><Button disabled={!row.health && !row.failure} onClick={() => open(row, row.health && !row.health.lastEventAt ? 'setup' : 'issues')}>{t(row.health && !row.health.lastEventAt ? 'setup.title' : 'projects.open')}<ArrowUpRight size={15}/></Button><Button variant="ghost" onClick={() => open(row, 'releases')}>{t('nav.releases')}</Button></>}>
+        <div className="flex flex-wrap gap-3 items-center mb-5"><Badge>{platformLabel(row.platform, t)}</Badge><Badge tone={row.health?.lastEventAt ? 'info' : 'neutral'}>{row.failure ? t('projects.healthUnavailable') : row.health?.lastEventAt ? t('projects.connected') : t(loading ? 'projects.loading' : 'projects.waiting')}</Badge></div>
+        <div className="grid grid-cols-2 gap-6"><div><p className="text-xs subtle">{t('projects.errors24h')}</p><p className="text-3xl tabular mt-2">{row.health?.counts24h.error ?? '—'}</p></div><div><p className="text-xs subtle">{t('projects.latestRelease')}</p><p className="text-3xl tabular mt-2 break-all">{row.health?.latestRelease ? formatRelease(row.health.latestRelease) : '—'}</p></div></div>
+        <div className="flex flex-wrap gap-x-6 gap-y-3 mt-5 text-sm tabular muted"><span>{t('projects.warnings24h')} · {row.health?.counts24h.warn ?? '—'}</span><span title={t('health.usersTitle')}>{t('projects.users24h')} · {row.health?.users24h ?? '—'}</span>{row.health && row.health.replay24h.eligible > 0 && <span>{t('health.replay')} · {row.health.replay24h.withScreens}/{row.health.replay24h.eligible}</span>}</div>
+        {row.health?.backend && <div className="flex flex-wrap items-center gap-3 mt-4 text-sm muted" title={row.health.backend.url}><span className="h-2 w-2 rounded-full" aria-hidden style={{background: row.health.backend.lastOk === null ? 'var(--ui-muted)' : row.health.backend.lastOk ? 'var(--ui-success)' : 'var(--ui-danger)'}}/><span>{t('health.backend')}</span>{row.health.backend.checks24h > 0 && <span>{((row.health.backend.ok24h / row.health.backend.checks24h) * 100).toFixed(1)}%</span>}{row.health.backend.lastLatencyMs !== null && <span>{row.health.backend.lastLatencyMs}ms</span>}</div>}
+        {row.health?.latestRelease && <div className="mt-4"><ArtifactLights kinds={row.health.latestReleaseArtifacts} used={row.health.platforms24h}/></div>}
+        <p className="text-xs subtle mt-5">{t('projects.lastEvent')} · {row.health?.lastEventAt ? <TimeAgo iso={row.health.lastEventAt}/> : row.health ? t('health.silent') : '—'}</p>
+        {row.failure && <div className="mt-4"><ErrorBanner reason={row.failure}>{t('projects.healthUnavailable')}</ErrorBanner><Button small onClick={reload}>{t('common.retry')}</Button></div>}
+      </Surface>)}
+    </div>
+    {!visible.length && <Surface><p>{t(projects.length ? 'projects.noMatches' : 'projects.emptyTitle')}</p><p className="muted mt-3">{projects.length ? t('projects.filterHint') : t(owner ? 'projects.emptyHint' : 'setup.askOwner')}</p>{projects.length > 0 && <Button className="mt-5" onClick={() => { const next = new URLSearchParams(params); next.delete('q'); next.delete('platform'); setParams(next, {replace: true}); }}>{t('projects.clearFilters')}</Button>}</Surface>}
+    <Dialog open={!!editing} onClose={() => { if (!busy) setEditing(null); }} closeLabel={t('common.close')} title={t(editing === 'new' ? 'settings.createProject' : 'projects.edit')} footer={<Button type="submit" form="project-edit" variant="primary" busy={busy}>{t('settings.save')}</Button>}>
+      <form id="project-edit" className="form-stack" onSubmit={save}>
+        <Field label={t('settings.projectName')}><Input required pattern={String.raw`.*\S.*`} maxLength={200} value={name} onChange={e => setName(e.target.value)} data-autofocus disabled={busy}/></Field>
+        <Field label={t('setup.platform')}><Select value={platform} onChange={e => setPlatform(e.target.value)} disabled={busy}>{!SETUP_PLATFORMS.includes(platform as typeof SETUP_PLATFORMS[number]) && <option value={platform}>{platformLabel(platform, t)}</option>}{SETUP_PLATFORMS.map(value => <option key={value} value={value}>{platformLabel(value, t)}</option>)}</Select></Field>
+        {problem}
+      </form>
+    </Dialog>
+    <Dialog open={!!deleting} onClose={() => { if (!busy) setDeleting(null); }} closeLabel={t('common.close')} title={t('settings.deleteProjectConfirm', {name: deleting?.name ?? ''})} footer={<Button variant="danger" busy={busy} disabled={confirmation !== deleting?.name} onClick={remove}>{t('common.delete')}</Button>}>
+      <Field label={t('projects.confirmName')} hint={deleting?.name}><Input value={confirmation} onChange={e => setConfirmation(e.target.value)} autoComplete="off" disabled={busy} data-autofocus /></Field>
+      {problem}
+    </Dialog>
+  </div>;
 }
 
-function Pulse({ health, now }: { health: ProjectHealth | null; now: number }) {
-  const last = health?.lastEventAt ? Date.parse(health.lastEventAt) : null;
-  const age = last === null ? null : now - last;
-  const color =
-    age === null
-      ? 'var(--sn-fg-muted)'
-      : age < 10 * 60_000
-        ? 'var(--s-kind-probe)'
-        : age < 60 * 60_000
-          ? 'var(--s-kind-warn)'
-          : 'var(--s-kind-error)';
-  return (
-    <span
-      aria-hidden
-      className="h-2 w-2 shrink-0 rounded-full"
-      style={{ backgroundColor: color }}
-    />
-  );
-}
-
-function Num({ n, tone }: { n: number | undefined; tone?: 'error' | 'warn' }) {
-  if (n === undefined || n === 0)
-    return <span className="text-fg-subtle">{n ?? '—'}</span>;
-  return (
-    <span
-      className="text-xs font-medium tabular-nums"
-      style={tone ? { color: `var(--s-kind-${tone})` } : undefined}
-    >
-      {n}
-    </span>
-  );
-}
-
-/** The three symbolication lights, same rule as the Releases page:
- *  a missing artifact is only a problem for a platform this project
- *  actually hears from. A pure-iOS app with a permanently red
- *  proguard light teaches the reader to ignore all three. */
 function ArtifactLights({
   kinds,
   used,

@@ -1,34 +1,18 @@
-//! POST /admin/api/projects/:project_id/push/audience/preview
-//!
-//! How many devices an audience selects, and a few of them.
-//!
-//! Without this the only way to find out what an expression matches is
-//! to send to it, which is not a thing anyone can undo. A condition
-//! editor that cannot answer "how many?" is a text box that fires
-//! notifications at strangers.
-//!
-//! The count comes from the same compiler the send uses, so a preview
-//! that says 412 is not an estimate of what a send would do — it is
-//! the same query with `count(*)` in front of it.
-
-use std::sync::Arc;
-
+//! Preview an exact device selection, then queue that reviewed selection atomically.
+use super::push_commands::{self, Error, database_error, error};
+use crate::{session_mw::SessionContext, state::AppState};
 use axum::{
     Json,
     extract::{Extension, Path, State},
     http::StatusCode,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sqlx::{AssertSqlSafe, Row};
-use tracing::warn;
+use sqlx::{AssertSqlSafe, Postgres, Row, Transaction};
+use std::sync::Arc;
 use uuid::Uuid;
-
-use crate::session_mw::SessionContext;
-use crate::state::AppState;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreviewBody {
     #[serde(default)]
     pub app_user_id: Option<String>,
@@ -37,23 +21,8 @@ pub struct PreviewBody {
     #[serde(default)]
     pub audience: Option<Value>,
 }
-
-/// How many of the matched devices to show.
-///
-/// Enough to tell "this is the group I meant" from "this is every
-/// device I have", which is the question a sample answers. More than
-/// that is a device list, and there is already one of those.
-const SAMPLE: i64 = 8;
-
-pub async fn preview(
-    State(state): State<Arc<AppState>>,
-    Extension(ctx): Extension<SessionContext>,
-    Path(project_id): Path<Uuid>,
-    Json(body): Json<PreviewBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    super::tokens::ensure_project_access(&state, &ctx, project_id).await?;
-
-    let audience = crate::audience::from_request(
+fn parse(body: &PreviewBody) -> Result<crate::audience::Audience, Error> {
+    crate::audience::from_request(
         body.app_user_id.as_deref(),
         body.traits.as_ref(),
         body.audience.as_ref(),
@@ -61,89 +30,72 @@ pub async fn preview(
     .map_err(|detail| {
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "bad_audience", "detail": detail })),
+            Json(json!({"error":"bad_audience","detail":detail})),
         )
-    })?;
-
-    let Some(audience) = audience else {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": "bad_audience",
-                "detail": "give appUserId, traits or audience",
-            })),
-        ));
-    };
-
-    // `$1` is the project; the audience numbers from `$2`.
-    // `$1` is the project; the audience numbers from `$2`.
-    let (frag, binds) = audience.to_sql(2);
-    let where_clause = format!("dt.project_id = $1 AND dt.revoked_at IS NULL AND ({frag})");
-
-    let count_sql = format!("SELECT count(*) AS n FROM device_tokens dt WHERE {where_clause}");
-    // Audited for injection: the fragment `to_sql` returns contains only
-    // `$n` placeholders and column names from a two-variant enum
-    // (`Source::column` returns `&'static str`). Every value an
-    // operator supplied travels as a bind — see `audience.rs`, where
-    // this is the property the unit tests are about.
-    let mut q = sqlx::query(AssertSqlSafe(count_sql.clone())).bind(project_id);
-    for b in &binds {
-        q = b.attach(q);
-    }
-    let matched = q
-        .fetch_one(&state.pool)
-        .await
-        .map(|r| r.get::<i64, _>("n"))
-        .map_err(|e| {
-            // The compiler produces valid SQL for anything it accepted, so
-            // a failure here is ours rather than the caller's — and saying
-            // "no devices" would read as an answer.
-            warn!(error = %e, "push.audience preview_failed");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal" })),
-            )
-        })?;
-
-    // The token itself never comes back — the device list is careful
-    // about that and a preview must not be the way around it.
-    let sample_sql = format!(
-        "SELECT dt.id, dt.provider, dt.traits, dt.metadata, \
-                dt.user_key IS NOT NULL AS addressable, \
-                right(dt.user_key, 6) AS user_key_tail \
-         FROM device_tokens dt WHERE {where_clause} \
-         ORDER BY dt.last_seen_at DESC LIMIT {SAMPLE}"
-    );
-    // Audited for injection: the fragment `to_sql` returns contains only
-    // `$n` placeholders and column names from a two-variant enum
-    // (`Source::column` returns `&'static str`). Every value an
-    // operator supplied travels as a bind — see `audience.rs`, where
-    // this is the property the unit tests are about.
-    let mut q = sqlx::query(AssertSqlSafe(sample_sql.clone())).bind(project_id);
-    for b in &binds {
-        q = b.attach(q);
-    }
-    let rows = q.fetch_all(&state.pool).await.unwrap_or_default();
-
-    let sample: Vec<Value> = rows
-        .iter()
-        .map(|r| {
-            json!({
-                "id": r.get::<Uuid, _>("id").to_string(),
-                "provider": r.get::<String, _>("provider"),
-                "traits": r.get::<Value, _>("traits"),
-                "metadata": r.get::<Value, _>("metadata"),
-                "addressable": r.get::<bool, _>("addressable"),
-                "userKeyTail": r.get::<Option<String>, _>("user_key_tail"),
-            })
-        })
-        .collect();
-
-    Ok(Json(json!({ "matched": matched, "sample": sample })))
+    })?
+    .ok_or_else(|| error(StatusCode::BAD_REQUEST, "bad_audience"))
 }
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+struct SelectedDevice {
+    id: Uuid,
+    sample: Value,
+}
+async fn selection(
+    tx: &mut Transaction<'_, Postgres>,
+    project: Uuid,
+    audience: &crate::audience::Audience,
+) -> Result<Vec<SelectedDevice>, Error> {
+    let (fragment, binds) = audience.to_sql(2);
+    let text = format!(
+        "SELECT dt.id,dt.provider,dt.traits,dt.metadata-'auth' AS metadata,dt.user_key IS NOT NULL AS addressable,right(dt.user_key,6) AS user_key_tail FROM device_tokens dt WHERE dt.project_id=$1 AND dt.revoked_at IS NULL AND ({fragment}) ORDER BY dt.id LIMIT 10001"
+    );
+    let mut query = sqlx::query(AssertSqlSafe(text)).bind(project);
+    for value in &binds {
+        query = value.attach(query);
+    }
+    let rows = query.fetch_all(&mut **tx).await.map_err(database_error)?;
+    if rows.len() > 10000 {
+        return Err(error(StatusCode::BAD_REQUEST, "audience_too_large"));
+    }
+    Ok(rows.into_iter().map(|row| SelectedDevice {
+        id: row.get("id"),
+        sample: json!({"id":row.get::<Uuid,_>("id"),"provider":row.get::<String,_>("provider"),"traits":row.get::<Value,_>("traits"),"metadata":row.get::<Value,_>("metadata"),"addressable":row.get::<bool,_>("addressable"),"userKeyTail":row.get::<Option<String>,_>("user_key_tail")}),
+    }).collect())
+}
+pub async fn preview(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<SessionContext>,
+    Path(project): Path<Uuid>,
+    Json(body): Json<PreviewBody>,
+) -> Result<Json<Value>, Error> {
+    super::tokens::ensure_project_access(&state, &ctx, project).await?;
+    let audience = parse(&body)?;
+    let digest = push_commands::digest(&body)?;
+    let mut tx = state.pool.begin().await.map_err(database_error)?;
+    push_commands::lock(&mut tx, project).await?;
+    sqlx::query("DELETE FROM push_audience_previews WHERE id IN (SELECT id FROM push_audience_previews WHERE expires_at<now() ORDER BY expires_at LIMIT 1000)").execute(&mut *tx).await.map_err(database_error)?;
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM push_audience_previews WHERE project_id=$1 AND actor_user_id=$2",
+    )
+    .bind(project)
+    .bind(ctx.user_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(database_error)?;
+    if count >= 64 {
+        return Err(error(StatusCode::TOO_MANY_REQUESTS, "preview_limit"));
+    }
+    let rows = selection(&mut tx, project, &audience).await?;
+    let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
+    let sample: Vec<Value> = rows.iter().take(8).map(|row| row.sample.clone()).collect();
+    let id = Uuid::now_v7();
+    let expires:time::OffsetDateTime=sqlx::query_scalar("INSERT INTO push_audience_previews(id,project_id,actor_user_id,digest,generation,token_ids) SELECT $1,$2,$3,$4,generation,$5 FROM instance_settings WHERE singleton RETURNING expires_at").bind(id).bind(project).bind(ctx.user_id).bind(digest).bind(&ids).fetch_one(&mut *tx).await.map_err(database_error)?;
+    tx.commit().await.map_err(database_error)?;
+    Ok(Json(
+        json!({"matched":ids.len(),"sample":sample,"previewId":id,"expiresAt":crate::wire_time::rfc3339(expires)}),
+    ))
+}
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SendBody {
     #[serde(default)]
     pub app_user_id: Option<String>,
@@ -154,156 +106,86 @@ pub struct SendBody {
     pub title: String,
     #[serde(default)]
     pub body: String,
-    /// What the preview said, from the operator who is looking at it.
-    ///
-    /// Required, and the send is refused if it no longer holds. An
-    /// audience is live data: devices register between reading a
-    /// number and pressing a button, and "it said 12" is the only
-    /// thing standing between a careful operator and a notification
-    /// to everyone. Nothing here can be undone, so the console is not
-    /// allowed to send to a number nobody read.
     pub expected_matched: i64,
-    /// Minted by the console when it took the count, so pressing send
-    /// twice queues once.
-    ///
-    /// The count guard does not catch this: sending does not change
-    /// the audience, so a second press finds the same number and
-    /// passes. A key does — the unique index behind it is per device
-    /// per key, so the second insert is skipped and `queued` comes
-    /// back zero.
-    #[serde(default)]
     pub idempotency_key: Option<String>,
+    pub preview_id: Option<Uuid>,
 }
-
-/// Queue a send to everyone an audience selects.
 pub async fn send(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
-    Path(project_id): Path<Uuid>,
+    Path(project): Path<Uuid>,
     Json(body): Json<SendBody>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    super::tokens::ensure_project_access(&state, &ctx, project_id).await?;
-
-    let bad = |detail: String| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "bad_audience", "detail": detail })),
-        )
+) -> Result<Json<Value>, Error> {
+    super::tokens::ensure_project_access(&state, &ctx, project).await?;
+    push_commands::validate_message(&body.title, &body.body)?;
+    let command_hash = push_commands::digest(&json!({"action":"audience.send","body":body}))?;
+    let selection_body = PreviewBody {
+        app_user_id: body.app_user_id,
+        traits: body.traits,
+        audience: body.audience,
     };
-
-    if body.title.trim().is_empty() {
-        return Err(bad("a notification with no title shows nothing".to_string()));
+    let audience = parse(&selection_body)?;
+    let digest = push_commands::digest(&selection_body)?;
+    let key = body
+        .idempotency_key
+        .unwrap_or_else(|| Uuid::now_v7().to_string());
+    let mut tx = state.pool.begin().await.map_err(database_error)?;
+    push_commands::lock(&mut tx, project).await?;
+    if let Some(mut value) =
+        push_commands::prior(&mut tx, project, ctx.user_id, &key, &command_hash).await?
+    {
+        value["queued"] = json!(0);
+        value["alreadySent"] = json!(true);
+        return Ok(Json(value));
     }
-
-    let audience = crate::audience::from_request(
-        body.app_user_id.as_deref(),
-        body.traits.as_ref(),
-        body.audience.as_ref(),
-    )
-    .map_err(bad)?
-    .ok_or_else(|| bad("give appUserId, traits or audience".to_string()))?;
-
-    let (frag, binds) = audience.to_sql(2);
-    let where_clause = format!("dt.project_id = $1 AND dt.revoked_at IS NULL AND ({frag})");
-
-    // Counted first, and compared with what the operator read. Doing
-    // it in the same transaction as the insert would be tighter, and
-    // it is not what this guards against: the gap that matters is the
-    // one between a human reading a number and clicking, not the
-    // milliseconds inside the request.
-    let count_sql = format!("SELECT count(*) AS n FROM device_tokens dt WHERE {where_clause}");
-    // Audited for injection: the fragment `to_sql` returns contains only
-    // `$n` placeholders and column names from a two-variant enum
-    // (`Source::column` returns `&'static str`). Every value an
-    // operator supplied travels as a bind — see `audience.rs`, where
-    // this is the property the unit tests are about.
-    let mut q = sqlx::query(AssertSqlSafe(count_sql.clone())).bind(project_id);
-    for b in &binds {
-        q = b.attach(q);
-    }
-    let matched = q
-        .fetch_one(&state.pool)
-        .await
-        .map(|r| r.get::<i64, _>("n"))
-        .map_err(|e| {
-            warn!(error = %e, "push.audience send_count_failed");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal" })),
-            )
-        })?;
-
-    if matched != body.expected_matched {
+    // Old consoles did not send an ID. Their latest matching, unexpired preview is
+    // still an exact selection; new consoles bind the explicit receipt they displayed.
+    let preview=sqlx::query("SELECT p.token_ids FROM push_audience_previews p JOIN instance_settings s ON s.singleton AND s.generation=p.generation WHERE p.project_id=$1 AND p.actor_user_id=$2 AND p.digest=$3 AND p.expires_at>now() AND ($4::uuid IS NULL OR p.id=$4) ORDER BY p.created_at DESC,p.id DESC LIMIT 1").bind(project).bind(ctx.user_id).bind(digest).bind(body.preview_id).fetch_optional(&mut *tx).await.map_err(database_error)?.ok_or_else(||error(StatusCode::CONFLICT,"preview_expired"))?;
+    let reviewed: Vec<Uuid> = preview.get("token_ids");
+    let current: Vec<Uuid> = selection(&mut tx, project, &audience)
+        .await?
+        .iter()
+        .map(|row| row.id)
+        .collect();
+    if reviewed != current || i64::try_from(current.len()).ok() != Some(body.expected_matched) {
         return Err((
             StatusCode::CONFLICT,
-            Json(json!({
-                "error": "audience_changed",
-                "matched": matched,
-                "expected": body.expected_matched,
-                "detail": "this audience does not select what it did when you \
-                           previewed it — look again before sending",
-            })),
+            Json(
+                json!({"error":"audience_changed","matched":current.len(),"expected":body.expected_matched}),
+            ),
         ));
     }
-
-    // Compiled a second time, at the offset this statement needs,
-    // rather than renumbering the first one. The renumbering pass
-    // moved every placeholder above `$1` — including the payload's,
-    // which this statement writes by hand — so the payload and the
-    // audience's first bind collided on one number, and every queued
-    // row went out carrying a fragment of the condition as its
-    // message. Counting the rows had said nothing about what was in
-    // them.
-    //
-    // Two calls on the same value give the same clause with different
-    // numbers and the same bind order, so the count and the send
-    // cannot come to disagree about what they select.
-    //
-    // `$1` project, `$2` payload, `$3` the key, so the audience starts
-    // at `$4` and is told so.
-    let (send_frag, send_binds) = audience.to_sql(4);
-    let send_where = format!("dt.project_id = $1 AND dt.revoked_at IS NULL AND ({send_frag})");
-    let insert_sql = format!(
-        "INSERT INTO push_sends \
-           (id, project_id, token_id, provider, payload, status, idempotency_key) \
-         SELECT gen_random_uuid(), $1, dt.id, dt.provider, $2, 'queued', $3 \
-         FROM device_tokens dt WHERE {send_where} \
-         ON CONFLICT (project_id, token_id, idempotency_key) \
-           WHERE idempotency_key IS NOT NULL DO NOTHING \
-         RETURNING id"
-    );
-    // Audited for injection: the fragment `to_sql` returns contains only
-    // `$n` placeholders and column names from a two-variant enum
-    // (`Source::column` returns `&'static str`). Every value an
-    // operator supplied travels as a bind — see `audience.rs`, where
-    // this is the property the unit tests are about.
-    let mut q = sqlx::query(AssertSqlSafe(insert_sql.clone()))
-        .bind(project_id)
-        .bind(json!({ "title": body.title, "body": body.body }))
-        .bind(body.idempotency_key.as_deref());
-    for b in &send_binds {
-        q = b.attach(q);
+    // Queue only these IDs. New registrations after the comparison cannot expand it.
+    let inserted=sqlx::query("INSERT INTO push_sends(id,project_id,token_id,provider,payload,status,idempotency_key,credential_id) SELECT gen_random_uuid(),$1,dt.id,dt.provider,$2,'queued',$3,pc.id FROM device_tokens dt LEFT JOIN push_credentials pc ON pc.project_id=dt.project_id AND pc.kind=dt.provider AND pc.active WHERE dt.project_id=$1 AND dt.id=ANY($4) AND dt.revoked_at IS NULL ON CONFLICT(project_id,token_id,idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING RETURNING id").bind(project).bind(json!({"title":body.title,"body":body.body})).bind(format!("console:{}:{key}",ctx.user_id)).bind(&reviewed).fetch_all(&mut *tx).await.map_err(database_error)?;
+    if inserted.len() != reviewed.len() {
+        return Err(error(StatusCode::CONFLICT, "audience_changed"));
     }
-    let rows = q.fetch_all(&state.pool).await.map_err(|e| {
-        warn!(error = %e, "push.audience send_failed");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "internal" })),
-        )
-    })?;
-
-    // Zero rows against a non-empty audience means every one of them
-    // was already queued under this key — a second press of the
-    // button, not an empty send. The console has to tell those apart,
-    // so it is said here rather than inferred from a number that reads
-    // like failure.
-    Ok(Json(json!({
-        "queued": rows.len(),
-        "matched": matched,
-        "alreadySent": rows.is_empty() && matched > 0,
-    })))
+    let response = json!({"queued":inserted.len(),"matched":reviewed.len(),"alreadySent":false});
+    crate::audit::record_in_transaction(
+        &mut tx,
+        Some(project),
+        ctx.user_id,
+        "push.audience_send",
+        "push_audience",
+        &body
+            .preview_id
+            .map_or_else(|| project.to_string(), |id| id.to_string()),
+        response.clone(),
+    )
+    .await
+    .map_err(database_error)?;
+    push_commands::record(
+        &mut tx,
+        project,
+        ctx.user_id,
+        &key,
+        &command_hash,
+        &response,
+    )
+    .await?;
+    tx.commit().await.map_err(database_error)?;
+    Ok(Json(response))
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

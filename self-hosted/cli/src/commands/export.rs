@@ -19,8 +19,25 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let selected: Vec<&str> = match tables {
         Some(s) => s.split(',').map(str::trim).collect(),
-        None => TABLES.to_vec(),
+        None => TABLES
+            .iter()
+            .copied()
+            .filter(|table| project.is_none() || project_filter(table).is_some())
+            .collect(),
     };
+    for table in &selected {
+        anyhow::ensure!(TABLES.contains(table), "unknown export table: {table}");
+        if project.is_some() {
+            anyhow::ensure!(
+                project_filter(table).is_some(),
+                "{table} is instance-scoped; it cannot be included in a project export"
+            );
+        }
+    }
+    let mut tx = pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *tx)
+        .await?;
     let mut writer: Box<dyn AsyncWrite + Send + Unpin> = if out == "-" {
         Box::new(tokio::io::stdout())
     } else {
@@ -29,13 +46,14 @@ pub async fn run(
 
     let mut total: u64 = 0;
     for table in &selected {
-        let n = export_one(pool, table, writer.as_mut(), project).await?;
+        let n = export_one(&mut tx, table, writer.as_mut(), project).await?;
         if !quiet {
             eprintln!("  {table:<32} exported {n}");
         }
         total += n;
     }
     writer.flush().await?;
+    tx.commit().await?;
     if !quiet {
         eprintln!("✅ exported {total} rows across {} tables", selected.len());
     }
@@ -43,25 +61,24 @@ pub async fn run(
 }
 
 async fn export_one(
-    pool: &PgPool,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     table: &str,
     writer: &mut (dyn AsyncWrite + Send + Unpin),
     project: Option<uuid::Uuid>,
 ) -> anyhow::Result<u64> {
-    let sql = match project {
-        Some(_) if has_project_id(table) => {
-            format!("SELECT row_to_json(t) FROM {table} t WHERE project_id = $1")
-        }
-        _ => format!("SELECT row_to_json(t) FROM {table} t"),
+    let sql = match (project, project_filter(table)) {
+        (Some(_), Some(filter)) => format!("SELECT row_to_json(t) FROM {table} t WHERE {filter}"),
+        (Some(_), None) => anyhow::bail!("instance-scoped table in project export"),
+        (None, _) => format!("SELECT row_to_json(t) FROM {table} t"),
     };
 
-    let rows = if project.is_some() && has_project_id(table) {
+    let rows = if project.is_some() {
         // Audited: the only interpolation is a table name from
         // `commands::TABLES`, a compile-time list. Nothing a caller
         // types reaches the statement.
         sqlx::query(AssertSqlSafe(sql.clone()))
             .bind(project)
-            .fetch_all(pool)
+            .fetch_all(&mut **tx)
             .await
             .with_context(|| format!("scan {table}"))?
     } else {
@@ -69,7 +86,7 @@ async fn export_one(
         // `commands::TABLES`, a compile-time list. Nothing a caller
         // types reaches the statement.
         sqlx::query(AssertSqlSafe(sql.clone()))
-            .fetch_all(pool)
+            .fetch_all(&mut **tx)
             .await
             .with_context(|| format!("scan {table}"))?
     };
@@ -92,6 +109,8 @@ async fn export_one(
 /// so `export --project` filtered two and silently exported nothing
 /// for the rest.
 const PROJECT_SCOPED: &[&str] = &[
+    "cloud_replay_usage",
+    "project_transfer_routes",
     "audit_logs",
     "project_assignments",
     "tokens",
@@ -100,12 +119,27 @@ const PROJECT_SCOPED: &[&str] = &[
     "sessions",
     "event_attachments",
     "releases",
+    "jobs",
+    "idempotency_requests",
+    "tasks",
+    "task_commands",
+    "monitors",
+    "monitor_commands",
+    "outbound_integrations",
+    "integration_commands",
+    "notification_events",
+    "notification_deliveries",
+    "task_integrations",
+    "task_signal_deliveries",
+    "inbox_items",
     "probes",
     "assert_stats",
     "notification_prefs",
     "delivery_log",
     "push_tokens",
     "push_credentials",
+    "push_commands",
+    "push_audience_previews",
     "device_tokens",
     "push_sends",
     "push_preferences",
@@ -125,4 +159,33 @@ pub(super) fn project_scoped_for_test() -> &'static [&'static str] {
 
 fn has_project_id(table: &str) -> bool {
     PROJECT_SCOPED.contains(&table)
+}
+
+fn project_filter(table: &str) -> Option<&'static str> {
+    if has_project_id(table) {
+        return Some("t.project_id = $1");
+    }
+    match table {
+        "projects" => Some("t.id = $1"),
+        "issue_user_hits" | "issue_activity" => {
+            Some("t.issue_id IN (SELECT id FROM issues WHERE project_id = $1)")
+        }
+        "release_artifacts" => {
+            Some("t.release_id IN (SELECT id FROM releases WHERE project_id = $1)")
+        }
+        "task_events" => Some("t.task_id IN (SELECT id FROM tasks WHERE project_id = $1)"),
+        "monitor_samples" | "monitor_events" => {
+            Some("t.monitor_id IN (SELECT id FROM monitors WHERE project_id = $1)")
+        }
+        "push_delivery_logs" => {
+            Some("t.send_id IN (SELECT id FROM push_sends WHERE project_id = $1)")
+        }
+        "device_topics" => {
+            Some("t.device_token_id IN (SELECT id FROM device_tokens WHERE project_id = $1)")
+        }
+        "outbox_events" => Some(
+            "t.job_id IN (SELECT id FROM jobs WHERE project_id = $1) OR t.task_event_id IN (SELECT id FROM task_events WHERE task_id IN (SELECT id FROM tasks WHERE project_id = $1))",
+        ),
+        _ => None,
+    }
 }

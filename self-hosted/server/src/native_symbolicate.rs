@@ -97,30 +97,86 @@ pub async fn symbolicate_native(
     platform: &str,
     payload: &mut Value,
 ) -> usize {
+    resolve(
+        pool,
+        attachments,
+        project_id,
+        release,
+        platform,
+        payload,
+        false,
+    )
+    .await
+    .unwrap_or(0)
+}
+
+pub async fn symbolicate_native_checked(
+    pool: &PgPool,
+    attachments: &crate::blob_store::AttachmentStore,
+    project_id: Uuid,
+    release: &str,
+    platform: &str,
+    payload: &mut Value,
+) -> anyhow::Result<usize> {
+    resolve(
+        pool,
+        attachments,
+        project_id,
+        release,
+        platform,
+        payload,
+        true,
+    )
+    .await
+}
+
+async fn resolve(
+    pool: &PgPool,
+    attachments: &crate::blob_store::AttachmentStore,
+    project_id: Uuid,
+    release: &str,
+    platform: &str,
+    payload: &mut Value,
+    strict: bool,
+) -> anyhow::Result<usize> {
     if release.is_empty() {
-        return 0;
+        return Ok(0);
     }
     let Some(stack) = payload
         .get_mut("error")
         .and_then(|e| e.get_mut("stack"))
         .and_then(Value::as_array_mut)
     else {
-        return 0;
+        return Ok(0);
     };
 
-    let srcbundle = artifact_bytes(pool, attachments, project_id, release, "srcbundle", None)
-        .await
-        .and_then(|b| SrcBundle::parse(&b));
+    let srcbundle = artifact_bytes(
+        pool,
+        attachments,
+        project_id,
+        release,
+        "srcbundle",
+        None,
+        strict,
+    )
+    .await?
+    .and_then(|b| SrcBundle::parse(&b));
 
     let mut resolved = 0usize;
     match platform {
         "android" => {
-            let Some(mapping) =
-                artifact_bytes(pool, attachments, project_id, release, "proguard", None)
-                    .await
-                    .and_then(|b| ParsedMapping::parse(b).ok())
-            else {
-                return 0;
+            let Some(mapping) = artifact_bytes(
+                pool,
+                attachments,
+                project_id,
+                release,
+                "proguard",
+                None,
+                strict,
+            )
+            .await?
+            .and_then(|b| ParsedMapping::parse(b).ok()) else {
+                return Ok(0);
             };
             for frame in stack.iter_mut() {
                 if rewrite_android(&mapping, frame) {
@@ -141,10 +197,17 @@ pub async fn symbolicate_native(
                     continue;
                 };
                 if !modules.contains_key(&uuid) {
-                    let m =
-                        artifact_bytes(pool, attachments, project_id, release, "dsym", Some(&uuid))
-                            .await
-                            .and_then(|b| DwarfModule::from_bytes(b).ok().map(Arc::new));
+                    let m = artifact_bytes(
+                        pool,
+                        attachments,
+                        project_id,
+                        release,
+                        "dsym",
+                        Some(&uuid),
+                        strict,
+                    )
+                    .await?
+                    .and_then(|b| DwarfModule::from_bytes(b).ok().map(Arc::new));
                     modules.insert(uuid.clone(), m);
                 }
                 if let Some(Some(module)) = modules.get(&uuid)
@@ -157,7 +220,7 @@ pub async fn symbolicate_native(
         }
         _ => {}
     }
-    resolved
+    Ok(resolved)
 }
 
 /// `"a.b.C.method"` → deobfuscated frame via the R8 mapping.
@@ -290,7 +353,8 @@ async fn artifact_bytes(
     release: &str,
     kind: &str,
     name_uuid: Option<&str>,
-) -> Option<Vec<u8>> {
+    strict: bool,
+) -> anyhow::Result<Option<Vec<u8>>> {
     use sqlx::Row;
     let rows = sqlx::query(
         "SELECT a.name, a.content_hash \
@@ -303,8 +367,12 @@ async fn artifact_bytes(
     .bind(release)
     .bind(kind)
     .fetch_all(pool)
-    .await
-    .ok()?;
+    .await;
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(error) if strict => return Err(error.into()),
+        Err(_) => return Ok(None),
+    };
     let hash_hex = rows.iter().find_map(|r| {
         let name: String = r.get("name");
         match name_uuid {
@@ -313,9 +381,20 @@ async fn artifact_bytes(
                 .then(|| r.get::<String, _>("content_hash")),
             None => Some(r.get::<String, _>("content_hash")),
         }
-    })?;
-    let hash = hash_hex.parse().ok()?;
-    attachments.get(&hash).await.ok()
+    });
+    let Some(hash_hex) = hash_hex else {
+        return Ok(None);
+    };
+    let hash = match hash_hex.parse() {
+        Ok(hash) => hash,
+        Err(_) if strict => anyhow::bail!("invalid artifact hash"),
+        Err(_) => return Ok(None),
+    };
+    match attachments.get(&hash).await {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if strict => Err(error.into()),
+        Err(_) => Ok(None),
+    }
 }
 
 #[cfg(test)]

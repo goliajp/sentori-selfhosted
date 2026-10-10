@@ -25,7 +25,7 @@ use crate::session_mw::SessionContext;
 use crate::state::AppState;
 
 /// The statuses an issue can be filtered by.
-const STATUSES: [&str; 3] = ["open", "resolved", "ignored"];
+const STATUSES: [&str; 4] = ["open", "resolved", "ignored", "all"];
 
 #[derive(Deserialize)]
 pub struct ListQuery {
@@ -37,6 +37,15 @@ pub struct ListQuery {
     pub project_id: Option<Uuid>,
     #[serde(default)]
     pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
+    /// Literal, case-insensitive substring of title, sample or issue ID.
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub group: Option<String>,
     /// Deployment-environment filter: only issues with at least one
     /// event in this environment (issues aggregate across
     /// environments; the queue slices them).
@@ -113,6 +122,128 @@ async fn visible_projects(
     Ok(Some(rows.into_iter().map(|(p,)| p).collect()))
 }
 
+struct ListWindow<'a> {
+    limit: i64,
+    offset: i64,
+    status: &'a str,
+    sort: &'a str,
+    group: &'a str,
+}
+
+fn list_window(q: &ListQuery) -> Result<ListWindow<'_>, (StatusCode, Json<Value>)> {
+    // `clamp(1, 500)` turned `limit=0` into one row, so a caller
+    // paging with a computed limit that reached zero got a phantom
+    // record instead of an empty page. Zero means zero; a negative
+    // limit is a caller bug and says so.
+    let limit = match q.limit {
+        Some(n) if n < 0 => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "invalid_limit", "detail": "limit must not be negative" })),
+            ));
+        }
+        Some(n) => n.min(500),
+        None => 100,
+    };
+    let offset = q.offset.unwrap_or(0);
+    let sort = q.sort.as_deref().unwrap_or("impact");
+    let group = q.group.as_deref().unwrap_or("all");
+    for (invalid, field) in [
+        (offset < 0, "offset"),
+        (!["impact", "newest"].contains(&sort), "sort"),
+        (
+            !["all", "open", "regressed", "fresh"].contains(&group),
+            "group",
+        ),
+        (
+            q.q.as_ref().is_some_and(|text| text.chars().count() > 200),
+            "q",
+        ),
+    ] {
+        if invalid {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": format!("invalid_{field}"), "field": field,
+                })),
+            ));
+        }
+    }
+    // Keep the existing default for API clients; the dashboard can request all.
+    let status = q.status.as_deref().unwrap_or("open");
+    if !STATUSES.contains(&status) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "invalid_status",
+                "detail": format!("status must be one of {}", STATUSES.join(", ")),
+                "field": "status",
+            })),
+        ));
+    }
+    if let Some(k) = q.kind.as_deref()
+        && !["error", "warn", "trace", "assert", "probe"].contains(&k)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "invalid_kind",
+                "detail": "kind must be one of error, warn, trace, assert, probe",
+                "field": "kind",
+            })),
+        ));
+    }
+    Ok(ListWindow {
+        limit,
+        offset,
+        status,
+        sort,
+        group,
+    })
+}
+
+const ISSUE_LIST_SQL: &str = "WITH filtered AS MATERIALIZED (
+           SELECT * FROM issues
+           WHERE ($1 = 'all' OR status = $1)
+             AND ($2::uuid IS NULL OR project_id = $2)
+             AND ($3::text IS NULL OR kind = $3)
+             AND ($4::uuid[] IS NULL OR project_id = ANY($4))
+             AND ($6::text IS NULL OR environment = $6
+                  OR (environment IS NULL AND EXISTS (
+                    SELECT 1 FROM events e WHERE e.issue_id = issues.id AND e.environment = $6)))
+             AND ($7::text IS NULL OR $8::text IS NULL OR EXISTS (
+                    SELECT 1 FROM events e WHERE e.issue_id = issues.id
+                      AND e.payload->'context'->>$7 = $8))
+             AND ($9::text IS NULL OR EXISTS (
+                    SELECT 1 FROM events e WHERE e.issue_id = issues.id AND e.release = $9))
+             AND ($10::text IS NULL OR strpos(lower(group_title), lower($10)) > 0
+                  OR strpos(lower(message_sample), lower($10)) > 0
+                  OR strpos(id::text, lower($10)) > 0)
+             AND ($12 = 'all' OR ($12 = 'open' AND status = 'open')
+                  OR ($12 = 'regressed' AND status = 'open' AND regressed_at IS NOT NULL)
+                  OR ($12 = 'fresh' AND first_seen > now() - interval '24 hours'))
+         )
+         SELECT page.*, totals.total, totals.events, totals.open_count, totals.regressed_count,
+                totals.release_count,
+                (SELECT max(received_at) FROM events e WHERE e.issue_id = page.id) AS last_received_at
+         FROM (SELECT count(*) AS total, COALESCE(sum(event_count), 0)::bigint AS events,
+                      count(*) FILTER (WHERE status = 'open') AS open_count,
+                      count(*) FILTER (WHERE status = 'open' AND regressed_at IS NOT NULL) AS regressed_count,
+                      count(DISTINCT last_release) FILTER (WHERE last_release <> '') AS release_count
+               FROM filtered) totals
+         LEFT JOIN LATERAL (
+           SELECT * FROM filtered
+           ORDER BY CASE WHEN $11 = 'impact' THEN (regressed_at IS NOT NULL AND status = 'open') END DESC,
+                    CASE WHEN $11 = 'impact' THEN users_count END DESC,
+                    CASE WHEN $11 = 'impact' THEN max_per_user END DESC,
+                    last_seen DESC, id DESC
+           LIMIT $5 OFFSET $13
+         ) page ON true
+         ORDER BY CASE WHEN $11 = 'impact' THEN (page.regressed_at IS NOT NULL AND page.status = 'open') END DESC,
+                  CASE WHEN $11 = 'impact' THEN page.users_count END DESC,
+                  CASE WHEN $11 = 'impact' THEN page.max_per_user END DESC,
+                  page.last_seen DESC, page.id DESC";
+
 /// Inbox list. Regressed floats above everything, then objective
 /// importance (breadth desc, depth desc), then recency.
 pub async fn list(
@@ -130,86 +261,63 @@ pub async fn list(
             );
         }
     };
-    // `clamp(1, 500)` turned `limit=0` into one row, so a caller
-    // paging with a computed limit that reached zero got a phantom
-    // record instead of an empty page. Zero means zero; a negative
-    // limit is a caller bug and says so.
-    let limit = match q.limit {
-        Some(n) if n < 0 => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "invalid_limit", "detail": "limit must not be negative" })),
-            );
-        }
-        Some(n) => n.min(500),
-        None => 100,
+    let ListWindow {
+        limit,
+        offset,
+        status,
+        sort,
+        group,
+    } = match list_window(&q) {
+        Ok(window) => window,
+        Err(error) => return error,
     };
-    // An unrecognised status returned an empty list at 200, and
-    // `status=all` — the obvious guess for "show me everything" — was
-    // indistinguishable from a project with nothing in it.
-    let status = q.status.unwrap_or_else(|| "open".to_string());
-    if !STATUSES.contains(&status.as_str()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": "invalid_status",
-                "detail": format!("status must be one of {}", STATUSES.join(", ")),
-                "field": "status",
-            })),
-        );
-    }
-    if let Some(k) = q.kind.as_deref()
-        && !["error", "warn", "trace", "assert", "probe"].contains(&k)
-    {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": "invalid_kind",
-                "detail": "kind must be one of error, warn, trace, assert, probe",
-                "field": "kind",
-            })),
-        );
-    }
-    let rows = sqlx::query(
-        "SELECT *, \
-                (SELECT max(received_at) FROM events e WHERE e.issue_id = issues.id) \
-                  AS last_received_at \
-         FROM issues \
-         WHERE status = $1 \
-           AND ($2::uuid IS NULL OR project_id = $2) \
-           AND ($3::text IS NULL OR kind = $3) \
-           AND ($4::uuid[] IS NULL OR project_id = ANY($4)) \
-           AND ($6::text IS NULL \
-                OR environment = $6 \
-                OR (environment IS NULL AND EXISTS ( \
-                      SELECT 1 FROM events e \
-                      WHERE e.issue_id = issues.id AND e.environment = $6))) \
-           AND ($7::text IS NULL OR $8::text IS NULL OR EXISTS ( \
-                 SELECT 1 FROM events e \
-                 WHERE e.issue_id = issues.id \
-                   AND e.payload->'context'->>$7 = $8)) \
-           AND ($9::text IS NULL OR EXISTS ( \
-                 SELECT 1 FROM events e \
-                 WHERE e.issue_id = issues.id AND e.release = $9)) \
-         ORDER BY (regressed_at IS NOT NULL AND status = 'open') DESC, \
-                  users_count DESC, max_per_user DESC, last_seen DESC \
-         LIMIT $5",
-    )
-    .bind(&status)
-    .bind(q.project_id)
-    .bind(q.kind.as_deref())
-    .bind(scope.as_deref())
-    .bind(limit)
-    .bind(q.environment.as_deref())
-    .bind(q.context_key.as_deref())
-    .bind(q.context_value.as_deref())
-    .bind(q.release.as_deref())
-    .fetch_all(&state.pool)
-    .await;
+    // Materialize one authorized/filter snapshot for both the count and page.
+    // The left join preserves totals for empty pages, including limit=0. Only
+    // page rows compute the receipt clock. UUID is the stable ordering tie-break.
+    let rows = sqlx::query(ISSUE_LIST_SQL)
+        .bind(status)
+        .bind(q.project_id)
+        .bind(q.kind.as_deref())
+        .bind(scope.as_deref())
+        .bind(limit)
+        .bind(q.environment.as_deref())
+        .bind(q.context_key.as_deref())
+        .bind(q.context_value.as_deref())
+        .bind(q.release.as_deref())
+        .bind(
+            q.q.as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty()),
+        )
+        .bind(sort)
+        .bind(group)
+        .bind(offset)
+        .fetch_all(&state.pool)
+        .await;
     match rows {
         Ok(rows) => {
-            let out: Vec<Value> = rows.iter().map(issue_row_json).collect();
-            (StatusCode::OK, Json(json!({ "issues": out })))
+            let total = rows.first().map_or(0, |row| row.get::<i64, _>("total"));
+            let out: Vec<Value> = rows
+                .iter()
+                .filter(|row| row.get::<Option<Uuid>, _>("id").is_some())
+                .map(issue_row_json)
+                .collect();
+            let next = offset.saturating_add(i64::try_from(out.len()).unwrap_or(i64::MAX));
+            let summary = rows.first().map(|row| {
+                json!({
+                    "events": row.get::<i64, _>("events"),
+                    "open": row.get::<i64, _>("open_count"),
+                    "regressed": row.get::<i64, _>("regressed_count"),
+                    "releases": row.get::<i64, _>("release_count"),
+                })
+            });
+            (
+                StatusCode::OK,
+                Json(json!({ "issues": out, "total": total,
+                    "limit": limit, "offset": offset, "summary": summary,
+                    "nextOffset": if limit > 0 && next < total { Some(next) } else { None },
+                })),
+            )
         }
         Err(e) => {
             warn!(error = %e, "issue list failed");
@@ -267,12 +375,15 @@ pub async fn get(
             let activity = sqlx::query(
                 "SELECT a.id, a.at, a.kind, a.body, a.actor_user_id, u.email AS actor_email \
                  FROM issue_activity a LEFT JOIN users u ON u.id = a.actor_user_id \
-                 WHERE a.issue_id = $1 ORDER BY a.at DESC LIMIT 100",
+                 WHERE a.issue_id = $1 ORDER BY a.at DESC, a.id DESC LIMIT 100",
             )
             .bind(issue_id)
             .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default();
+            .await;
+            let activity = match activity {
+                Ok(rows) => rows,
+                Err(error) => return internal(&error),
+            };
             let acts: Vec<Value> = activity
                 .iter()
                 .map(|a| {
@@ -299,8 +410,11 @@ pub async fn get(
             )
             .bind(issue_id)
             .fetch_all(&state.pool)
-            .await
-            .unwrap_or_default();
+            .await;
+            let releases = match releases {
+                Ok(rows) => rows,
+                Err(error) => return internal(&error),
+            };
             let rels: Vec<Value> = releases
                 .iter()
                 .map(|r| {
@@ -312,7 +426,21 @@ pub async fn get(
                     })
                 })
                 .collect();
+            let assignees = sqlx::query(
+                "SELECT id, email, display_name FROM users u WHERE role = 'superadmin'
+                 OR EXISTS (SELECT 1 FROM project_assignments pa WHERE pa.user_id = u.id AND pa.project_id = $1)
+                 ORDER BY lower(email), id",
+            ).bind(row.get::<Uuid, _>("project_id")).fetch_all(&state.pool).await;
+            let assignees = match assignees {
+                Ok(rows) => rows,
+                Err(error) => return internal(&error),
+            };
             let mut body = issue_row_json(&row);
+            body["assignees"] =
+                json!(assignees.iter().map(|user| json!({
+                "id": user.get::<Uuid, _>("id"), "email": user.get::<String, _>("email"),
+                "displayName": user.get::<Option<String>, _>("display_name"),
+            })).collect::<Vec<_>>());
             body["activity"] = Value::Array(acts);
             body["releases"] = Value::Array(rels);
             (StatusCode::OK, Json(body))
@@ -339,49 +467,49 @@ pub async fn resolve(
     if let Err(e) = load_issue(&state, &ctx, issue_id).await {
         return e;
     }
-    // The predicate makes the write a no-op when nothing would change,
-    // and `rows_affected` then says whether it was one. Thirty
-    // concurrent status calls used to leave thirty activity rows for
-    // what an operator experienced as a handful of decisions — the
-    // history of an issue is the thing this panel is for, and it read
-    // as noise. Two people resolving at once is still two facts; the
-    // same person's retry is not.
-    //
-    // Re-resolving into a *different* release is a real change and
-    // still records.
-    let r = sqlx::query(
-        "UPDATE issues SET status = 'resolved', resolved_at = now(), \
-         resolved_in_release = $2, regressed_at = NULL, regressed_in_release = NULL \
-         WHERE id = $1 \
-           AND (status <> 'resolved' OR resolved_in_release IS DISTINCT FROM $2)",
+    if body
+        .release
+        .as_ref()
+        .is_some_and(|value| value.chars().count() > 200)
+        || body
+            .note
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > 10000)
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid_resolution"})),
+        );
+    }
+    let release = body
+        .release
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    // One statement commits the decision and its evidence together. Retrying
+    // an identical decision is a no-op; an explicit note is still a new fact.
+    let result = sqlx::query(
+        "WITH changed AS (
+           UPDATE issues SET status = 'resolved', resolved_at = now(),
+             resolved_in_release = $2, regressed_at = NULL, regressed_in_release = NULL
+           WHERE id = $1 AND (status <> 'resolved' OR resolved_in_release IS DISTINCT FROM $2)
+           RETURNING id
+         ) INSERT INTO issue_activity (id, issue_id, actor_user_id, kind, body)
+           SELECT $3, $1, $4, 'status', $5
+           WHERE EXISTS (SELECT 1 FROM changed) OR $6::text IS NOT NULL",
     )
     .bind(issue_id)
-    .bind(body.release.as_deref())
+    .bind(release)
+    .bind(Uuid::now_v7())
+    .bind(ctx.user_id)
+    .bind(json!({"to": "resolved", "inRelease": release, "note": body.note}))
+    .bind(body.note.as_deref())
     .execute(&state.pool)
     .await;
-    let changed = match r {
-        Ok(res) => res.rows_affected() > 0,
-        Err(e) => {
-            warn!(error = %e, "resolve failed");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal" })),
-            );
-        }
-    };
-    // A note is somebody typing something; record it even when the
-    // status was already what they asked for.
-    if changed || body.note.is_some() {
-        record_activity(
-            &state,
-            issue_id,
-            Some(ctx.user_id),
-            "status",
-            json!({ "to": "resolved", "inRelease": body.release, "note": body.note }),
-        )
-        .await;
+    match result {
+        Ok(_) => (StatusCode::OK, Json(json!({"ok": true}))),
+        Err(error) => internal(&error),
     }
-    (StatusCode::OK, Json(json!({ "ok": true })))
 }
 
 pub async fn ignore(
@@ -409,34 +537,23 @@ async fn set_status(
     if let Err(e) = load_issue(state, ctx, issue_id).await {
         return e;
     }
-    // See `resolve`: the predicate decides, so a repeat is a no-op and
-    // leaves no row behind it.
-    let r = sqlx::query("UPDATE issues SET status = $2 WHERE id = $1 AND status <> $2")
-        .bind(issue_id)
-        .bind(to)
-        .execute(&state.pool)
-        .await;
-    let changed = match r {
-        Ok(res) => res.rows_affected() > 0,
-        Err(e) => {
-            warn!(error = %e, "status change failed");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal" })),
-            );
-        }
-    };
-    if changed {
-        record_activity(
-            state,
-            issue_id,
-            Some(ctx.user_id),
-            "status",
-            json!({ "to": to }),
-        )
-        .await;
+    let result = sqlx::query(
+        "WITH changed AS (
+           UPDATE issues SET status = $2 WHERE id = $1 AND status <> $2 RETURNING id
+         ) INSERT INTO issue_activity (id, issue_id, actor_user_id, kind, body)
+           SELECT $3, id, $4, 'status', $5 FROM changed",
+    )
+    .bind(issue_id)
+    .bind(to)
+    .bind(Uuid::now_v7())
+    .bind(ctx.user_id)
+    .bind(json!({"to": to}))
+    .execute(&state.pool)
+    .await;
+    match result {
+        Ok(_) => (StatusCode::OK, Json(json!({"ok": true}))),
+        Err(error) => internal(&error),
     }
-    (StatusCode::OK, Json(json!({ "ok": true })))
 }
 
 #[derive(Deserialize)]
@@ -454,27 +571,28 @@ pub async fn assign(
     if let Err(e) = load_issue(&state, &ctx, issue_id).await {
         return e;
     }
-    let r = sqlx::query("UPDATE issues SET assignee_user_id = $2 WHERE id = $1")
-        .bind(issue_id)
-        .bind(body.user_id)
-        .execute(&state.pool)
-        .await;
-    if let Err(e) = r {
-        warn!(error = %e, "assign failed");
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "internal" })),
-        );
+    let result = sqlx::query_scalar::<_, bool>(
+        "WITH eligible AS (
+           SELECT id FROM issues i WHERE id = $1 AND ($2::uuid IS NULL OR EXISTS (
+             SELECT 1 FROM users u WHERE u.id = $2 AND (u.role = 'superadmin' OR EXISTS (
+               SELECT 1 FROM project_assignments pa WHERE pa.user_id = u.id AND pa.project_id = i.project_id))))
+         ), changed AS (
+           UPDATE issues SET assignee_user_id = $2 WHERE id IN (SELECT id FROM eligible)
+             AND assignee_user_id IS DISTINCT FROM $2 RETURNING id
+         ), recorded AS (
+           INSERT INTO issue_activity (id, issue_id, actor_user_id, kind, body)
+           SELECT $3, id, $4, 'assign', $5 FROM changed
+         ) SELECT EXISTS(SELECT 1 FROM eligible)",
+    ).bind(issue_id).bind(body.user_id).bind(Uuid::now_v7()).bind(ctx.user_id)
+     .bind(json!({"assignee": body.user_id})).fetch_one(&state.pool).await;
+    match result {
+        Ok(true) => (StatusCode::OK, Json(json!({"ok": true}))),
+        Ok(false) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid_assignee"})),
+        ),
+        Err(error) => internal(&error),
     }
-    record_activity(
-        &state,
-        issue_id,
-        Some(ctx.user_id),
-        "assign",
-        json!({ "assignee": body.user_id }),
-    )
-    .await;
-    (StatusCode::OK, Json(json!({ "ok": true })))
 }
 
 #[derive(Deserialize)]
@@ -491,15 +609,36 @@ pub async fn add_note(
     if let Err(e) = load_issue(&state, &ctx, issue_id).await {
         return e;
     }
-    record_activity(
-        &state,
-        issue_id,
-        Some(ctx.user_id),
-        "note",
-        json!({ "text": body.body }),
+    if body.body.trim().is_empty() || body.body.chars().count() > 10000 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid_note"})),
+        );
+    }
+    let result = sqlx::query(
+        "INSERT INTO issue_activity (id, issue_id, actor_user_id, kind, body) VALUES ($1,$2,$3,'note',$4)",
+    ).bind(Uuid::now_v7()).bind(issue_id).bind(ctx.user_id)
+     .bind(json!({"text": body.body})).execute(&state.pool).await;
+    match result {
+        Ok(_) => (StatusCode::CREATED, Json(json!({"ok": true}))),
+        Err(error) => internal(&error),
+    }
+}
+
+fn internal(error: &sqlx::Error) -> (StatusCode, Json<Value>) {
+    warn!(%error, "issue operation failed");
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({"error": "internal"})),
     )
-    .await;
-    (StatusCode::CREATED, Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct OccurrencesQuery {
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
 }
 
 /// Occurrences of one issue — events only exist inside an issue
@@ -508,31 +647,43 @@ pub async fn occurrences(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Path(issue_id): Path<Uuid>,
+    Query(q): Query<OccurrencesQuery>,
 ) -> (StatusCode, Json<Value>) {
     if let Err(e) = load_issue(&state, &ctx, issue_id).await {
         return e;
+    }
+    let limit = q.limit.unwrap_or(100).min(500);
+    let offset = q.offset.unwrap_or(0);
+    if limit < 0 || offset < 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "invalid_pagination"})),
+        );
     }
     // `screens_ref` rides each row so the dashboard can fall back to
     // the newest occurrence that HAS a visual replay — the newest
     // event alone may come from an older SDK that captured nothing,
     // and a replay from an hour ago beats no replay at all.
     let rows = sqlx::query(
-        "SELECT e.id, e.kind, e.platform, e.occurred_at, e.received_at, \
-                e.release, e.environment, e.user_key, sc.ref AS screens_ref \
-         FROM events e \
-         LEFT JOIN LATERAL ( \
-             SELECT a.ref FROM event_attachments a \
-             WHERE a.event_id = e.id AND a.project_id = e.project_id \
-               AND a.kind = 'screens' LIMIT 1 \
-         ) sc ON TRUE \
-         WHERE e.issue_id = $1 ORDER BY e.received_at DESC LIMIT 100",
-    )
-    .bind(issue_id)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+        "SELECT page.*, totals.total, sc.ref AS screens_ref
+         FROM (SELECT count(*) AS total FROM events WHERE issue_id = $1) totals
+         LEFT JOIN LATERAL (
+           SELECT id, project_id, kind, platform, occurred_at, received_at, release, environment, user_key
+           FROM events WHERE issue_id = $1 ORDER BY received_at DESC, id DESC LIMIT $2 OFFSET $3
+         ) page ON true
+         LEFT JOIN LATERAL (
+           SELECT a.ref FROM event_attachments a WHERE a.event_id = page.id AND a.project_id = page.project_id
+             AND a.kind = 'screens' ORDER BY a.ref LIMIT 1
+         ) sc ON true ORDER BY page.received_at DESC, page.id DESC",
+    ).bind(issue_id).bind(limit).bind(offset).fetch_all(&state.pool).await;
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(error) => return internal(&error),
+    };
+    let total = rows.first().map_or(0, |row| row.get::<i64, _>("total"));
     let out: Vec<Value> = rows
         .iter()
+        .filter(|row| row.get::<Option<Uuid>, _>("id").is_some())
         .map(|r| {
             json!({
                 "id": r.get::<Uuid, _>("id"),
@@ -547,7 +698,15 @@ pub async fn occurrences(
             })
         })
         .collect();
-    (StatusCode::OK, Json(json!({ "events": out })))
+    let next = offset.saturating_add(i64::try_from(out.len()).unwrap_or(i64::MAX));
+    (
+        StatusCode::OK,
+        Json(
+            json!({ "events": out, "total": total, "limit": limit, "offset": offset,
+                "nextOffset": if limit > 0 && next < total { Some(next) } else { None },
+            }),
+        ),
+    )
 }
 
 pub async fn record_activity(

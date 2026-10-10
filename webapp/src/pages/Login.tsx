@@ -1,18 +1,20 @@
-// Sign-in — the only public entrance. No self-signup, no OAuth;
-// accounts come from the owner or the env bootstrap.
+import { AuthenticationMode } from '../components/AuthenticationMode';
+import { AuthShell } from '../components/AuthShell';
+import { Button } from '../../shared/design/controls';
+// Authentication mode is supplied by this instance.
 
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { AuthShell, Field, Input } from '../components/ui';
+import { Field, Input } from '../components/ui';
 import { useT } from '../i18n';
 import { api } from '../lib/api';
 
 export function LoginPage() {
   const t = useT();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(__LOCAL_DEV_LOGIN__?.email ?? '');
+  const [password, setPassword] = useState(__LOCAL_DEV_LOGIN__?.password ?? '');
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -24,7 +26,7 @@ export function LoginPage() {
       await api.login(email, password);
       const returnTo = sessionStorage.getItem('sentori_return_to');
       sessionStorage.removeItem('sentori_return_to');
-      navigate(returnTo && returnTo.startsWith('/') ? returnTo : '/');
+      navigate(returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes('\\') ? returnTo : '/');
     } catch {
       setFailed(true);
     } finally {
@@ -33,8 +35,8 @@ export function LoginPage() {
   };
 
   return (
-    <AuthShell>
-      <form onSubmit={submit} className="space-y-3">
+    <AuthShell><AuthenticationMode>
+      <form onSubmit={submit} className="auth-form">
         <h1 className="text-lg font-semibold">{t('auth.signInTitle')}</h1>
         <Field label={t('auth.email')}>
           <Input
@@ -55,22 +57,25 @@ export function LoginPage() {
           />
         </Field>
 
-        {failed && <p className="text-xs text-kind-error">{t('auth.signInFailed')}</p>}
+        {failed && <p role="alert" className="text-xs text-kind-error">{t('auth.signInFailed')}</p>}
 
-        <button
+        <Button size="large" variant="primary"
           type="submit"
           disabled={loading}
-          className="h-8 w-full rounded-md bg-accent text-sm font-medium text-accent-fg transition hover:opacity-90 disabled:opacity-40"
+          busy={loading}
         >
           {loading ? t('auth.signingIn') : t('auth.signIn')}
-        </button>
+        </Button>
 
         <p className="pt-1 text-center text-xs text-fg-subtle">
           <Link to="/forgot-password" className="hover:text-fg-muted">
             {t('auth.forgot')}
           </Link>
         </p>
+        <p className="border-t border-border pt-4 text-center text-sm text-fg-muted">
+          <Link to="/welcome" className="hover:text-fg">{t('site.discover')}</Link>
+        </p>
       </form>
-    </AuthShell>
+    </AuthenticationMode></AuthShell>
   );
 }

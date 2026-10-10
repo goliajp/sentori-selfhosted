@@ -7,6 +7,7 @@ pub mod count;
 pub mod expo_receipt;
 pub mod expo_send;
 pub mod get_preferences;
+pub mod legacy;
 pub mod put_preference;
 pub mod receipt;
 pub mod register_token;

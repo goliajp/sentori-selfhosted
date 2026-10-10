@@ -159,6 +159,10 @@ public final class SentoriTransport: NSObject {
         if idle { scheduleFlush(after: flushInterval * 6) }
     }
 
+    static func background(_ block: @escaping () -> Void) {
+        worker.async(execute: block)
+    }
+
     @objc public static func start() {
         lock.lock()
         started = true
@@ -192,21 +196,17 @@ public final class SentoriTransport: NSObject {
         timer = nil
         lock.unlock()
 
-        // Symbolication happens here, on the worker, and never on the
-        // thread a verb was called from: resolving forty frames is
-        // sub-millisecond on an idle device and several milliseconds
-        // on a busy one, and a busy device is when errors happen.
-        let resolved = events.map { SentoriStack.resolvePending(in: $0) }
-
-        var envelope: [String: Any] = ["events": resolved]
-        if !stats.isEmpty { envelope["assertStats"] = stats }
-        if let health = config.backendHealthUrl { envelope["backendHealthUrl"] = health }
-        // Say so rather than let the gap look like quiet. A backlog
-        // that overflowed is a fact about the device, and hiding it
-        // makes the next person read a hole in the timeline as calm.
-        if lost > 0 { envelope["droppedEvents"] = lost }
-
         worker.async {
+            // flush() is also called from host lifecycle callbacks. Both
+            // timestamp formatting and stack resolution must be inside this
+            // worker block, not on the caller before it is scheduled.
+            let resolved = events.map {
+                SentoriStack.resolvePending(in: Sentori.prepareEvent($0))
+            }
+            var envelope: [String: Any] = ["events": resolved]
+            if !stats.isEmpty { envelope["assertStats"] = stats }
+            if let health = config.backendHealthUrl { envelope["backendHealthUrl"] = health }
+            if lost > 0 { envelope["droppedEvents"] = lost }
             switch sendWithRetry(envelope, config: config) {
             case .delivered:
                 lock.lock()
@@ -506,8 +506,9 @@ public final class SentoriTransport: NSObject {
 
     static func __peekQueue() -> [[String: Any]] {
         lock.lock()
-        defer { lock.unlock() }
-        return queue
+        let captured = queue
+        lock.unlock()
+        return captured.map { Sentori.prepareEvent($0) }
     }
 
     static func __peekAssertStats() -> [[String: Any]] {

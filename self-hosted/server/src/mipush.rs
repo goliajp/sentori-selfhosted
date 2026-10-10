@@ -31,6 +31,7 @@ pub async fn send(
     body_text: &str,
 ) -> Result<u16, MiPushError> {
     let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(15))
         .build()?;
     let mut form = vec![
@@ -50,7 +51,7 @@ pub async fn send(
         .send()
         .await?;
     let status = resp.status().as_u16();
-    if (200..400).contains(&status) {
+    if (200..300).contains(&status) {
         return Ok(status);
     }
     let body = resp.text().await.unwrap_or_default();

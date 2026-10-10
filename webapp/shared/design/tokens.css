@@ -1,0 +1,248 @@
+/* Foundation tokens, theme, density and responsive policy. Components consume these. */
+:root {
+  scrollbar-gutter: stable;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
+    "Yu Gothic UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  color-scheme: light;
+  --ui-scrim: #00000066;
+  --ui-shadow: #00000033;
+  --font-code: Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --ui-code-background: #f6f7f9;
+  --ui-code-foreground: #303947;
+  --ui-code-keyword: #7148b8;
+  --ui-code-string: #176b50;
+  --ui-code-number: #89570e;
+  --ui-code-function: #075d9b;
+  --ui-code-type: #315fa0;
+  --ui-code-comment: #626c7b;
+  --ui-code-attribute: #006a78;
+  --ui-code-literal: #ab3759;
+  --ui-code-operator: #6a54a3;
+  --ui-code-border: #dde1e7;
+  --ui-code-toolbar: #edf0f4;
+  --ui-code-selection: #d9e7fd;
+
+  /* Neutral surfaces and interaction states; blue is reserved for actions. */
+  --ui-chrome: #eff1f4;
+  --ui-overlay: #ffffff;
+  --ui-border: #c6ccd5;
+  --ui-icon: #707b8b;
+  --ui-hover: #edf0f4;
+  --ui-selected: #dfe5ed;
+  --ui-selected-hover: #dce2eb;
+  --ui-selected-ink: #202733;
+  --ui-canvas: #f5f6f8;
+  --ui-surface: #ffffff;
+  --ui-raised: #e9ecf0;
+  --ui-ink: #202733;
+  --ui-secondary: #454f5e;
+  --ui-muted: #596372;
+  --ui-line: #dde1e7;
+  --ui-control: #7a8391;
+  --ui-action: #115bce;
+  --ui-action-hover: #084aaf;
+  --ui-on-action: #ffffff;
+  --ui-tint: #eaf2ff;
+  --ui-focus: #115bce;
+  --ui-success: #14745a;
+  --ui-success-bg: #eaf7f0;
+  --ui-warning: #885706;
+  --ui-warning-bg: #fff5db;
+  --ui-danger: #b83645;
+  --ui-danger-bg: #fff0f2;
+  --ui-info: #1d60b1;
+  --ui-info-bg: #edf5ff;
+  --ui-brand: #1576ff;
+  --ui-chart-1: #2864d9;
+  --ui-chart-2: #08747b;
+  --ui-chart-3: #8355ce;
+  --ui-chart-4: #c17913;
+  --ui-chart-5: #c24574;
+  --ui-chart-6: #4c7d3a;
+  --ui-chart-7: #5265a2;
+  --ui-chart-8: #b95a35;
+
+  /* One 4 px scale, independent of the 14 px text size. */
+  --radius-small: 2px;
+  --radius-control: 4px;
+  --radius-panel: 6px;
+  --radius-overlay: 8px;
+  --space-unit: 4px;
+  --space-0: 0px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-page-inline: var(--space-8);
+  --space-page-block: var(--space-8);
+  --space-panel: var(--space-6);
+  --space-dialog: var(--space-6);
+  --space-section: var(--space-8);
+  --space-group: var(--space-4);
+  --space-related: var(--space-2);
+  --space-note: var(--space-3);
+  --control-height: 40px;
+  --control-height-small: 32px;
+  --header-height: 64px;
+  --header-control-height: 36px;
+  --content-width-default: 1540px;
+  --content-width-public: clamp(1180px, 88vw, 1760px);
+  --content-width-reading: 1440px;
+  --document-title-size: 28px;
+  --document-title-line: 36px;
+  --document-body-size: 14px;
+  --document-body-line: 24px;
+  --panel-inset-inline: var(--space-panel);
+  --panel-bar-inset: var(--space-4);
+  --panel-content-inset: var(--space-panel);
+  --panel-title-size: 16px;
+  --panel-title-line: 24px;
+  --surface-bar-padding: var(--space-2);
+  --surface-bar-height: calc(
+    var(--control-height-small) + var(--surface-bar-padding) * 2 + 1px
+  );
+  --control-font-size: 14px;
+  --control-line-height: 20px;
+  --row-padding: 14px;
+  --motion-fast: 120ms;
+  --control-height-large: 48px;
+  --motion-panel: 180ms;
+  font-size: 14px;
+  line-height: 1.6;
+  background: var(--ui-canvas);
+  color: var(--ui-ink);
+}
+:root[data-theme="dark"] {
+  --ui-code-background: #15181d;
+  --ui-code-foreground: #d6dae1;
+  --ui-code-keyword: #c4a6f7;
+  --ui-code-string: #8bd4b1;
+  --ui-code-number: #edbd7c;
+  --ui-code-function: #8abaff;
+  --ui-code-type: #91c9e8;
+  --ui-code-comment: #a0a7b2;
+  --ui-code-attribute: #78c9d2;
+  --ui-code-literal: #ee9ab5;
+  --ui-code-operator: #b9c8e0;
+  --ui-code-border: #30353f;
+  --ui-code-toolbar: #20242b;
+  --ui-code-selection: #303f55;
+  color-scheme: dark;
+  /* Neutral surfaces and interaction states; blue is reserved for actions. */
+  --ui-chrome: #17191e;
+  --ui-overlay: #2c3039;
+  --ui-border: #464d59;
+  --ui-icon: #8c96a6;
+  --ui-hover: #272c34;
+  --ui-selected: #2e3541;
+  --ui-selected-hover: #343c49;
+  --ui-selected-ink: #f0f2f5;
+  --ui-canvas: #111317;
+  --ui-surface: #1c1f25;
+  --ui-raised: #252931;
+  --ui-ink: #e8ebf0;
+  --ui-secondary: #bec4ce;
+  --ui-muted: #a0a7b2;
+  --ui-line: #30353f;
+  --ui-control: #818998;
+  --ui-action: #8bb5ff;
+  --ui-action-hover: #b0cfff;
+  --ui-on-action: #111821;
+  --ui-tint: #242e3d;
+  --ui-focus: #8bb5ff;
+  --ui-success: #73d2ae;
+  --ui-success-bg: #172e25;
+  --ui-warning: #f1c26b;
+  --ui-warning-bg: #342c1c;
+  --ui-danger: #ff9baa;
+  --ui-danger-bg: #362126;
+  --ui-info: #98c5ff;
+  --ui-info-bg: #202c3d;
+  --ui-chart-1: #85afff;
+  --ui-chart-2: #59c8cd;
+  --ui-chart-3: #b89af7;
+  --ui-chart-4: #e9ba6a;
+  --ui-chart-5: #ec91b0;
+  --ui-chart-6: #9bc77d;
+  --ui-chart-7: #a1b0f2;
+  --ui-chart-8: #efac8b;
+}
+:root[data-density="compact"] {
+  --control-height: 34px;
+  --row-padding: 9px;
+}
+@theme inline {
+  --radius-sm: var(--radius-small);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-panel);
+  --radius-xl: var(--radius-overlay);
+  --radius-2xl: var(--radius-overlay);
+  --spacing: var(--space-unit);
+  --color-canvas: var(--ui-canvas);
+  --color-surface: var(--ui-surface);
+  --color-raised: var(--ui-raised);
+  --color-chrome: var(--ui-chrome);
+  --color-overlay: var(--ui-overlay);
+  --color-border: var(--ui-border);
+  --color-icon: var(--ui-icon);
+  --color-hover: var(--ui-hover);
+  --color-selected: var(--ui-selected);
+  --color-selected-hover: var(--ui-selected-hover);
+  --color-selected-ink: var(--ui-selected-ink);
+
+  --color-ink: var(--ui-ink);
+  --color-secondary: var(--ui-secondary);
+  --color-muted: var(--ui-muted);
+  --color-line: var(--ui-line);
+  --color-control: var(--ui-control);
+  --color-action: var(--ui-action);
+  --color-action-hover: var(--ui-action-hover);
+  --color-on-action: var(--ui-on-action);
+  --color-tint: var(--ui-tint);
+  --color-success: var(--ui-success);
+  --color-success-bg: var(--ui-success-bg);
+  --color-warning: var(--ui-warning);
+  --color-warning-bg: var(--ui-warning-bg);
+  --color-danger: var(--ui-danger);
+  --color-danger-bg: var(--ui-danger-bg);
+  --color-info: var(--ui-info);
+  --color-info-bg: var(--ui-info-bg);
+  --color-brand: var(--ui-brand);
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
+    "Yu Gothic UI", "Microsoft YaHei", sans-serif;
+  --font-mono: var(--font-code);
+}
+
+@media (max-width: 1199px) {
+  :root { --space-page-inline: var(--space-6); --space-page-block: var(--space-6); }
+}
+@media (max-width: 767px) {
+  :root { --header-control-height: 44px; --panel-bar-inset: var(--space-3); }
+}
+@media (max-width: 639px) {
+  :root {
+    --space-page-inline: var(--space-4);
+    --space-panel: var(--space-4);
+    --space-dialog: var(--space-5);
+    --space-section: var(--space-6);
+  }
+}
+@media (max-width: 639px) {
+  :root,
+  :root[data-density="compact"] {
+    --control-height: 44px;
+    --control-height-small: 44px;
+    --row-padding: 14px;
+  }
+}
+@media (max-width: 359px) {
+  :root { --space-dialog: var(--space-4); }
+}

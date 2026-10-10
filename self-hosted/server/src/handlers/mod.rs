@@ -18,7 +18,7 @@ use axum::extract::State;
 use axum::http::{HeaderName, Method, StatusCode, header};
 use axum::middleware as axum_middleware;
 use axum::response::IntoResponse;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post};
 use sentori_ingest_token::{TokenStore, bearer_middleware};
 use serde_json::json;
 
@@ -36,13 +36,28 @@ mod audit;
 mod auth;
 mod events;
 mod health;
+mod inbox;
+mod instance;
+mod instance_health;
+mod instance_operations;
+mod instance_reset;
+mod instance_upload;
 mod instruments;
+mod integrations;
 mod issues;
+mod jobs;
 mod metrics_prom;
+mod monitors;
 mod notify_admin;
+mod project_transfers;
 mod projects;
 mod sdk;
 mod sessions;
+mod system;
+mod task_signals;
+mod tasks;
+mod transfer_tail;
+mod transfer_upload;
 
 /// Refuse an IP that is hammering a credentialed auth endpoint.
 ///
@@ -153,6 +168,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     let token_store = TokenStore::new(state.pool.clone());
     let sdk_routes = Router::new()
         .route("/v1/events", post(sdk::events::handle))
+        .route("/v1/transfer-proof", post(transfer_tail::proof))
         .route("/v1/events:batch", post(sdk::events_batch::handle))
         .route(
             "/v1/events/{event_id}/attachments/{kind}",
@@ -183,6 +199,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         // and the spToken — and the thing being registered is a
         // device.
         .route("/v1/push/devices", post(sdk::push::register_token::handle))
+        .route("/v1/push/tokens", post(sdk::push::legacy::register))
+        .route(
+            "/v1/push/tokens/{handle}",
+            delete(sdk::push::legacy::revoke),
+        )
+        .route("/v1/push/send", post(sdk::push::legacy::send))
         .route(
             "/v1/push/devices/{sp_token}",
             delete(sdk::push::revoke_token::handle),
@@ -244,6 +266,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         // has to accept gzip before any SDK sends it, or the first
         // client to try talks to a fleet of servers that answer 400 —
         // so this lands first and on purpose.
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            crate::cloud_quota::admission,
+        ))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            crate::transfer_tail::admission,
+        ))
         .layer(RequestDecompressionLayer::new().gzip(true))
         // Order matters: the limiter runs *after* the bearer check, so
         // it has a token to key on and an unauthenticated flood is
@@ -268,6 +298,131 @@ pub fn router(state: Arc<AppState>) -> Router {
 
     // ── Dashboard + admin — cookie session ──
     let admin_routes = Router::new()
+        .route("/admin/api/cloud/usage", get(crate::cloud_quota::usage))
+        .route(
+            "/admin/api/projects/{project_id}/task-integration",
+            get(task_signals::get).put(task_signals::configure),
+        )
+        .route("/admin/api/system", get(system::get))
+        .route("/admin/api/projects/{project_id}/tasks", get(tasks::list))
+        .route(
+            "/admin/api/projects/{project_id}/tasks/commands",
+            post(tasks::command),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/tasks/{task_id}",
+            get(tasks::get),
+        )
+        .route("/admin/api/inbox", get(inbox::list))
+        .route(
+            "/admin/api/projects/{project_id}/integrations",
+            get(integrations::list),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/integrations/{kind}",
+            axum::routing::put(integrations::configure),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/integrations/{id}/send",
+            post(integrations::send),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/deliveries",
+            get(integrations::deliveries),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/deliveries/{id}/retry",
+            post(integrations::retry),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/monitors",
+            get(monitors::list),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/monitors/commands",
+            post(monitors::command),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/monitors/{monitor_id}/history",
+            get(monitors::history),
+        )
+        .route("/admin/api/inbox/read-all", post(inbox::read_all))
+        .route("/admin/api/inbox/{item_id}", patch(inbox::update))
+        .route(
+            "/admin/api/inbox-preferences",
+            get(inbox::preferences).put(inbox::save_preferences),
+        )
+        .route("/admin/api/projects/{project_id}/jobs", get(jobs::list))
+        .route(
+            "/admin/api/projects/{project_id}/jobs/{job_id}",
+            get(jobs::get),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/jobs/{job_id}/cancel",
+            post(jobs::cancel),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/releases/{release_id}/resymbolicate",
+            post(jobs::create),
+        )
+        .route(
+            "/admin/api/instance",
+            get(instance::get).patch(instance::update),
+        )
+        .route(
+            "/admin/api/instance/operations/verify",
+            post(instance_upload::verify_upload).layer(axum::extract::DefaultBodyLimit::max(
+                instance_upload::UPLOAD_LIMIT + 8192,
+            )),
+        )
+        .route(
+            "/admin/api/instance/operations",
+            get(instance_operations::list).post(instance_operations::create),
+        )
+        .route(
+            "/admin/api/instance/operations/{id}/cancel",
+            post(instance_operations::cancel),
+        )
+        .route(
+            "/admin/api/instance/operations/{id}/download",
+            get(instance_operations::download),
+        )
+        .route(
+            "/admin/api/transfers",
+            get(project_transfers::list).post(project_transfers::create),
+        )
+        .route(
+            "/admin/api/transfers/{id}/commands",
+            post(project_transfers::command),
+        )
+        .route(
+            "/admin/api/transfers/{id}/jobs/{job}/download",
+            get(project_transfers::download),
+        )
+        .route(
+            "/admin/api/transfers/{id}/upload",
+            post(transfer_upload::upload).layer(axum::extract::DefaultBodyLimit::max(
+                instance_upload::UPLOAD_LIMIT + 8192,
+            )),
+        )
+        .route(
+            "/admin/api/transfers/{id}/tail",
+            post(transfer_tail::configure),
+        )
+        .route(
+            "/admin/api/transfers/{id}/jobs/{job}/cancel",
+            post(project_transfers::cancel_job),
+        )
+        .route("/admin/api/instance/check", post(instance::check))
+        .route("/admin/api/instance/health", get(instance_health::get))
+        .route(
+            "/admin/api/instance/reset/prepare",
+            post(instance_reset::prepare).layer(axum_middleware::from_fn_with_state(
+                state.clone(),
+                auth_rate_limit_mw,
+            )),
+        )
+        .route("/admin/api/instance/initialize", post(instance::initialize))
         // projects
         .route(
             "/admin/api/projects",
@@ -367,6 +522,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         // not a subsystem parked next to it. The dashboard reaches
         // every one of these.
         .route(
+            "/admin/api/projects/{project_id}/push/commands",
+            post(admin::push_commands::handle),
+        )
+        .route(
             "/admin/api/projects/{project_id}/push/credentials",
             get(admin::push_credentials::list).post(admin::push_credentials::create),
         )
@@ -418,6 +577,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(admin::push_sends::list),
         )
         .route(
+            "/admin/api/projects/{project_id}/push/sends/{send_id}",
+            get(admin::push_sends::detail),
+        )
+        .route(
             "/admin/api/projects/{project_id}/push/sends/{send_id}/retry",
             post(admin::push_sends::retry),
         )
@@ -437,6 +600,16 @@ pub fn router(state: Arc<AppState>) -> Router {
 
     // ── Credentialed auth endpoints with their own per-IP limiter ──
     let auth_bruteforce_routes = Router::new()
+        .route("/auth/config", get(crate::cloud::auth_config))
+        .route("/auth/cloud/start", get(crate::cloud::start))
+        .route(
+            "/auth/cloud/complete",
+            get(crate::cloud::complete_page).post(crate::cloud::complete),
+        )
+        .route(
+            "/auth/cloud/complete.js",
+            get(crate::cloud::complete_script),
+        )
         // Unauthenticated on purpose — see the module docs. It shares
         // the per-IP limiter with the login endpoints because it is
         // the other route on this server anybody can reach.
@@ -459,23 +632,36 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/issues/{issue_id}/resolve", post(api::resolve))
         .route("/api/probes:sync", post(api::probes_sync))
         .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            crate::cloud_quota::admission,
+        ))
+        .layer(axum_middleware::from_fn_with_state(
             api_token_store,
             bearer_middleware,
         ))
         .with_state(state.clone());
 
     Router::new()
+        .route("/cloud/runtime/health", get(crate::cloud::health))
+        .route(
+            "/hooks/tasks/{project_id}",
+            post(task_signals::receive).layer(axum::extract::DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/openapi.json", get(health::openapi))
         .route("/healthz", get(health::healthz))
         .route("/livez", get(health::livez))
         .route("/readyz", get(health::readyz))
         .route("/metrics", get(metrics_prom::handle))
-        .with_state(state)
+        .with_state(state.clone())
         .merge(admin_routes)
         .merge(auth_bruteforce_routes)
         .merge(api_routes)
         .merge(sdk_routes)
         .fallback(spa_or_api_404)
+        .layer(axum_middleware::from_fn_with_state(
+            state,
+            crate::cloud::boundary,
+        ))
         // Outermost, so it wraps every route above. A panic inside a
         // handler otherwise takes the tokio worker with it and the
         // client sees a dropped socket — no status, no body. That is
@@ -511,7 +697,14 @@ fn panic_as_500(err: Box<dyn std::any::Any + Send + 'static>) -> axum::response:
 /// Anything under these is machine-facing: shipped SDKs hit `/v1/*`,
 /// the dashboard hits `/admin/api/*` and `/auth/*`, and `/api/*` is
 /// the legacy prefix Caddy still forwards from old clients.
-const API_PREFIXES: [&str; 4] = ["/v1/", "/admin/api/", "/auth/", "/api/"];
+const API_PREFIXES: [&str; 6] = [
+    "/v1/",
+    "/admin/api/",
+    "/auth/",
+    "/api/",
+    "/hooks/",
+    "/cloud/",
+];
 
 /// True when `path` belongs to the HTTP API rather than the SPA.
 fn is_api_path(path: &str) -> bool {
@@ -645,6 +838,7 @@ mod fallback_tests {
             "/auth/me",
             "/auth/nope",
             "/api/legacy-thing",
+            "/hooks/tasks/no-such-project",
         ] {
             assert!(is_api_path(p), "{p} must answer with JSON, not the SPA");
         }

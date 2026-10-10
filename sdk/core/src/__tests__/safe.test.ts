@@ -9,17 +9,12 @@ import {
   setInternalReporter,
 } from '../self-report.js'
 
-// v2.3 — `reportInternal` now routes through the logger at
-// `error` level (default `'warn'` surfaces it). Tests intentionally
-// fire `reportInternal` to verify behaviour; the resulting
-// console.error noise makes bun test exit non-zero. Silence the
-// logger for the duration of this suite — we're exercising the
-// reporter, not the output.
+// Use the production default while deliberately injecting internal faults.
 beforeAll(() => {
-  setLogLevel('silent')
+  setLogLevel(undefined)
 })
 afterAll(() => {
-  setLogLevel('warn')
+  setLogLevel(undefined)
 })
 
 afterEach(() => {

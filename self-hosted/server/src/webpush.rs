@@ -32,6 +32,8 @@ pub enum WebPushError {
     Jwt(#[from] jsonwebtoken::errors::Error),
     #[error("http: {0}")]
     Http(#[from] reqwest::Error),
+    #[error("{0}")]
+    Egress(&'static str),
     #[error("bad endpoint url: {0}")]
     BadUrl(String),
     #[error("provider rejected: status={status} body={body}")]
@@ -75,8 +77,12 @@ pub async fn send_with_payload(
     ttl_sec: u32,
     payload: Option<(&[u8], &str, &str)>,
 ) -> Result<u16, WebPushError> {
-    let url = url::Url::parse(sub_endpoint).map_err(|e| WebPushError::BadUrl(e.to_string()))?;
-    let aud = format!("{}://{}", url.scheme(), url.host_str().unwrap_or(""));
+    let url = crate::public_http::parse(sub_endpoint)
+        .map_err(|code| WebPushError::BadUrl(code.into()))?;
+    if url.scheme() != "https" {
+        return Err(WebPushError::BadUrl("https_required".into()));
+    }
+    let aud = url.origin().ascii_serialization();
 
     // VAPID JWT (ES256). exp = now + 12h (RFC 8292 ≤ 24h)
     let now = SystemTime::now()
@@ -94,35 +100,55 @@ pub async fn send_with_payload(
 
     let auth_header = format!("vapid t={jwt}, k={}", cfg.vapid_public_key_b64url);
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()?;
-    let mut req = client
-        .post(sub_endpoint)
-        .header("Authorization", auth_header)
-        .header("TTL", ttl_sec.to_string());
-
-    if let Some((plain, p256dh, auth_secret)) = payload {
-        let enc = crate::webpush_encrypt::encrypt(plain, p256dh, auth_secret).map_err(|e| {
-            WebPushError::Rejected {
-                status: 0,
-                body: format!("encrypt: {e}"),
-            }
-        })?;
-        req = req
-            .header("Content-Encoding", enc.content_encoding)
-            .header("Content-Length", enc.body.len().to_string())
-            .body(enc.body);
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        "authorization",
+        auth_header
+            .parse()
+            .map_err(|_| WebPushError::BadUrl("invalid_vapid_key".into()))?,
+    );
+    headers.insert(
+        "ttl",
+        ttl_sec
+            .to_string()
+            .parse()
+            .map_err(|_| WebPushError::BadUrl("invalid_ttl".into()))?,
+    );
+    let body = if let Some((plain, p256dh, auth_secret)) = payload {
+        let encrypted = crate::webpush_encrypt::encrypt(plain, p256dh, auth_secret)
+            .map_err(|_| WebPushError::BadUrl("invalid_subscription_key".into()))?;
+        headers.insert(
+            "content-encoding",
+            encrypted
+                .content_encoding
+                .parse()
+                .map_err(|_| WebPushError::BadUrl("invalid_content_encoding".into()))?,
+        );
+        encrypted.body
     } else {
-        req = req.header("Content-Length", "0");
+        Vec::new()
+    };
+    let response = crate::public_http::post(sub_endpoint, headers, body, false)
+        .await
+        .map_err(|failure| {
+            WebPushError::Egress(if failure.may_have_sent {
+                "send_uncertain"
+            } else {
+                failure.code
+            })
+        })?;
+    let status = response.status;
+    if !(200..300).contains(&status) {
+        return Err(WebPushError::Rejected {
+            status,
+            body: if (300..400).contains(&status) {
+                "redirect_refused".into()
+            } else {
+                "provider_rejected".into()
+            },
+        });
     }
 
-    let resp = req.send().await?;
-    let status = resp.status().as_u16();
-    if !(200..400).contains(&status) {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(WebPushError::Rejected { status, body });
-    }
     Ok(status)
 }
 

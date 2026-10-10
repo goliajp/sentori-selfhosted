@@ -52,14 +52,17 @@ public final class SentoriSignalRing: NSObject {
     /// `payload.signals` carries. `t` is seconds before now, negative,
     /// to one decimal.
     @objc public static func snapshot(now: Date = Date()) -> [[String: Any]] {
+        capture(now: now)()
+    }
+
+    /// Freeze membership/time now; materialize wire dictionaries on the worker.
+    static func capture(now: Date = Date()) -> () -> [[String: Any]] {
         lock.lock()
         let all = entries
         let cutoff = now.addingTimeInterval(-window)
-        let win = window
         lock.unlock()
-        _ = win
 
-        return all.compactMap { e in
+        return { all.compactMap { e in
             guard e.at >= cutoff else { return nil }
             var out: [String: Any] = [
                 "t": (e.at.timeIntervalSince(now) * 10).rounded() / 10,
@@ -67,7 +70,7 @@ public final class SentoriSignalRing: NSObject {
             ]
             if let data = e.data { out["data"] = data }
             return out
-        }
+        } }
     }
 
     @objc public static func clear() {

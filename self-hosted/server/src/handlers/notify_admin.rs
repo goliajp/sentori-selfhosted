@@ -150,9 +150,11 @@ pub async fn prefs_list(
          FROM projects p \
          LEFT JOIN notification_prefs np \
                 ON np.project_id = p.id AND np.user_id = $1 \
+         WHERE $2 OR EXISTS(SELECT 1 FROM project_assignments a WHERE a.user_id=$1 AND a.project_id=p.id) \
          ORDER BY p.name COLLATE \"C\"",
     )
     .bind(ctx.user_id)
+    .bind(ctx.role.is_superadmin())
     .fetch_all(&state.pool)
     .await;
     match rows {
@@ -190,6 +192,11 @@ pub async fn prefs_put(
     Extension(ctx): Extension<SessionContext>,
     Json(body): Json<PrefUpdate>,
 ) -> (StatusCode, Json<Value>) {
+    if let Err(error) =
+        super::admin::tokens::ensure_project_access(&state, &ctx, body.project_id).await
+    {
+        return error;
+    }
     let res = sqlx::query(
         "INSERT INTO notification_prefs (user_id, project_id, on_new_issue, on_regression) \
          VALUES ($1, $2, $3, $4) \

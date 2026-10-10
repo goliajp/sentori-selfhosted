@@ -22,35 +22,6 @@
 //! seven times running" is worth seeing next to it in the console, and
 //! that is where it is shown.
 
-use sqlx::PgPool;
-use uuid::Uuid;
-
-pub async fn quarantine_token(pool: &PgPool, token_id: Uuid, reason: &str) {
-    let _ = sqlx::query(
-        "UPDATE device_tokens SET revoked_at = now(), \
-            metadata = metadata || jsonb_build_object('quarantine_reason', $2::text) \
-         WHERE id = $1",
-    )
-    .bind(token_id)
-    .bind(reason)
-    .execute(pool)
-    .await;
-}
-
-pub async fn bump_streak(pool: &PgPool, token_id: Uuid) {
-    let _ = sqlx::query("UPDATE device_tokens SET bad_streak = bad_streak + 1 WHERE id = $1")
-        .bind(token_id)
-        .execute(pool)
-        .await;
-}
-
-pub async fn reset_streak(pool: &PgPool, token_id: Uuid) {
-    let _ = sqlx::query("UPDATE device_tokens SET bad_streak = 0 WHERE id = $1 AND bad_streak > 0")
-        .bind(token_id)
-        .execute(pool)
-        .await;
-}
-
 /// Is this failure about *this device's token*, or about the way the
 /// send was set up?
 ///

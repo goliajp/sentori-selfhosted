@@ -196,8 +196,8 @@ pub async fn handle(
     .map_err(internal)?;
 
     let credentials: Vec<String> =
-        sqlx::query_scalar("SELECT kind FROM push_credentials WHERE project_id = $1")
-            .bind(project_id)
+        sqlx::query_scalar("SELECT kind FROM push_credentials WHERE project_id = $1 AND active AND (secret_format='legacy' OR $2)")
+            .bind(project_id).bind(state.vault.is_some())
             .fetch_all(&state.pool)
             .await
             .map_err(internal)?;

@@ -32,7 +32,12 @@ const SKIP = /(^|\/)(i18n)(\/|$)/;
  *  `Content-Type: application/json` is a header and not something a
  *  person reads. Flagging it is the crying-wolf this checker's own
  *  design note warns about; translating it would be worse. */
-const CODE_SAMPLES = new Set(['src/lib/push-snippets.ts']);
+const CODE_SAMPLES = new Set([
+  'src/lib/push-snippets.ts',
+  // These are copyable SDK programs. The fixed test error message is
+  // application data; explanatory UI text lives in the catalogues.
+  'src/lib/setup-snippets.ts',
+]);
 
 /** Calls whose argument is compared against, never rendered.
  *

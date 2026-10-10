@@ -80,83 +80,62 @@ pub async fn handle(
     State(state): State<Arc<AppState>>,
     Path((event_id, kind)): Path<(Uuid, String)>,
     multipart: Multipart,
-) -> (StatusCode, Json<Value>) {
-    let Parsed {
-        bytes,
-        media_type,
-        source,
-    } = match accept(&kind, multipart).await {
-        Ok(p) => p,
-        Err((status, body)) => {
-            warn!(%kind, ?body, "sdk.attachments rejected");
-            return (status, Json(body));
-        }
-    };
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let parsed = accept(&kind, multipart)
+        .await
+        .map_err(|(status, body)| (status, Json(body)))?;
+    store(&state, ctx.project_id, event_id, &kind, parsed).await
+}
 
-    // The other five kinds are debug artefacts attached to an event
-    // that was already metered, not a separately billed counter.
-    let now = OffsetDateTime::now_utc();
-
-    let hash = match state.attachments.put(&bytes).await {
-        Ok(h) => h,
-        Err(e) => {
-            warn!(error = %e, "sdk.attachments blob_store_error");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "blob_store_failed" })),
-            );
-        }
-    };
-
-    // Body length is bounded above, so this cannot saturate.
-    let size_bytes = i32::try_from(bytes.len()).unwrap_or(i32::MAX);
-    let reference = Uuid::now_v7();
-    let result = sqlx::query(
-        "INSERT INTO event_attachments \
-         (ref, project_id, event_id, kind, media_type, \
-          size_bytes, captured_at, source, blob_hash) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-    )
-    .bind(reference)
-    .bind(ctx.project_id)
-    .bind(event_id)
-    .bind(&kind)
-    .bind(&media_type)
-    .bind(size_bytes)
-    .bind(now)
-    .bind(&source)
-    .bind(hash.to_hex())
-    .execute(&state.pool)
-    .await;
-
-    match result {
-        Ok(_) => {
-            info!(
-                project_id = %ctx.project_id,
-                %event_id,
-                %kind,
-                %source,
-                size_bytes,
-                "sdk.attachments stored",
-            );
-            (
-                StatusCode::ACCEPTED,
-                Json(json!({
-                    "refId": reference.to_string(),
-                    "sizeBytes": size_bytes,
-                    "mediaType": media_type,
-                    "kind": kind,
-                })),
-            )
-        }
-        Err(e) => {
-            warn!(error = %e, "sdk.attachments db_error");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "internal" })),
-            )
-        }
+async fn store(
+    state: &Arc<AppState>,
+    project: Uuid,
+    event: Uuid,
+    kind: &str,
+    parsed: Parsed,
+) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    let mut tx = state
+        .pool
+        .begin()
+        .await
+        .map_err(crate::handlers::jobs::database_error)?;
+    if state.cloud.is_some() {
+        crate::cloud_quota::attachment(&mut tx, project, event, kind, parsed.bytes.len())
+            .await
+            .map_err(|error| error.reply())?;
     }
+    // Publish the blob and its reference under the shared GC lock. Re-uploading
+    // an old content hash cannot race physical orphan deletion.
+    sqlx::query("SELECT pg_advisory_xact_lock_shared($1)")
+        .bind(sentori_snapshot::BLOB_GC_LOCK)
+        .execute(&mut *tx)
+        .await
+        .map_err(crate::handlers::jobs::database_error)?;
+    let hash = state
+        .attachments
+        .put(&parsed.bytes)
+        .await
+        .map_err(|error| {
+            warn!(%error, "sdk.attachments blob_store_error");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error":"blob_store_failed"})),
+            )
+        })?;
+    let size_bytes = i32::try_from(parsed.bytes.len()).unwrap_or(i32::MAX);
+    let reference = Uuid::now_v7();
+    sqlx::query("INSERT INTO event_attachments(ref,project_id,event_id,kind,media_type,size_bytes,captured_at,source,blob_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+        .bind(reference).bind(project).bind(event).bind(kind).bind(&parsed.media_type).bind(size_bytes).bind(OffsetDateTime::now_utc()).bind(&parsed.source).bind(hash.to_hex()).execute(&mut *tx).await.map_err(crate::handlers::jobs::database_error)?;
+    tx.commit()
+        .await
+        .map_err(crate::handlers::jobs::database_error)?;
+    info!(project_id=%project, event_id=%event, %kind, size_bytes, "sdk.attachments stored");
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(
+            json!({"refId":reference,"sizeBytes":size_bytes,"mediaType":parsed.media_type,"kind":kind}),
+        ),
+    ))
 }
 
 struct Parsed {

@@ -1,0 +1,82 @@
+/* Named document styles. Blocks own their leading gap; no additive bottom margins. */
+:root { --document-title-size: 28px; --document-title-line: 36px; --document-body-size: 14px; --document-body-line: 24px; }
+.document-title { font-size: var(--document-title-size); line-height: var(--document-title-line); font-weight: 650; margin: 0; }
+.document-lead { font-size: 16px; line-height: 28px; color: var(--ui-secondary); margin: 12px 0 0; }
+.document-page { container: document-page / inline-size; min-width: 0; overflow-wrap: anywhere; }
+.document-page-header { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 16px 24px; }
+.document-page-header > :first-child { flex: 1 1 280px; min-width: 0; }
+.document-page-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-inline-start: auto; }
+.document-page-body { margin-block-start: var(--space-section); display: grid; gap: 32px; }
+.document-reading-column { min-width: 0; max-width: 72ch; width: 100%; }
+.document-reading-column:lang(zh), .document-reading-column:lang(ja), .document-prose:lang(zh), .document-prose:lang(ja) { max-width: 42em; }
+.document-aside { min-width: 0; padding-block-start: 16px; border-block-start: 1px solid var(--ui-line); font-size: 12px; line-height: 20px; }
+.document-aside dl { display: grid; gap: 8px; margin: 0; }
+.document-aside dt { font-weight: 600; color: var(--ui-secondary); }
+.document-aside dd { margin: 0 0 16px; }
+.document-page-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-block-start: var(--space-section); padding-block-start: 16px; border-block-start: 1px solid var(--ui-line); font-size: 12px; line-height: 20px; }
+.document-example { container: document-example / inline-size; }
+@container document-page (min-width: 960px) { .document-page-body.has-aside { grid-template-columns: minmax(0,1fr) 240px; } .document-aside { border-block-start: 0; padding-block-start: 0; } }
+.document-section + .document-section { margin-block-start: var(--space-section); }
+.document-section > header { margin-block-end: 12px; }
+.document-section > header > :is(h2,h3,h4) { margin: 0; font-size: 20px; line-height: 28px; font-weight: 650; }
+.document-section > header > p { margin: 12px 0 0; color: var(--ui-secondary); font-size: 14px; line-height: 24px; }
+.document-prose { min-width: 0; max-width: 72ch; font-size: var(--document-body-size); line-height: var(--document-body-line); overflow-wrap: anywhere; }
+.document-prose > *, .document-fragment > * { margin-block: 0; }
+.document-prose > * + *, .document-fragment > * + * { margin-block-start: 16px; }
+.document-fragment:empty { display: none; }
+.document-prose :where(h1,h2,h3,h4) { scroll-margin-top: 40px; color: var(--ui-ink); }
+.document-prose :where(h1) { font-size: 28px; line-height: 36px; font-weight: 650; }
+.document-prose :where(h2) { font-size: 20px; line-height: 28px; font-weight: 650; }
+.document-prose :where(h3,h4) { font-size: 16px; line-height: 24px; font-weight: 600; }
+.document-prose > * + h2, .document-fragment > * + h2 { margin-block-start: 32px; }
+.document-prose > * + :is(h3,h4), .document-fragment > * + :is(h3,h4) { margin-block-start: 24px; }
+.document-prose > :is(h1,h2) + *, .document-fragment > :is(h1,h2) + * { margin-block-start: 12px; }
+.document-prose > :is(h3,h4) + *, .document-fragment > :is(h3,h4) + * { margin-block-start: 8px; }
+.document-prose :where(p,li) { color: var(--ui-secondary); }
+.document-prose :where(ul,ol):not(.document-list) { padding-inline-start: 24px; }
+.document-prose :where(ul):not(.document-list) { list-style: disc; }
+.document-prose :where(ol) { list-style: decimal; }
+.document-prose :where(li + li) { margin-block-start: 8px; }
+.document-prose :where(li > ul,li > ol) { margin-block-start: 4px; }
+.document-prose :where(li li + li) { margin-block-start: 4px; }
+.document-prose a { color: var(--ui-action); text-decoration: underline; text-underline-offset: 3px; }
+.document-prose table, .document-style-table { display: block; width: 100%; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 12px; line-height: 20px; }
+.document-prose :where(th,td), .document-style-table :is(th,td) { text-align: start; padding: 12px; border-block-end: 1px solid var(--ui-line); vertical-align: top; }
+.document-prose th, .document-style-table th { font-weight: 600; }
+.document-style-table td:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.document-style-table code { display: block; font-size: 11px; color: var(--ui-secondary); }
+.document-prose > .code-block, .document-prose > .code-block + *, .document-prose > .document-figure, .document-prose > .document-figure + * { margin-block-start: 24px; }
+.document-prose > .code-block + .document-caption { margin-block-start: 12px; }
+.document-prose > :first-child, .document-fragment > :first-child { margin-block-start: 0; }
+.document-prose > .document-fragment + .code-block, .document-prose > .code-block + .document-fragment { margin-block-start: 24px; }
+.document-prose blockquote { border-inline-start: 2px solid var(--ui-line); padding-inline-start: 16px; }
+.document-figure { margin-inline: 0; min-width: 0; }
+.document-media { min-width: 0; }
+.document-media.has-ratio { position: relative; aspect-ratio: var(--figure-ratio); display: grid; place-items: center; overflow: hidden; background: var(--ui-raised); border-radius: var(--radius-panel); }
+.document-media.has-ratio > :is(img,svg,.ui-illustration) { position: absolute; inset: 0; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; }
+.document-figure > figcaption, .document-caption { font-size: 12px; line-height: 20px; color: var(--ui-secondary); margin-block-start: 12px; }
+.document-credit { display: block; margin-block-start: 4px; color: var(--ui-muted); }
+.document-list { list-style: none; padding: 0; margin: 0; }
+.document-list > li { display: grid; grid-template-columns: 24px minmax(0,1fr) auto; align-items: start; gap: 12px; padding-block: 12px; margin: 0; }
+.document-list > li:not(:has(.document-list-leading)) { grid-template-columns: minmax(0,1fr) auto; }
+.document-list[data-divided] > li + li { border-block-start: 1px solid var(--ui-line); }
+.document-list-leading { display: grid; place-items: center; width: 24px; height: 24px; color: var(--ui-action); }
+.document-list-copy { min-width: 0; font-size: 14px; line-height: 24px; }
+.document-list-copy strong { font-weight: 600; }
+.document-list-copy p { margin: 4px 0 0; color: var(--ui-secondary); font-size: 12px; line-height: 20px; }
+.document-list-trailing { min-width: 0; max-width: 100%; }
+.document-guide { display: grid; gap: var(--space-section); }
+.document-guide-intro { max-width: 72ch; font-size: 14px; line-height: 24px; color: var(--ui-secondary); }
+.document-guide-heading { font-size: 20px; line-height: 28px; font-weight: 650; margin-block-end: 12px; }
+.document-boundary-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
+.document-boundary-grid p { font-size: 14px; line-height: 24px; }
+.document-guide-toolbar { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; margin-block-end: 24px; }
+.document-style-sample { display: block; }
+.document-rule-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
+.document-rule-grid p { margin: 0; }
+/* Preserve the same geometry across boundary treatments. */
+.surface[data-appearance] > .surface-head > :first-child { padding-inline-start: 0; }
+.surface[data-appearance=tonal] { background: var(--ui-raised); border-color: transparent; }
+.surface[data-appearance=plain] { background: transparent; border-color: transparent; }
+.surface[data-dividers=none] > :is(.surface-head,.surface-foot), .surface:is([data-appearance=tonal],[data-appearance=plain])[data-dividers=auto] > :is(.surface-head,.surface-foot) { border-color: transparent; }
+@media (max-width: 767px) { .document-boundary-grid, .document-rule-grid { grid-template-columns: minmax(0,1fr); } .document-page-body { gap: 24px; } }

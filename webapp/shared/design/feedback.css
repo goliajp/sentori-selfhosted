@@ -1,0 +1,25 @@
+
+.toast-stack {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 100;
+  display: grid;
+  gap: 10px;
+  width: min(400px, calc(100vw - 32px));
+}
+.toast {
+  background: var(--ui-surface);
+  border: 1px solid var(--ui-control);
+  border-radius: var(--radius-panel);
+  padding: 14px var(--space-4);
+  box-shadow: 0 6px 24px #00000022;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+@media (max-width: 639px) {
+  .toast-stack {
+    bottom: 16px;
+    right: 16px;
+  }}

@@ -13,9 +13,10 @@ use std::sync::Arc;
 
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::Row;
 use tracing::warn;
@@ -25,12 +26,34 @@ use crate::handlers::admin::tokens::ensure_project_access;
 use crate::session_mw::SessionContext;
 use crate::state::AppState;
 
+#[derive(Deserialize)]
+pub struct ListQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub q: Option<String>,
+}
+
 pub async fn list(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Path(project_id): Path<Uuid>,
+    Query(q): Query<ListQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     ensure_project_access(&state, &ctx, project_id).await?;
+    let limit = q.limit.unwrap_or(200).min(500);
+    let offset = q.offset.unwrap_or(0);
+    if limit < 0
+        || offset < 0
+        || q.q
+            .as_ref()
+            .is_some_and(|value| value.chars().count() > 200)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid_query"})),
+        ));
+    }
+
     // Which platforms actually reported in each release. A missing
     // symbolication artifact only matters for a platform that is
     // sending events: three lights that go red regardless turn the
@@ -38,16 +61,19 @@ pub async fn list(
     // dSYM while 100% of its traffic was iOS, and the android light
     // beside it was just as red (2026-08-10).
     let rows = sqlx::query(
-        "SELECT r.id, r.name, r.created_at, \
-                COALESCE(array_agg(DISTINCT e.platform) \
-                         FILTER (WHERE e.platform IS NOT NULL), '{}') AS platforms \
-         FROM releases r \
-         LEFT JOIN events e ON e.project_id = r.project_id AND e.release = r.name \
-         WHERE r.project_id = $1 \
-         GROUP BY r.id, r.name, r.created_at \
-         ORDER BY r.created_at DESC LIMIT 200",
-    )
-    .bind(project_id)
+        "WITH filtered AS MATERIALIZED (
+           SELECT * FROM releases WHERE project_id = $1 AND ($2::text IS NULL OR strpos(lower(name),lower($2))>0)
+         ) SELECT page.*, totals.total,
+           ARRAY(SELECT DISTINCT e.platform FROM events e WHERE e.project_id=$1 AND e.release=page.name) AS platforms,
+           COALESCE((SELECT jsonb_agg(summary ORDER BY kind) FROM (
+             SELECT kind, count(*) AS count, bool_or(usable IS TRUE) AS usable,
+               bool_or(usable IS FALSE) AS broken, bool_or(usable IS NULL) AS unchecked
+             FROM release_artifacts WHERE release_id=page.id GROUP BY kind
+           ) summary),'[]'::jsonb) AS artifact_summary
+         FROM (SELECT count(*) AS total FROM filtered) totals
+         LEFT JOIN LATERAL (SELECT * FROM filtered ORDER BY created_at DESC,id DESC LIMIT $3 OFFSET $4) page ON true
+         ORDER BY page.created_at DESC,page.id DESC",
+    ).bind(project_id).bind(q.q.as_deref()).bind(limit).bind(offset)
     .fetch_all(&state.pool)
     .await
     // Was `unwrap_or_default()`, which reports a broken query as a
@@ -61,8 +87,10 @@ pub async fn list(
         )
     })?;
 
+    let total = rows.first().map_or(0, |row| row.get::<i64, _>("total"));
     let out: Vec<Value> = rows
         .iter()
+        .filter(|row|row.get::<Option<Uuid>,_>("id").is_some())
         .map(|r| {
             json!({
                 "id": r.get::<Uuid, _>("id").to_string(),
@@ -70,17 +98,23 @@ pub async fn list(
                 "created_at": crate::wire_time::rfc3339(r.get::<time::OffsetDateTime, _>("created_at")),
                 // No `usable` here. It is a property of an artifact —
                 // one release has several, each parsed or not — and
-                // `list_artifacts` returns it per row, which is what
-                // the releases page reads. Asking a `releases` row for
+                // the summary below preserves its three states. Details
+                // still read full artifact rows. Asking a `releases` row for
                 // it selected nothing and read it anyway: every call
                 // to this route panicked on `ColumnNotFound("usable")`
                 // from server 2.15.0 to 2.21.0, so the releases page
                 // got a dropped connection rather than a list.
                 "platforms": r.get::<Vec<String>, _>("platforms"),
+                "artifactSummary": r.get::<Value, _>("artifact_summary"),
             })
         })
         .collect();
-    Ok(Json(json!({ "releases": out })))
+    let next = offset.saturating_add(i64::try_from(out.len()).unwrap_or(i64::MAX));
+    Ok(Json(
+        json!({ "releases": out, "total": total, "offset": offset, "limit": limit,
+            "nextOffset": if limit>0 && next<total {Some(next)} else {None},
+        }),
+    ))
 }
 
 pub async fn list_artifacts(
@@ -88,7 +122,7 @@ pub async fn list_artifacts(
     Extension(ctx): Extension<SessionContext>,
     Path((project_id, release_id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    ensure_project_access(&state, &ctx, project_id).await?;
+    ensure_release_access(&state, &ctx, project_id, release_id).await?;
     // been called that. The query failed on every call, and
     // `unwrap_or_default()` turned the failure into an empty list — so
     // the releases page reported "no symbol files" for artifacts that
@@ -194,4 +228,35 @@ pub async fn delete(
             )
         }
     }
+}
+
+/// A project path is not proof that the release belongs to it.
+pub async fn ensure_release_access(
+    state: &Arc<AppState>,
+    ctx: &SessionContext,
+    project_id: Uuid,
+    release_id: Uuid,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    ensure_project_access(state, ctx, project_id).await?;
+    let exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM releases WHERE id=$1 AND project_id=$2)",
+    )
+    .bind(release_id)
+    .bind(project_id)
+    .fetch_one(&state.pool)
+    .await
+    .map_err(|error| {
+        warn!(%error, "release access failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error":"internal"})),
+        )
+    })?;
+    if !exists {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"release_not_found"})),
+        ));
+    }
+    Ok(())
 }

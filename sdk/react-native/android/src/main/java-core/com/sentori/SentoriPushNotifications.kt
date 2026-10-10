@@ -407,7 +407,7 @@ object SentoriPushNotifications {
             // earlier — and then this catch was written silent in the
             // same release. A failure the host cannot see is the
             // hardest kind there is.
-            android.util.Log.w("sentori", "push notification not shown: $t")
+            Unit // SDK failures stay silent in the host.
         }
     }
 

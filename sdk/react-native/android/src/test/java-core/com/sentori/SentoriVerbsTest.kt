@@ -56,6 +56,36 @@ class SentoriVerbsTest {
     private fun queued() = SentoriTransport.peekQueue()
 
     @Test
+    fun deferredAssemblyKeepsCaptureTimeAndExcludesFutureSignals() {
+        started()
+        Sentori.pushSignal("before")
+        val before = System.currentTimeMillis()
+        Sentori.error("captured")
+        val after = System.currentTimeMillis()
+        Sentori.pushSignal("after")
+        val event = queued().last()
+        @Suppress("UNCHECKED_CAST") val payload = event["payload"] as Map<String, Any?>
+        @Suppress("UNCHECKED_CAST") val signals = payload["signals"] as List<Map<String, Any?>>
+        assertEquals(listOf("before"), signals.map { it["kind"] })
+        assertTrue((event["occurredAt"] as String) >= Sentori.iso8601(java.util.Date(before)))
+        assertTrue((event["occurredAt"] as String) <= Sentori.iso8601(java.util.Date(after)))
+        assertTrue(event.keys.none { it.startsWith("_sentori") })
+    }
+
+    @Test
+    fun failedInitializationDisablesCaptureWithoutThrowingOrLogging() {
+        val context = object : android.content.ContextWrapper(androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()) {
+            override fun getResources(): android.content.res.Resources =
+                throw IllegalStateException("host resource access failed")
+        }
+        Sentori.start(SentoriConfig("token", "http://127.0.0.1:9", "test", "test"), context)
+        assertNull(SentoriConfig.current)
+        assertEquals(36, Sentori.error("after failed initialization").length)
+        assertTrue(queued().isEmpty())
+        assertTrue(org.robolectric.shadows.ShadowLog.getLogsForTag("sentori").isEmpty())
+    }
+
+    @Test
     fun everyVerbBeforeStartIsASilentNoOpThatStillReturnsAnId() {
         val ids =
             listOf(

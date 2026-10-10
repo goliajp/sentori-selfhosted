@@ -1,10 +1,13 @@
+import { AuthenticationMode } from '../components/AuthenticationMode';
+import { AuthShell } from '../components/AuthShell';
+import { Button } from '../../shared/design/controls';
 // Forgot password — calls /auth/forgot-password; the reset link
 // arrives by email only.
 
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { AuthShell, Field, Input } from '../components/ui';
+import { Field, Input } from '../components/ui';
 import { useT } from '../i18n';
 import { api } from '../lib/api';
 
@@ -23,16 +26,16 @@ export default function ForgotPassword() {
     try {
       await api.forgotPassword(email);
       setSilent(true);
-    } catch (e) {
-      setErr(String(e));
+    } catch {
+      setErr(t('auth.sendFailed'));
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <AuthShell>
-      <form onSubmit={submit} className="space-y-3">
+    <AuthShell><AuthenticationMode>
+      <form onSubmit={submit} className="auth-form">
         <div>
           <h1 className="text-lg font-semibold">{t('auth.forgot')}</h1>
           <p className="mt-1 text-sm text-fg-subtle">{t('auth.forgotHint')}</p>
@@ -47,21 +50,21 @@ export default function ForgotPassword() {
             required
           />
         </Field>
-        {err && <p className="break-all text-xs text-danger">{err}</p>}
-        {silent && <p className="text-xs text-fg-muted">{t('auth.resetSent')}</p>}
-        <button
+        {err && <p role="alert" className="break-all text-xs text-danger">{err}</p>}
+        {silent && <p role="status" className="text-xs text-fg-muted">{t('auth.resetSent')}</p>}
+        <Button size="large" variant="primary"
           type="submit"
           disabled={loading}
-          className="h-8 w-full rounded-md bg-accent text-sm font-medium text-accent-fg transition hover:opacity-90 disabled:opacity-40"
+          busy={loading}
         >
           {loading ? t('auth.sending') : t('auth.sendReset')}
-        </button>
+        </Button>
         <p className="pt-1 text-center text-xs text-fg-subtle">
           <Link to="/login" className="hover:text-fg-muted">
             {t('auth.backToSignIn')}
           </Link>
         </p>
       </form>
-    </AuthShell>
+    </AuthenticationMode></AuthShell>
   );
 }

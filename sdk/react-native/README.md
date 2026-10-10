@@ -22,7 +22,7 @@ Sentori must only ever be a free upgrade for your app:
   garbage input, not when the network is down, not when the server
   is gone. You never need a try/catch around a Sentori call.
 - `init()` failure (bad token, missing URL) degrades every verb to
-  a no-op with one console.warn — never a crash, never a red box.
+  a silent no-op — no SDK console output, crash, or red box.
 - Nothing leaves the device until an error/warn actually fires;
   then one batched request carries the event with its context.
 - Buffers (signal ring, replay rings, offline queue) are all
@@ -77,7 +77,7 @@ undocumented.
 | `replaySeconds` | `number` | no | 60 |
 | `replayScreens` | `boolean` | no | `false` — opt-in; frames may hold user content |
 | `backendHealthUrl` | `string` | no | — |
-| `logLevel` | `'debug' \| 'error' \| 'info' \| 'silent' \| 'warn'` | no | `'warn'` |
+| `logLevel` | `'debug' \| 'error' \| 'info' \| 'silent' \| 'warn'` | no | `'silent'` |
 | `beforeSend` | `(event) => event \| null` | no | — return `null` to drop |
 
 Auto-wired (no configuration):

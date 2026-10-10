@@ -3,6 +3,7 @@
 pub mod dump;
 pub mod export;
 pub mod import;
+pub mod reset;
 pub mod restore;
 pub mod status;
 
@@ -23,35 +24,7 @@ pub mod status;
 /// cover this list — these are bare strings, not SQL — so the gate that
 /// covers it is `dump-restore-covers-the-schema` in the e2e suite,
 /// which round-trips a populated database and compares row counts.
-pub const TABLES: &[&str] = &[
-    "users",
-    "auth_sessions",
-    "password_resets",
-    "audit_logs",
-    "projects",
-    "project_assignments",
-    "tokens",
-    "issues",
-    "events",
-    "issue_user_hits",
-    "sessions",
-    "issue_activity",
-    "event_attachments",
-    "releases",
-    "release_artifacts",
-    "probes",
-    "assert_stats",
-    "notification_prefs",
-    "delivery_log",
-    "push_tokens",
-    "push_credentials",
-    "device_tokens",
-    "push_sends",
-    "push_delivery_logs",
-    "device_topics",
-    "push_preferences",
-    "backend_checks",
-];
+pub use sentori_snapshot::TABLES;
 
 #[cfg(test)]
 #[allow(
@@ -197,6 +170,14 @@ mod schema_agreement {
             ("project_assignments", "projects"),
             ("events", "issues"),
             ("release_artifacts", "releases"),
+            ("jobs", "releases"),
+            ("idempotency_requests", "jobs"),
+            ("outbox_events", "jobs"),
+            ("tasks", "issues"),
+            ("task_events", "tasks"),
+            ("outbox_events", "task_events"),
+            ("inbox_items", "task_events"),
+            ("task_signal_deliveries", "tasks"),
             ("push_sends", "device_tokens"),
             ("push_delivery_logs", "push_sends"),
             ("device_topics", "device_tokens"),

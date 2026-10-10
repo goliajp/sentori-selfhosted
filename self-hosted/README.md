@@ -130,3 +130,20 @@ Apache-2.0 OR MIT. Copyright © GOLIA K.K.
 
 This repo is a read-only mirror of the upstream sentori monorepo.
 Issues / PRs are not accepted here.
+
+## v5 encrypted backups and recovery
+
+The v5 development image includes `sentori-operator` alongside `sentori-server`.
+An owner can create and download a verified encrypted database-and-blob snapshot
+from **Self-hosted → Backups** after configuring `SENTORI_MASTER_KEY` and
+`SENTORI_BACKUP_DIR`. Save the separate recovery key before starting.
+
+The operator CLI independently verifies the file and restores only to a stopped,
+empty target with a new blob directory. Restored instances start with all automatic
+workers paused for validation. See the complete [backup and recovery runbook](../docs/self-hosting.md#backups-and-recovery-v5-development)
+for key custody, off-instance copies, restore validation and explicit resume.
+
+Owners can also prepare an offline reset from **Self-hosted → Overview** after
+re-entering their password and the instance identity. The operator command creates
+a fresh independent backup before clearing data; interrupted cleanup blocks startup
+until `finish-reset` succeeds. Follow the [reset procedure](../docs/self-hosting.md#reset-with-an-independent-recovery-copy).

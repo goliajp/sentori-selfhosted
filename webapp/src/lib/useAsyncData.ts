@@ -29,7 +29,7 @@ export interface AsyncData<T> {
 }
 
 export function useAsyncData<T>(
-  fetcher: () => Promise<T>,
+  fetcher: (signal: AbortSignal) => Promise<T>,
   deps: unknown[],
   formatError: (e: unknown) => string = formatApiError,
 ): AsyncData<T> {
@@ -52,19 +52,24 @@ export function useAsyncData<T>(
   // Without it, switching projects twice in quick succession lets the
   // slower first response land last and clobber the newer data.
   const ticket = useRef(0);
+  const request = useRef<AbortController | null>(null);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
     return () => {
       alive.current = false;
+      request.current?.abort();
     };
   }, []);
 
   const run = useCallback(async () => {
     const mine = ++ticket.current;
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
     // Settle to a value rather than letting it reject, so the rejection is
     // handled the moment it happens and never surfaces as unhandled.
-    const settled = fetcherRef.current().then(
+    const settled = fetcherRef.current(controller.signal).then(
       value => ({ ok: true as const, value }),
       failure => ({ ok: false as const, failure }),
     );

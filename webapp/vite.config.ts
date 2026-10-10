@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import { productionBoundary } from './tooling/production-boundary.mjs';
 
 import pkg from './package.json' with { type: 'json' };
 
@@ -13,8 +14,11 @@ import pkg from './package.json' with { type: 'json' };
 export default defineConfig({
   // The status bar reads this — bump webapp/package.json on every
   // webapp change so what's deployed is always identifiable.
-  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
-  plugins: [tailwindcss(), react()],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __LOCAL_DEV_LOGIN__: 'null',
+  },
+  plugins: [productionBoundary(), tailwindcss(), react()],
   server: {
     port: 3000,
     // The docs pages are `docs/*.md` at the repository root, read at
@@ -28,6 +32,7 @@ export default defineConfig({
     // unreachable — including the OAuth redirects, which the browser
     // has to follow to the server rather than to Vite.
     proxy: {
+      '/hooks': { target: 'http://localhost:8080', changeOrigin: true },
       '/v1': { target: 'http://localhost:8080', changeOrigin: true },
       '/auth': { target: 'http://localhost:8080', changeOrigin: true },
       '/admin/api': { target: 'http://localhost:8080', changeOrigin: true },
@@ -42,6 +47,7 @@ export default defineConfig({
   preview: {
     port: 5599,
     proxy: {
+      '/hooks': { target: 'http://localhost:8080', changeOrigin: true },
       '/v1': { target: 'http://localhost:8080', changeOrigin: true },
       '/auth': { target: 'http://localhost:8080', changeOrigin: true },
       '/admin/api': { target: 'http://localhost:8080', changeOrigin: true },

@@ -75,26 +75,7 @@ pub async fn one_release(
         let platform: String = row.get("platform");
         let mut payload: serde_json::Value = row.get("payload");
 
-        let mut n = crate::symbolicate::symbolicate_payload(
-            &state.pool,
-            &state.attachments,
-            &state.source_maps,
-            project_id,
-            release_name,
-            &mut payload,
-        )
-        .await;
-        if platform == "android" || platform == "ios" {
-            n += crate::native_symbolicate::symbolicate_native(
-                &state.pool,
-                &state.attachments,
-                project_id,
-                release_name,
-                &platform,
-                &mut payload,
-            )
-            .await;
-        }
+        let n = resolve_payload(state, project_id, release_name, &platform, &mut payload).await?;
         if n == 0 {
             continue;
         }
@@ -109,38 +90,37 @@ pub async fn one_release(
     Ok(tally)
 }
 
-/// Fire the pass behind an artifact upload, without making the
-/// uploader wait for it.
-///
-/// A build pipeline is holding this connection open with a 300 MB
-/// dSYM behind it; the pass can take a while on a busy release and
-/// nothing about the upload's success depends on its result. Failures
-/// are logged, not surfaced: the artifact did land, which is what the
-/// caller asked about.
-pub fn spawn_for_release(state: &Arc<AppState>, project_id: Uuid, release_name: String) {
-    let state = Arc::clone(state);
-    tokio::spawn(async move {
-        match one_release(&state, project_id, &release_name).await {
-            Ok(s) if s.rewritten > 0 => tracing::info!(
-                release = %release_name,
-                scanned = s.scanned,
-                rewritten = s.rewritten,
-                frames = s.frames,
-                "retro-symbolication rewrote stored events",
-            ),
-            Ok(s) => tracing::debug!(
-                release = %release_name,
-                scanned = s.scanned,
-                "retro-symbolication found nothing to upgrade",
-            ),
-            Err(e) => tracing::warn!(
-                release = %release_name,
-                error = %e,
-                "retro-symbolication failed; the artifact is stored and \
-                 a later upload or `sentori-server resymbolicate` will retry",
-            ),
-        }
-    });
+/// Resolve one payload, shared by the resumable worker and operator CLI.
+pub async fn resolve_payload(
+    state: &AppState,
+    project_id: Uuid,
+    release_name: &str,
+    platform: &str,
+    payload: &mut serde_json::Value,
+) -> Result<usize, sqlx::Error> {
+    let mut n = crate::symbolicate::symbolicate_payload_checked(
+        &state.pool,
+        &state.attachments,
+        &state.source_maps,
+        project_id,
+        release_name,
+        payload,
+    )
+    .await
+    .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+    if platform == "android" || platform == "ios" {
+        n += crate::native_symbolicate::symbolicate_native_checked(
+            &state.pool,
+            &state.attachments,
+            project_id,
+            release_name,
+            platform,
+            payload,
+        )
+        .await
+        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+    }
+    Ok(n)
 }
 
 /// `sentori-server resymbolicate [<release>]` — the operator path.

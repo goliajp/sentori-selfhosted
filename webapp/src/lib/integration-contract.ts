@@ -1,0 +1,9 @@
+export const integrationKinds = ['email', 'webhook', 'github', 'jira'] as const;
+export type IntegrationKind = typeof integrationKinds[number];
+export const integrationEvents = ['issue.new', 'issue.regressed', 'task.assigned', 'task.updated', 'monitor.down', 'monitor.recovered'] as const;
+export type IntegrationSettings = { endpoint: string; token: string; repository: string; recipient: string; email: string; projectKey: string; issueTypeId: string };
+export type Integration = { id: string; kind: IntegrationKind; enabled: boolean; events: string[]; summary: Partial<IntegrationSettings> & { endpointOrigin?: string }; version: number; secretConfigured: boolean };
+export type IntegrationConfigure = { commandId: string; expectedVersion: number; enabled: boolean; events: string[]; settings: IntegrationSettings };
+export type IntegrationSend = { commandId: string; expectedVersion: number; taskId: string | null; expectedTaskVersion: number | null };
+export type IntegrationRetry = { commandId: string; expectedAttempt: number; acknowledgeDuplicate: boolean };
+export type Delivery = { id: string; integrationId: string | null; kind: IntegrationKind; event: string; title: string; state: 'queued' | 'running' | 'retry_wait' | 'delivered' | 'failed' | 'uncertain' | 'cancelled'; attempt: number; error: string | null; httpStatus: number | null; externalUrl: string | null; createdAt: string; finishedAt: string | null };

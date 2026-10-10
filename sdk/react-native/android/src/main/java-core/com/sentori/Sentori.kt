@@ -8,7 +8,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import kotlin.random.Random
+import java.util.concurrent.ThreadLocalRandom
 
 /**
  * The surface a host app writes against.
@@ -43,19 +43,25 @@ object Sentori {
     @JvmStatic
     @JvmOverloads
     fun start(config: SentoriConfig, context: Context? = null) {
+        try {
+            configure(config, context)
+        } catch (_: Throwable) {
+            // A broken host Context or platform hook disables capture instead
+            // of turning SDK initialization into a host application failure.
+            SentoriConfig.set(null)
+        }
+    }
+
+    private fun configure(config: SentoriConfig, context: Context?) {
         SentoriConfig.set(config)
         SentoriDevice.bind(context)
-        SentoriTransport.start(context?.let { java.io.File(it.filesDir, "sentori") })
+        SentoriTransport.startFromContext(context)
 
         // Crash capture needs a Context for its storage, so an app
         // that starts without one gets everything except this.
         if (context != null) {
-            // The handler runs inside an uncaught-exception handler
-            // where almost nothing is safe, so it reads its release
-            // and environment from SharedPreferences rather than from
-            // a live object. Without this call every crash ships as
-            // `unknown` / `prod` — matching no release, so
-            // symbolicating against nothing.
+            // Capture configuration before installing the handler, including
+            // the first launch before it has a bound Context.
             SentoriCrashHandler.setConfig(
                 mapOf("release" to config.release, "environment" to config.environment)
             )
@@ -69,13 +75,15 @@ object Sentori {
             // handler wrote files into a directory nothing emptied —
             // a crash reporter that captured crashes and never sent
             // one.
-            SentoriPendingCrash.ship()
+            SentoriTransport.background {
+                SentoriPendingCrash.ship()
+                SentoriExitInfo.collect(context)
+            }
 
             // Why the last process died, from the system rather than
             // inferred. On API 30+ this is the same record Play
             // Console reports on, so an ANR count of ours and theirs
             // cannot disagree. The watchdog stays for older devices.
-            SentoriExitInfo.collect(context)
             if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
                 SentoriAnrWatchdog.start(context)
             }
@@ -131,7 +139,7 @@ object Sentori {
     @JvmStatic
     @JvmOverloads
     fun error(err: Throwable, data: Map<String, Any?>? = null): String =
-        emit("error", null, describe(err), data, withSignals = true)
+        emit("error", null, null, data, withSignals = true, pendingError = err)
 
     /** Something went wrong, described rather than thrown. */
     @JvmStatic
@@ -198,6 +206,7 @@ object Sentori {
         error: Map<String, Any?>?,
         data: Map<String, Any?>?,
         withSignals: Boolean,
+        pendingError: Throwable? = null,
     ): String {
         val id = newEventId()
         // Before init every verb is a no-op that still returns an id,
@@ -209,30 +218,30 @@ object Sentori {
         error?.let { payload["error"] = it }
         data?.let { payload["data"] = it }
         SentoriScope.context?.let { payload["context"] = it }
-        if (withSignals) {
-            val signals = SentoriSignalRing.snapshot()
-            if (signals.isNotEmpty()) payload["signals"] = signals
-        }
         payload["device"] = SentoriDevice.snapshot()
 
         val event =
             mutableMapOf<String, Any?>(
                 "id" to id,
                 "kind" to kind,
-                "occurredAt" to iso8601(Date()),
+                // Formatting initializes locale/calendar machinery. The worker
+                // formats this captured clock value, preserving occurrence time.
+                pendingTimestampKey to System.currentTimeMillis(),
                 "platform" to "android",
                 "release" to config.release,
                 "environment" to config.environment,
                 "payload" to payload,
             )
         name?.let { event["name"] = it }
+        if (withSignals) event[pendingSignalsKey] = SentoriSignalRing.capture()
+        if (pendingError != null) event[pendingErrorKey] = pendingError
         SentoriScope.userKey?.let { event["userKey"] = it }
 
         SentoriTransport.enqueue(event)
         return id
     }
 
-    private fun describe(err: Throwable): Map<String, Any?> {
+    private fun describe(err: Throwable, depth: Int = 0): Map<String, Any?> {
         val frames =
             err.stackTrace.take(50).map { f ->
                 mapOf(
@@ -247,16 +256,44 @@ object Sentori {
                 "message" to (err.message ?: ""),
                 "stack" to frames,
             )
-        err.cause?.let { if (it !== err) out["cause"] = describe(it) }
+        err.cause?.let { if (it !== err && depth < 8) out["cause"] = describe(it, depth + 1) }
         return out
     }
 
-    private val isoFormat =
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+    private object TimestampFormatter {
+        val instance = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
+    }
 
-    internal fun iso8601(date: Date): String = synchronized(isoFormat) { isoFormat.format(date) }
+    internal const val pendingTimestampKey = "_sentoriOccurredAtMs"
+    private const val pendingSignalsKey = "_sentoriSignalSnapshot"
+    private const val pendingErrorKey = "_sentoriThrowable"
+
+    internal fun prepareEvent(event: Map<String, Any?>): Map<String, Any?> {
+        val out = event.toMutableMap()
+        (out.remove(pendingErrorKey) as? Throwable)?.let { throwable ->
+            @Suppress("UNCHECKED_CAST")
+            val payload = (out["payload"] as Map<String, Any?>).toMutableMap()
+            payload["error"] = try { describe(throwable) } catch (_: Throwable) {
+                mapOf("type" to "Error", "message" to "Error details unavailable")
+            }
+            out["payload"] = payload
+        }
+        (out.remove(pendingTimestampKey) as? Long)?.let { out["occurredAt"] = iso8601(Date(it)) }
+        @Suppress("UNCHECKED_CAST")
+        val capture = out.remove(pendingSignalsKey) as? (() -> List<Map<String, Any?>>)
+        if (capture != null) {
+            val signals = capture()
+            @Suppress("UNCHECKED_CAST")
+            val payload = (out["payload"] as Map<String, Any?>).toMutableMap()
+            if (signals.isNotEmpty()) payload["signals"] = signals
+            out["payload"] = payload
+        }
+        return out
+    }
+
+    internal fun iso8601(date: Date): String = synchronized(TimestampFormatter.instance) { TimestampFormatter.instance.format(date) }
 
     /**
      * UUIDv7: 48 bits of milliseconds then random, so ids sort by
@@ -266,7 +303,7 @@ object Sentori {
      */
     internal fun newEventId(): String {
         val bytes = ByteArray(16)
-        Random.nextBytes(bytes)
+        ThreadLocalRandom.current().nextBytes(bytes)
         val ms = System.currentTimeMillis()
         bytes[0] = ((ms shr 40) and 0xff).toByte()
         bytes[1] = ((ms shr 32) and 0xff).toByte()
@@ -277,10 +314,15 @@ object Sentori {
         bytes[6] = ((bytes[6].toInt() and 0x0f) or 0x70).toByte()
         bytes[8] = ((bytes[8].toInt() and 0x3f) or 0x80).toByte()
 
-        val hex = StringBuilder(32)
-        for (b in bytes) hex.append(String.format("%02x", b.toInt() and 0xff))
-        val h = hex.toString()
-        return "${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-" +
-            "${h.substring(16, 20)}-${h.substring(20, 32)}"
+        val digits = "0123456789abcdef"
+        val text = CharArray(36)
+        var at = 0
+        for ((index, byte) in bytes.withIndex()) {
+            if (index == 4 || index == 6 || index == 8 || index == 10) text[at++] = '-'
+            val value = byte.toInt() and 0xff
+            text[at++] = digits[value ushr 4]
+            text[at++] = digits[value and 15]
+        }
+        return String(text)
     }
 }

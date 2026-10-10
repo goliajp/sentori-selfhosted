@@ -13,7 +13,7 @@
 
 [package]
 name = "sentori-server"
-version = "4.1.1"
+version = "5.1.0"
 edition = "2024"
 authors = ["GOLIA K.K. <takagi@golia.jp>"]
 license = "Apache-2.0 OR MIT"
@@ -37,6 +37,7 @@ expect_used = "warn"
 panic = "warn"
 
 [dependencies]
+sentori-snapshot = { path = "../snapshot" }
 # gzip-transparent artifact uploads: dSYMs for RN apps run hundreds
 # of MB raw but ~3:1 compressed; the CLI gzips, we inflate.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
@@ -51,6 +52,7 @@ sentori-notifier           = { path = "../../core/crates/notifier" }
 sentori-argon2-password    = { path = "../../core/crates/argon2-password" }
 sentori-cookie-session     = { path = "../../core/crates/cookie-session" }
 sentori-ingest-token       = { path = "../../core/crates/ingest-token" }
+sentori-secrets-vault = { path = "../../core/crates/secrets-vault" }
 sentori-push-provider      = { path = "../../core/crates/push-provider" }
 
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "multipart", "query", "tokio", "tower-log", "tracing", "macros"] }
@@ -73,6 +75,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 anyhow = "1"
+tempfile = "3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 http = "1"

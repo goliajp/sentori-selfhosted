@@ -60,21 +60,23 @@ export function reportInternal(api, err) {
         if (isCircuitOpen())
             return;
         _failuresThisMinute += 1;
-        // SDK internal failures route through the v2.3 logger at
-        // `error` level. With the default `logLevel: 'warn'` they DO
-        // surface (host wants to know if Sentori itself broke). Host
-        // can dial up to `silent` to hide everything or down to
-        // `debug` to also see successful self-reports.
+        // Internal health reporting remains observable to the SDK's reporter,
+        // while customer-visible diagnostics require an explicit logLevel.
         logger.error('internal', `failure in ${api}:`, err);
         if (!_reporter)
             return;
         const e = err;
-        _reporter({
+        const result = _reporter({
             api,
             message: typeof e?.message === 'string' ? e.message : String(err),
             errorName: typeof e?.name === 'string' ? e.name : undefined,
             stack: typeof e?.stack === 'string' ? e.stack : undefined,
         });
+        // TypeScript accepts async functions in void-returning callback slots.
+        // Consume their rejection without recursing into self-report again.
+        if (result && typeof result.then === 'function') {
+            void Promise.resolve(result).catch(() => { });
+        }
     }
     catch {
         // Recursive failure during self-report — silent. The contract

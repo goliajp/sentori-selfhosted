@@ -1,27 +1,18 @@
-// The Sentori mark, inline.
-//
-// 鳥居 — the watching gate: a threshold marker, and what passes
-// through it is seen. Straight cuts and miter joins put it in the
-// GOLIA Lab family (the plate variant — blue square, white gate —
-// is the favicon and app icon; see /brand).
-//
-// Inline rather than an <img> on purpose: in product chrome the mark
-// must take the surrounding ink (`currentColor`) instead of fighting
-// the UI accent. The plated, always-blue form belongs to icons.
+import mark from '../../shared/site/assets/mark-blue.svg';
+import markWhite from '../../shared/site/assets/mark-white.svg';
+import lockup from '../../shared/site/assets/lockup-blue-ink.svg';
+import lockupWhite from '../../shared/site/assets/lockup-white.svg';
 
 export function SentoriMark({ className = '' }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 32 32"
-      aria-hidden
-      className={className}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.7}
-      strokeLinejoin="miter"
-      strokeLinecap="butt"
-    >
-      <path d="M6 10 H26 M9 15 H23 M12 10 L10.5 26 M20 10 L21.5 26" />
-    </svg>
-  );
+  return <span className={`inline-flex shrink-0 ${className}`} aria-hidden>
+    <img src={mark} alt="" className="identity-light h-full w-full" />
+    <img src={markWhite} alt="" className="identity-dark h-full w-full" />
+  </span>;
+}
+
+export function SentoriIdentity() {
+  return <>
+    <img src={lockup} alt="" className="identity-light h-8 w-auto max-w-full" />
+    <img src={lockupWhite} alt="" className="identity-dark h-8 w-auto max-w-full" />
+  </>;
 }

@@ -11,7 +11,7 @@
     "directory": "sdk/react-native"
   },
   "bugs": {
-    "url": "https://github.com/goliajp/sentori/issues"
+    "url": "https://github.com/goliajp/sentori-selfhosted/issues"
   },
   "keywords": [
     "react-native",

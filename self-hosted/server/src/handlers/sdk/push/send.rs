@@ -13,6 +13,7 @@ use sentori_ingest_token::IngestContext;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -83,6 +84,16 @@ pub async fn handle(
     State(state): State<Arc<AppState>>,
     Json(body): Json<SendBody>,
 ) -> (StatusCode, Json<Value>) {
+    enqueue(ctx, state, body, false).await
+}
+
+/// Both wire formats use the same authorization, project fence and atomic insert.
+pub(super) async fn enqueue(
+    ctx: IngestContext,
+    state: Arc<AppState>,
+    body: SendBody,
+    legacy: bool,
+) -> (StatusCode, Json<Value>) {
     // A public token is in the customer's shipped app. Whoever pulls
     // it out could otherwise push arbitrary notifications to that
     // customer's users, from a channel those users trust.
@@ -149,6 +160,21 @@ pub async fn handle(
     // array of ids in this response was three megabytes of uuid for a
     // large send and homework for a small one.
     let queued = rows.len();
+
+    if legacy {
+        if queued == 0 && body.idempotency_key.is_none() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "device_token_not_found_or_revoked" })),
+            );
+        }
+        let ids: Vec<Uuid> = rows.iter().map(|row| row.get("id")).collect();
+        let tickets: Vec<Value> = ids
+            .iter()
+            .map(|id| json!({ "id": id, "status": "queued" }))
+            .collect();
+        return (StatusCode::ACCEPTED, Json(json!({ "tickets": tickets })));
+    }
 
     info!(
         project_id = %ctx.project_id,

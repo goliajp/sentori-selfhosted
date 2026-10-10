@@ -56,6 +56,7 @@ struct AndroidConfig {
 
 pub async fn fetch_oauth_token(cfg: &HcmConfig) -> Result<String, HcmError> {
     let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(15))
         .build()?;
     let oauth: serde_json::Value = client
@@ -85,6 +86,7 @@ pub async fn send_with_token(
     body_text: &str,
 ) -> Result<u16, HcmError> {
     let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(15))
         .build()?;
     do_send(&client, cfg, token, device_token, title, body_text).await
@@ -133,7 +135,7 @@ async fn do_send(
         .send()
         .await?;
     let status = resp.status().as_u16();
-    if (200..400).contains(&status) {
+    if (200..300).contains(&status) {
         return Ok(status);
     }
     let body = resp.text().await.unwrap_or_default();

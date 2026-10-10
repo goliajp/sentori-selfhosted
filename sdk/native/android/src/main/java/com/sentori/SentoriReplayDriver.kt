@@ -101,7 +101,7 @@ object SentoriReplayDriver {
                 )
             )
         } catch (t: Throwable) {
-            android.util.Log.w("sentori", "replay tick failed; capture continues: $t")
+            Unit // SDK failures stay silent in the host.
         }
     }
 

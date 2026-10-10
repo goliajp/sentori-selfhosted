@@ -173,37 +173,9 @@ public final class SentoriPush: NSObject {
         }
     }
 
-    /// Say it out loud, once, where the person wiring this up is
-    /// looking.
-    ///
-    /// A failed `register` reported only to the server is invisible
-    /// on the machine where the mistake was made: the integrator has
-    /// to finish connecting the dashboard before it can tell them
-    /// they have not finished connecting the dashboard. insight found
-    /// their first-launch failure by adding a `Log.w` of their own
-    /// and taking it out again.
-    ///
-    /// Warning, never error. A red line in someone else's console
-    /// reads as "your app is broken", and a host team that believes
-    /// that pulls the SDK out.
-    private func report(_ result: Result) -> Result {
-        if case .failure(let reason, let message) = result {
-            // One `%@` and one already-built string, on purpose.
-            //
-            // The first version was `NSLog("… (%@): %@", reason.rawValue, message)`
-            // and it killed the test host on the first call: `Failure`
-            // is an `@objc enum … : Int`, so `rawValue` is an Int, and
-            // `%@` dereferenced it as an object pointer. A logging
-            // line, added to make failures visible, crashing the app
-            // it reports for — the isolation rule broken as completely
-            // as it can be.
-            //
-            // `message` is not a format string either. It can carry
-            // server text, and server text can contain a `%`.
-            NSLog("%@", "[sentori] push register failed (\(reason.name)): \(message)")
-        }
-        return result
-    }
+    /// The explicit registration result carries failures to its caller.
+    /// Background failure must not write into the host application's console.
+    private func report(_ result: Result) -> Result { result }
 
     /// APNs has issued this device a new token; tell the server now
     /// rather than at the next launch.
@@ -227,11 +199,8 @@ public final class SentoriPush: NSObject {
             switch await registerWithServer(token: token, config: config) {
             case .success(let handle):
                 remember(handle: handle, token: token)
-            case .failure(let reason, let message):
-                NSLog(
-                    "%@",
-                    "[sentori] push re-register after token rotation failed "
-                        + "(\(reason.name)): \(message)")
+            case .failure:
+                break
             }
         }
     }
@@ -297,16 +266,13 @@ public final class SentoriPush: NSObject {
             switch await registerWithServer(token: token, config: config) {
             case .success(let handle):
                 remember(handle: handle, token: token)
-            case .failure(let reason, let message):
+            case .failure:
                 // The row still names the previous person, so the next
                 // change has to be allowed to try again.
                 lock.lock()
                 lastSentIdentity = nil
                 lock.unlock()
-                NSLog(
-                    "%@",
-                    "[sentori] updating the device after a sign-in failed "
-                        + "(\(reason.name)): \(message)")
+
             }
         }
     }
