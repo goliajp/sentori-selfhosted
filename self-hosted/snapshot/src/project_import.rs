@@ -46,6 +46,7 @@ pub fn mapped_id(transfer: Uuid, table: &str, source: Uuid) -> Uuid {
 fn transform(transfer: Uuid, table: &str, mut value: Value) -> anyhow::Result<Value> {
     for (column, domain) in [
         ("project_id", "projects"),
+        ("app_id", "apps"),
         ("issue_id", "issues"),
         ("release_id", "releases"),
         ("task_id", "tasks"),

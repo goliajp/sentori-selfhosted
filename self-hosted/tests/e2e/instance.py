@@ -197,14 +197,39 @@ def main():
         sql(f"INSERT INTO tokens(id,project_id,name,scope,token_hash) VALUES ('{token_id}','{project_id}','Existing SDK key','ingest','preserved-hash');", 'upgraded')
         sql(f"INSERT INTO issues(id,project_id,fingerprint,kind,group_title,first_seen,last_seen) VALUES ('{issue_id}','{project_id}','preserved-fingerprint','error','Preserved error',now(),now());", 'upgraded')
         sql(f"INSERT INTO events(id,project_id,issue_id,kind,platform,occurred_at,payload) VALUES ('{event_id}','{project_id}','{issue_id}','error','javascript',now(),'{{\"message\":\"preserved event\"}}');", 'upgraded')
+        # Existing native telemetry and artifacts must produce one app even
+        # when the payload identity differs from its release prefix.
+        native_event, native_release, native_artifact, old_session, native_session, weak_event, later_release, later_artifact = [str(uuid.uuid4()) for _ in range(8)]
+        sql(f"INSERT INTO events(id,project_id,issue_id,kind,platform,occurred_at,release,payload) VALUES ('{native_event}','{project_id}','{issue_id}','error','ios',now(),'native@1','{{\"app\":{{\"bundleIdentifier\":\"jp.example.native\"}}}}');", 'upgraded')
+        sql(f"INSERT INTO releases(id,project_id,name) VALUES ('{native_release}','{project_id}','native@1'); INSERT INTO release_artifacts(id,release_id,kind,name,content_hash) VALUES ('{native_artifact}','{native_release}','dsym','legacy symbols','historical-hash');", 'upgraded')
+        sql(f"INSERT INTO sessions(id,project_id,status,release,environment,platform,started_at,duration_ms) VALUES ('{old_session}','{project_id}','ok','mobile@2','production','android',now(),1000);", 'upgraded')
+        sql(f"INSERT INTO sessions(id,project_id,status,release,environment,platform,started_at,duration_ms) VALUES ('{native_session}','{project_id}','ok','native@2','production','ios',now(),1000);", 'upgraded')
+        sql(f"INSERT INTO events(id,project_id,issue_id,kind,platform,occurred_at,release,payload) VALUES ('{weak_event}','{project_id}','{issue_id}','error','ios',now(),'native@2','{{}}');", 'upgraded')
+        sql(f"INSERT INTO releases(id,project_id,name) VALUES ('{later_release}','{project_id}','native@3'); INSERT INTO release_artifacts(id,release_id,kind,name,content_hash) VALUES ('{later_artifact}','{later_release}','dsym','next symbols','next-historical-hash');", 'upgraded')
+        ambiguous_session, ambiguous_release, ambiguous_artifact = [str(uuid.uuid4()) for _ in range(3)]
+        for package in ['ambiguous-native', 'jp.example.different']:
+            payload=json.dumps({'app':{'packageName':package}})
+            sql(f"INSERT INTO events(id,project_id,issue_id,kind,platform,occurred_at,release,payload) VALUES ('{uuid.uuid4()}','{project_id}','{issue_id}','error','android',now(),'ambiguous-native@1','{payload}');", 'upgraded')
+        sql(f"INSERT INTO sessions(id,project_id,status,release,environment,platform,started_at,duration_ms) VALUES ('{ambiguous_session}','{project_id}','ok','ambiguous-native@1','production','android',now(),1000);", 'upgraded')
+        sql(f"INSERT INTO releases(id,project_id,name) VALUES ('{ambiguous_release}','{project_id}','ambiguous-native@2'); INSERT INTO release_artifacts(id,release_id,kind,name,content_hash) VALUES ('{ambiguous_artifact}','{ambiguous_release}','proguard','ambiguous symbols','ambiguous-historical-hash');", 'upgraded')
         def contents(table):
-            projection = "to_jsonb(row) - 'version' - 'webhook_secret_blob' - 'migration_fence'" if table == 'projects' else 'to_jsonb(row)'
-            return sql(f"SELECT {projection} FROM (SELECT * FROM {table} ORDER BY id) row;", 'upgraded')
-        before = {table: contents(table) for table in ['projects', 'tokens', 'issues', 'events']}
+            projection = "to_jsonb(row) - 'version' - 'webhook_secret_blob' - 'migration_fence'" if table == 'projects' else "to_jsonb(row) - 'app_id'" if table in ('events','sessions') else 'to_jsonb(row)'
+            where = f" WHERE id IN ('{native_release}','{later_release}','{ambiguous_release}')" if table == 'releases' else ''
+            return sql(f"SELECT {projection} FROM (SELECT * FROM {table}{where} ORDER BY id) row;", 'upgraded')
+        before = {table: contents(table) for table in ['projects', 'tokens', 'issues', 'events', 'sessions', 'releases', 'release_artifacts']}
         start('upgraded')
         upgraded = request(login(), base, endpoint)
         assert upgraded['initializedAt'] and upgraded['id'] != identity
         assert {table: contents(table) for table in before} == before
+        assert sql(f"SELECT count(*) FROM apps a JOIN events e ON e.app_id=a.id WHERE e.id='{event_id}' AND a.project_id='{project_id}' AND a.platform='javascript';", 'upgraded') == '1'
+        assert sql(f"SELECT count(*) FROM apps WHERE project_id='{project_id}' AND platform='ios';", 'upgraded') == '1'
+        assert sql(f"SELECT count(*) FROM app_releases ar JOIN apps a ON a.id=ar.app_id WHERE ar.release_id='{native_release}' AND a.identifier='jp.example.native';", 'upgraded') == '1'
+        assert sql(f"SELECT count(*) FROM sessions s JOIN apps a ON a.id=s.app_id JOIN app_releases ar ON ar.app_id=a.id WHERE s.id='{old_session}' AND a.platform='android' AND a.identifier='mobile';", 'upgraded') == '1'
+        assert sql(f"SELECT a.has_explicit_identifier AND s.app_id=e.app_id FROM sessions s JOIN events e ON e.id='{native_event}' JOIN apps a ON a.id=s.app_id WHERE s.id='{native_session}';", 'upgraded') == 't'
+        assert sql(f"SELECT a.has_explicit_identifier AND e.app_id=known.app_id FROM events e JOIN events known ON known.id='{native_event}' JOIN apps a ON a.id=e.app_id WHERE e.id='{weak_event}';", 'upgraded') == 't'
+        assert sql(f"SELECT count(*) FROM app_releases ar JOIN apps a ON a.id=ar.app_id WHERE ar.release_id='{later_release}' AND a.identifier='jp.example.native';", 'upgraded') == '1'
+        assert sql(f"SELECT a.identifier='' AND NOT a.has_explicit_identifier FROM sessions s JOIN apps a ON a.id=s.app_id WHERE s.id='{ambiguous_session}';", 'upgraded') == 't'
+        assert sql(f"SELECT a.identifier='' AND NOT a.has_explicit_identifier FROM app_releases ar JOIN apps a ON a.id=ar.app_id WHERE ar.release_id='{ambiguous_release}';", 'upgraded') == 't'
         assert sql("SELECT version FROM projects WHERE id='" + project_id + "';", 'upgraded') == '1'
         assert sql("SELECT id FROM users WHERE email='owner@example.test';", 'upgraded') == user['id']
         print('PASS: fresh setup, authenticated reads, owner-only writes, strict input, concurrent conflict, check invalidation/expiry, idempotent initialization, atomic audit, restart identity, volatile storage refusal, v4 populated migration')

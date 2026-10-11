@@ -9,6 +9,18 @@
 // translation obvious in review.
 
 export const en = {
+  'apps.title': "Apps",
+  'apps.all': "All apps",
+  'apps.loadFailed': "Could not load apps",
+  'apps.platforms': "Detected platforms and integration guides",
+  'apps.filesOnly': "Files uploaded",
+  'apps.empty': "Apps appear automatically when data arrives. Choose a platform above to connect.",
+  'apps.edit': "Edit app",
+  'apps.name': "App name",
+  'apps.repository': "Git repository",
+  'apps.repositoryHint': "Repository URL for this app",
+  'apps.conflict': "This app changed. Close this dialog, refresh and try again.",
+
   "instanceHealth.title": "Instance health",
   "instanceHealth.hint": "Read-only checks do not write test data or contact external services. A backup record does not prove an off-host copy or a successful restore drill.",
   "instanceHealth.run": "Check instance health",
@@ -623,7 +635,7 @@ export const en = {
   'projects.edit': 'Edit project',
   'projects.open': 'Open issues',
   'projects.healthUnavailable': 'Health data unavailable',
-  'projects.connected': 'Events received',
+  'projects.connected': 'Connected',
   'projects.loading': 'Loading status',
   'projects.waiting': 'Waiting for the first event',
   'projects.errors24h': 'Errors in 24 hours',

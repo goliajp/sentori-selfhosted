@@ -910,3 +910,28 @@ Within `/v1/`:
   header table describing negotiation the server does not do.
   Documented the attachment endpoint, the five-kind event, `payload`,
   signals, and the limits that exist.
+
+
+## Server-discovered apps
+
+The ingestion address and credentials are project-scoped. Clients do not need
+an app ID or a registration call. The server associates each accepted event or
+session with an app using its canonical runtime platform and available identity:
+`payload.app.identifier`, `payload.app.bundleIdentifier`, or
+`payload.app.packageName` for events, then the name before the final `@` in the
+release. Session identity fields, when present, live under `app`. Invalid or
+absent identity falls back to the release prefix, then a default app for that
+platform. Existing clients and release strings remain supported.
+
+The dashboard API exposes `GET /admin/api/projects/{project_id}/apps` and
+`PATCH /admin/api/projects/{project_id}/apps/{app_id}`. Metadata writes require
+an owner and `expectedVersion`; optional `name` and `repositoryUrl` strings can
+be cleared with an empty string. The platform is determined from observations.
+Repository URLs must be HTTP(S) without embedded credentials, query or fragment.
+
+Project health includes `apps` and `artifactSummary`. Release listing accepts
+`appId` and returns associated `apps` for each build. Crash-free statistics accept
+`appId` alongside `projectId`, applying it to totals, release groups and trends.
+App membership, metadata and release associations are included in backups and
+project transfers. Legacy project platform and release fields remain available
+for API compatibility; a project platform value does not establish an app.

@@ -352,6 +352,14 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/admin/api/inbox-preferences",
             get(inbox::preferences).put(inbox::save_preferences),
         )
+        .route(
+            "/admin/api/projects/{project_id}/apps",
+            get(admin::apps::list),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/apps/{app_id}",
+            patch(admin::apps::update),
+        )
         .route("/admin/api/projects/{project_id}/jobs", get(jobs::list))
         .route(
             "/admin/api/projects/{project_id}/jobs/{job_id}",

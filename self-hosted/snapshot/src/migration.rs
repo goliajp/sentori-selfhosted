@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 pub const TABLES: &[&str] = &[
     "projects",
+    "apps",
     "users",
     "issues",
     "events",
@@ -16,6 +17,7 @@ pub const TABLES: &[&str] = &[
     "issue_activity",
     "event_attachments",
     "releases",
+    "app_releases",
     "release_artifacts",
     "tasks",
     "task_events",
@@ -28,6 +30,26 @@ pub const TABLES: &[&str] = &[
 pub fn columns(table: &str) -> &'static [&'static str] {
     match table {
         "projects" => &["id", "name", "platform", "created_at"],
+        "apps" => &[
+            "id",
+            "project_id",
+            "platform",
+            "identifier",
+            "has_explicit_identifier",
+            "name",
+            "repository_url",
+            "version",
+            "created_at",
+            "last_event_at",
+            "last_session_at",
+        ],
+        "app_releases" => &[
+            "project_id",
+            "app_id",
+            "release_id",
+            "first_seen_at",
+            "last_seen_at",
+        ],
         "users" => &["id", "display_name"],
         "issues" => &[
             "id",
@@ -56,6 +78,7 @@ pub fn columns(table: &str) -> &'static [&'static str] {
         "events" => &[
             "id",
             "project_id",
+            "app_id",
             "issue_id",
             "kind",
             "platform",
@@ -70,6 +93,7 @@ pub fn columns(table: &str) -> &'static [&'static str] {
         "sessions" => &[
             "id",
             "project_id",
+            "app_id",
             "status",
             "release",
             "environment",
@@ -219,6 +243,7 @@ impl Scope {
             project = Some(value);
         }
         for (key, parent) in [
+            ("app_id", "apps"),
             ("issue_id", "issues"),
             ("release_id", "releases"),
             ("task_id", "tasks"),

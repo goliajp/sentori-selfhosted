@@ -356,3 +356,7 @@
 .site-standalone h3 { font-size: 16px; line-height: 1.5; font-weight: 600; }
 .site-standalone svg { flex-shrink: 0; }
 .site-standalone main { outline: none; }
+
+/* Project actions wrap before a narrow card squeezes its title. */
+.project-card .surface-head { flex-wrap: wrap; }
+.project-card .surface-head h2 { flex: 1 1 12rem; }

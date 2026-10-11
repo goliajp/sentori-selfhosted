@@ -43,8 +43,13 @@ await withLiveBrowsers('projects', async ({engine, browser, context, page, origi
   await call('/admin/api/projects/' + a.id, undefined, 'GET',404);
   await page.locator('.page-heading button').click(); await dialog.waitFor();
   const createdName = `Created through UI ${engine}`;
-  await dialog.locator('input').fill(createdName); await dialog.locator('select').selectOption('android'); await dialog.getByRole('button',{name:'Save',exact:true}).click(); await dialog.waitFor({state:'hidden'}); await card(createdName).waitFor();
-  const created = (await call('/admin/api/projects')).projects.find(p => p.name === createdName); assert.ok(created && created.platform === 'android');
+  await dialog.locator('input').fill(createdName); assert.equal(await dialog.locator('select').count(),0); await dialog.getByRole('button',{name:'Save',exact:true}).click(); await dialog.waitFor({state:'hidden'}); await card(createdName).waitFor();
+  const created = (await call('/admin/api/projects')).projects.find(p => p.name === createdName); assert.ok(created && created.platform === null);
+  assert.deepEqual((await call(`/admin/api/projects/${created.id}/apps`)).apps,[]);
+  await card(createdName).getByRole('button',{name:/^iOS/}).click(); await page.waitForURL('**/setup?project='+created.id+'&platform=ios');
+  await page.locator('.flow-frame').waitFor();
+  assert.equal(await page.locator('select').filter({has:page.locator('option[value=ios]')}).inputValue(),'ios');
+  await page.goto(origin+'/projects'); await card(createdName).waitFor();
   await page.locator('input[type=search]').fill(createdName); await page.waitForFunction(() => document.querySelectorAll('.project-card').length === 1); assert.equal(await page.locator('.project-card').count(),1);
   await card(createdName).locator('.surface-foot button').first().click(); await page.waitForURL('**/setup?project=' + created.id); await page.locator('main h1').waitFor();
 
@@ -66,6 +71,44 @@ await withLiveBrowsers('projects', async ({engine, browser, context, page, origi
     const old = await context.request.post(origin + '/auth/login',{data:{email,password}}); assert.equal(old.status(),401);
     await mp.close();
   } finally { await memberContext.close(); }
+  // The SDK continues to address only a project; the server identifies apps.
+  const multiName=`Multi-app ${engine}`;
+  const multi=await call('/admin/api/projects',{name:multiName});
+  const sdk=await call(`/admin/api/projects/${multi.id}/tokens`,{name:'One project SDK key',scope:'ingest'});
+  for(const [platform,release] of [['ios','mobile@1.0'],['android','mobile@2.0'],['web','storefront@3.0']]) {
+    const response=await context.request.post(origin+'/v1/events',{headers:{Authorization:`Bearer ${sdk.token}`},data:{kind:'error',occurredAt:new Date().toISOString(),platform,release,payload:{message:`${engine} ${platform}`}}});
+    assert.equal(response.status(),202,await response.text());
+  }
+  const apps=(await call(`/admin/api/projects/${multi.id}/apps`)).apps;
+  const ios=apps.find(app=>app.platform==='ios');
+  assert.equal(apps.length,3);
+  await page.goto(origin+'/projects'); await card(multiName).locator('[data-app-id]').first().waitFor();
+  assert.equal(await card(multiName).locator('[data-app-id]').count(),3);
+  assert.equal(await card(multiName).getByRole('button',{name:/^iOS/}).getAttribute('title'),'Connected');
+  const iosRow=card(multiName).locator(`[data-app-id="${ios.id}"]`);
+  await iosRow.getByRole('button',{name:'Edit app',exact:true}).click();
+  await dialog.waitFor();
+  await dialog.getByRole('textbox',{name:'App name',exact:true}).fill('Mobile iOS');
+  await dialog.getByRole('textbox',{name:'Git repository',exact:true}).fill('https://github.com/example/mobile');
+  await dialog.getByRole('button',{name:'Save',exact:true}).click(); await dialog.waitFor({state:'hidden'});
+  await iosRow.getByRole('link',{name:'https://github.com/example/mobile'}).waitFor();
+  assert.equal(await iosRow.getByText('Mobile iOS',{exact:true}).count(),1);
+  for(const theme of ['light','dark']) for(const width of [320,1440]) {
+    await page.evaluate(theme=>localStorage.setItem('sentori-theme',theme),theme);
+    await page.setViewportSize({width,height:1100}); await page.reload(); await iosRow.waitFor();
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+    await card(multiName).scrollIntoViewIfNeeded();
+    await page.screenshot({path:out+`${engine}-apps-${theme}-${width}.png`});
+  }
+  await iosRow.getByRole('button',{name:'mobile@1.0',exact:true}).click();
+  await page.waitForURL('**/releases?project='+multi.id+'&app='+ios.id);
+  await page.getByRole('heading',{name:'Releases',exact:true}).waitFor();
+  await page.getByRole('button',{name:'mobile@1.0',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'mobile@2.0',exact:true}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'storefront@3.0',exact:true}).count(),0);
+  await page.getByRole('combobox',{name:'Apps',exact:true}).selectOption(apps.find(app=>app.platform==='android').id);
+  await page.getByRole('button',{name:'mobile@2.0',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'mobile@1.0',exact:true}).count(),0);
   writeFileSync(out+'results.json',JSON.stringify({results},null,2));
   console.log('PASS',engine,'project CRUD, stale editor recovery, typed delete, nullable platform, project scopes, member UI and password change');
 });

@@ -4,6 +4,18 @@
 import type { Messages } from './en';
 
 export const zh: Messages = {
+  'apps.title': "应用",
+  'apps.all': "全部应用",
+  'apps.loadFailed': "无法加载应用",
+  'apps.platforms': "已识别的平台与接入指南",
+  'apps.filesOnly': "已上传文件",
+  'apps.empty': "收到数据后会自动识别应用，点击上方平台查看接入指南",
+  'apps.edit': "编辑应用",
+  'apps.name': "应用名称",
+  'apps.repository': "Git 仓库",
+  'apps.repositoryHint': "此应用的仓库地址",
+  'apps.conflict': "此应用已被修改，请关闭弹窗、刷新后重试",
+
   "instanceHealth.title": "实例健康检查",
   "instanceHealth.hint": "只读检查，不写入测试数据或连接外部服务。备份记录不代表异地备份可用或恢复演练成功",
   "instanceHealth.run": "检查实例健康",
@@ -618,7 +630,7 @@ export const zh: Messages = {
   'projects.edit': '编辑项目',
   'projects.open': '打开问题',
   'projects.healthUnavailable': '暂时无法读取健康数据',
-  'projects.connected': '已接收事件',
+  'projects.connected': '已接入',
   'projects.loading': '正在读取状态',
   'projects.waiting': '等待首条事件',
   'projects.errors24h': '24 小时错误数',

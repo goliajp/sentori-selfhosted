@@ -28,6 +28,7 @@ use crate::state::AppState;
 #[serde(rename_all = "camelCase")]
 pub struct Params {
     pub project_id: Uuid,
+    pub app_id: Option<Uuid>,
     /// How far back, in hours. The default is the window a release
     /// decision is made in.
     pub hours: Option<i64>,
@@ -67,12 +68,14 @@ pub async fn crash_free(
          WHERE project_id = $1 \
            AND started_at > now() - make_interval(hours => $2::int) \
            AND ($3::text IS NULL OR environment = $3) \
+           AND ($4::uuid IS NULL OR app_id = $4) \
          GROUP BY release, platform \
          ORDER BY MAX(started_at) DESC",
     )
     .bind(params.project_id)
     .bind(i32::try_from(hours).unwrap_or(24))
     .bind(params.environment.as_deref())
+    .bind(params.app_id)
     .fetch_all(&state.pool)
     .await
     .unwrap_or_default();
@@ -117,11 +120,13 @@ pub async fn crash_free(
          WHERE project_id = $1 \
            AND started_at > now() - make_interval(hours => $2::int) \
            AND ($3::text IS NULL OR environment = $3) \
+           AND ($4::uuid IS NULL OR app_id = $4) \
            AND user_key IS NOT NULL",
     )
     .bind(params.project_id)
     .bind(i32::try_from(hours).unwrap_or(24))
     .bind(params.environment.as_deref())
+    .bind(params.app_id)
     .fetch_one(&state.pool)
     .await
     .unwrap_or((0, 0));
@@ -201,6 +206,7 @@ async fn trend(state: &Arc<AppState>, params: &Params, hours: i64) -> Vec<Value>
                AND s.started_at >= slots.at \
                AND s.started_at < slots.until \
                AND ($3::text IS NULL OR s.environment = $3) \
+               AND ($5::uuid IS NULL OR s.app_id = $5) \
          GROUP BY slots.at \
          ORDER BY slots.at",
     )
@@ -208,6 +214,7 @@ async fn trend(state: &Arc<AppState>, params: &Params, hours: i64) -> Vec<Value>
     .bind(i32::try_from(hours).unwrap_or(24))
     .bind(params.environment.as_deref())
     .bind(i32::try_from(bucket_minutes).unwrap_or(60))
+    .bind(params.app_id)
     .fetch_all(&state.pool)
     .await
     .unwrap_or_default();

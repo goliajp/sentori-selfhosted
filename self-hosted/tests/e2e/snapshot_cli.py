@@ -36,14 +36,16 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
     token=call(f'/admin/api/projects/{project}/tokens','POST',dict(name='Recovery SDK',scope='ingest'),201)['token']
     sdk=client();sdk.addheaders=[('Authorization','Bearer '+token)]
     event={'kind':'error','occurredAt':'2026-10-10T00:00:00Z','platform':'android','release':'recovery@1','environment':'test',
-           'payload':{'error':{'type':'TypeError','message':'Recovery source','stack':[{'file':'index.android.bundle','line':1,'column':20,'function':'e','inApp':True}]}}}
+           'payload':{'app':{'packageName':'jp.example.recovery'},'error':{'type':'TypeError','message':'Recovery source','stack':[{'file':'index.android.bundle','line':1,'column':20,'function':'e','inApp':True}]}}}
     event_id=call('/v1/events','POST',event,202,sdk)['eventId']
     issue=call('/admin/api/events/'+event_id)['issueId']
     replay=b'{"kind":"keyframe","at":0,"width":320,"height":640,"nodes":[]}\n'
     reference=str(uuid.uuid4());hash=hashlib.sha256(replay).hexdigest()
     docker('exec',app,'mkdir','-p','/data/blobs/'+hash[:2]);write('/data/blobs/'+hash[:2]+'/'+hash[2:]+'.bin',replay)
     sql(f"INSERT INTO event_attachments(ref,project_id,event_id,kind,media_type,size_bytes,blob_hash,source,captured_at) VALUES('{reference}','{project}','{event_id}','replay','application/x-ndjson',{len(replay)},'{hash}','javascript',now());")
-    release=str(uuid.uuid4());sql(f"INSERT INTO releases(id,project_id,name) VALUES('{release}','{project}','recovery@1');")
+    release=sql(f"SELECT id FROM releases WHERE project_id='{project}' AND name='recovery@1';")
+    app_row=call(f'/admin/api/projects/{project}/apps')['apps'][0]
+    call(f'/admin/api/projects/{project}/apps/{app_row["id"]}','PATCH',dict(expectedVersion=1,name='Recovery Android',repositoryUrl='https://github.com/example/recovery'))
     sourcemap=json.dumps({'version':3,'file':'index.android.bundle','sources':['src/checkout.ts'],'sourcesContent':["export function charge() {\n  const token = 'test'\n  return post('/pay', { token })\n}\n"],'names':[],'mappings':'oBAEI'})
     boundary='recovery-fixture-boundary'
     content=(f'--{boundary}\r\nContent-Disposition: form-data; name="kind"\r\n\r\nsourcemap\r\n--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="index.android.bundle.map"\r\nContent-Type: application/json\r\n\r\n{sourcemap}\r\n--{boundary}--\r\n').encode()
@@ -66,6 +68,7 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
     assert {c['name'] for c in package['tables']['users']['columns']}=={'id','display_name'}
     assert {c['name'] for c in package['tables']['projects']['columns']}=={'id','name','platform','created_at'}
     assert not ({'tokens','auth_sessions','push_credentials','device_tokens','instance_operations','task_integrations','outbox_events'} & package['tables'].keys())
+    assert package['tables']['apps']['rows']==1 and package['tables']['app_releases']['rows']==1
     assert package['tables']['events']['rows']==1 and package['blobs'][hash]==len(replay) and len(package['blobs'])==2
     assert json.loads(invoke('verify','--from','/data/project.sentori','--key-file','/data/recovery.key',key=''))==package
     invoke('package-projects','--out','/data/missing-project.sentori','--blob-dir','/data/blobs','--key-file','/data/recovery.key','--project',str(uuid.uuid4()),ok=False)
@@ -155,6 +158,10 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
     frame=call('/admin/api/events/'+fresh)['payload']['error']['stack'][0]
     assert frame['file']=='src/checkout.ts' and "return post('/pay'" in frame['contextLine'],frame
     assert call('/admin/api/issues/'+issue)['id']==issue
+    recovered_app=call(f'/admin/api/projects/{project}/apps')['apps'][0]
+    assert sql(f"SELECT has_explicit_identifier FROM apps WHERE id='{recovered_app['id']}';",'recovery')=='t'
+    assert recovered_app['id']==app_row['id'] and recovered_app['name']=='Recovery Android'
+    assert recovered_app['repositoryUrl']=='https://github.com/example/recovery' and recovered_app['latestRelease']['id']==release
     print('PASS restored target login, byte-identical replay, retained SDK credential and actual source-map symbolication',flush=True)
     job=call(f'/admin/api/projects/{project}/releases/{release}/resymbolicate','POST',{'idempotencyKey':str(uuid.uuid4())},202)['jobId']
     time.sleep(2)

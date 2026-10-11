@@ -99,7 +99,8 @@ the [protocol](protocol.md) documents the query API.
 
 ## Releases
 
-One row per release, with four lights: `js`, `ios`, `android`, `src`.
+Filter versions by app, or view all apps in the project. Each row shows its app
+associations and four file indicators: JavaScript, iOS, Android and Source.
 
 - **green** — the mapping is uploaded and readable
 - **amber** — uploaded, but something in it cannot be parsed
@@ -131,9 +132,10 @@ a fleet is not configuration.
 
 ## Projects
 
-One card per project: health, the last release, the platforms reporting
-in the last 24 hours, and replay coverage. This is the layer above
-everything else — the switcher in the sidebar picks which project the
+One card per project aggregates health and replay coverage across its apps.
+Platforms are discovered from received data and uploaded files. Each app shows
+its own latest release and optional Git repository; tasks stay at project level.
+This is the layer above everything else — the switcher in the sidebar picks which project the
 other screens are about.
 
 ## Settings
