@@ -15,6 +15,7 @@ import { formatApiError } from '../lib/useAsyncData';
 import { useScopedAsyncData } from '../lib/useScopedAsyncData';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { platformLabel } from '../lib/platform-label';
+import { appDisplayName } from '../lib/app-name';
 import { formatCrashFree } from '../lib/crash-free';
 import { lightColour, lightState, type LightState } from '../lib/release-lights';
 
@@ -40,14 +41,14 @@ function Releases({projectId}:{projectId:string}){
   const release=state.data?.rows.find(row=>row.id===selected);
   return <div className="production-page">
     <Heading title={t('nav.releases')} description={t('releaseView.description')}/>
-    <div className="control-bar"><Field label={t('apps.title')}><Select value={appId} onChange={e=>update({app:e.target.value,offset:'',detail:''})}><option value="">{t('apps.all')}</option>{apps.data?.apps.map(app=><option key={app.id} value={app.id}>{app.name || app.identifier || platformLabel(app.platform,t)} · {platformLabel(app.platform,t)}</option>)}</Select></Field><Field label={t('releaseView.search')}><Input type="search" maxLength={200} value={query} onChange={e=>update({q:e.target.value,offset:'',detail:''})}/></Field></div>
+    <div className="control-bar"><Field label={t('apps.title')}><Select value={appId} onChange={e=>update({app:e.target.value,offset:'',detail:''})}><option value="">{t('apps.all')}</option>{apps.data?.apps.map(app=><option key={app.id} value={app.id}>{appDisplayName(app,t)} · {platformLabel(app.platform,t)}</option>)}</Select></Field><Field label={t('releaseView.search')}><Input type="search" maxLength={200} value={query} onChange={e=>update({q:e.target.value,offset:'',detail:''})}/></Field></div>
     <Legend/>
     {state.error&&<div><ErrorBanner reason={state.error}>{t('releases.loadFailed')}</ErrorBanner><Button onClick={state.reload}>{t('common.retry')}</Button></div>}
     {apps.error&&<ErrorBanner reason={apps.error}>{t('apps.loadFailed')}</ErrorBanner>}
     {health.error&&<ErrorBanner reason={health.error}>{t('releaseView.healthFailed')}</ErrorBanner>}
     <div className="surface" aria-busy={state.loading||pendingQuery}><DataTable<Row> appearance="design" rowKey={row=>row.id} rows={pendingQuery?[]:state.data?.rows??[]} empty={t(state.loading||pendingQuery?'projects.loading':state.error?'releases.loadFailed':'releases.emptyTitle')} columns={[
       {key:'name',label:t('inbox.releaseFilter'),render:row=><button className="text-link font-semibold" onClick={()=>update({detail:row.id})}>{row.name}</button>},
-      {key:'apps',label:t('apps.title'),render:row=>row.apps?.map(app=>`${app.name || app.identifier || platformLabel(app.platform,t)} · ${platformLabel(app.platform,t)}`).join(', ')||'—'},
+      {key:'apps',label:t('apps.title'),render:row=>row.apps?.map(app=>`${appDisplayName(app,t)} · ${platformLabel(app.platform,t)}`).join(', ')||'—'},
       {key:'sessions',label:t('releaseView.sessions'),align:'right',render:row=>byRelease.get(row.name)?.sessions.toLocaleString()??'—'},
       {key:'crashFree',label:t('releases.crashFree'),align:'right',render:row=><CrashFreeCell health={byRelease.get(row.name)??null}/>},
       {key:'artifacts',label:t('releaseView.artifacts'),render:row=><Coverage release={row}/>},

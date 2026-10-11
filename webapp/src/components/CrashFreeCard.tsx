@@ -96,7 +96,7 @@ export function CrashFreeCard({ projectId }: { projectId: string }) {
   const thin = (data.sessions ?? 0) < 1000;
   const hours = data.windowHours ?? 24;
   return (
-    <div className="surface p-6">
+    <section className="surface crash-free-card">
       <div className="flex items-baseline justify-between">
         <h2 className="text-xs font-medium tracking-wide text-fg-muted uppercase">
           {t('crashFree.title')}
@@ -107,7 +107,10 @@ export function CrashFreeCard({ projectId }: { projectId: string }) {
       </div>
 
       {pct === null ? (
-        <p className="mt-3 text-sm text-fg-subtle">{t('crashFree.empty')}</p>
+        <div className="crash-free-empty">
+          <p className="text-sm text-fg-muted">{t('crashFree.empty')}</p>
+          <p className="text-xs text-fg-subtle">{t('crashFree.emptyHint')}</p>
+        </div>
       ) : (
         <>
           {/* Two decimals need a few hundred sessions to mean
@@ -174,6 +177,6 @@ export function CrashFreeCard({ projectId }: { projectId: string }) {
           )}
         </>
       )}
-    </div>
+    </section>
   );
 }

@@ -130,6 +130,7 @@ export type EventDetail = {
 export type ArtifactSummary = {kind: string; count: number; usable: boolean; broken: boolean; unchecked: boolean}[];
 export type ProjectApp = {
   id: string; projectId: string; platform: string; identifier: string; name: string | null;
+  identitySource: 'configured' | 'reported' | 'release' | 'unknown';
   repositoryUrl: string | null; version: number; createdAt: string;
   lastEventAt: string | null; lastSessionAt: string | null; events24h: number; errors24h: number;
   releaseCount: number; latestRelease: {id: string; name: string; createdAt: string} | null;

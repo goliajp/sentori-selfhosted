@@ -366,7 +366,7 @@ export function DataTable<T>({
   appearance?: 'legacy' | 'design';
   columns: Column<T>[];
   rows: T[];
-  empty?: string;
+  empty?: ReactNode;
   rowKey?: (row: T) => string;
   /** Rows become interactive (hover affordance, pointer). */
   onRowClick?: (row: T) => void;
