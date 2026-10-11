@@ -125,7 +125,7 @@ export function Badge({
   tone = "neutral",
 }: {
   children: ReactNode;
-  tone?: "neutral" | "success" | "warning" | "danger" | "info";
+  tone?: "neutral" | "success" | "warning" | "danger" | "info" | "accent";
 }) {
   return <span className={`badge badge-${tone}`}>{Children.map(children, child => typeof child === "string" || typeof child === "number" ? <span className="badge-label">{child}</span> : child)}</span>;
 }

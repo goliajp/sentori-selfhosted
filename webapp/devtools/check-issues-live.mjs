@@ -29,6 +29,37 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
   const detail=origin+`/issues/${issueId}?project=${project.id}`;
   const release=(await call(`/admin/api/projects/${project.id}/releases`)).releases[0];assert.ok(release);
   const releaseUrl=origin+`/releases?project=${project.id}&detail=${release.id}`;
+  async function checkDetail(locale,theme,width) {
+    const geometry=await page.locator('.issue-detail').evaluate(root=>{
+      const rect=e=>e.getBoundingClientRect(),center=r=>r.y+r.height/2;
+      const type=e=>{const s=getComputedStyle(e);return [s.fontFamily,s.fontSize,s.fontWeight,s.fontStyle,s.lineHeight].join('|');};
+      const textOffset=e=>{const r=document.createRange();r.selectNodeContents(e.querySelector('.button-label,.badge-label')??e);return center(r.getBoundingClientRect())-center(rect(e));};
+      const badges=[...root.querySelectorAll('.page-heading > div:last-child > span')];
+      const actions=[...root.querySelectorAll('.issue-actions button')];
+      const toolbar=root.querySelector('.issue-event-toolbar'),select=toolbar.querySelector('select'),raw=toolbar.querySelector('button');
+      const code=root.querySelector('[data-evidence-code]'),grid=root.querySelector('.issue-evidence-grid'),timeline=root.querySelector('#issue-timeline');
+      const left=rect(root).left;
+      return {badges:badges.map(e=>({offset:textOffset(e),height:rect(e).height,font:type(e)})),
+        actions:actions.map(e=>({offset:textOffset(e),height:rect(e).height,font:type(e)})),
+        insets:[toolbar,root.querySelector('[data-event-id]'),code,grid,timeline].filter(e=>e.getClientRects().length).map(e=>rect(e).left-left),
+        selectBeforeRaw:!!(select.compareDocumentPosition(raw)&Node.DOCUMENT_POSITION_FOLLOWING),
+        controlHeight:rect(select).height,sameControlBaseline:Math.abs(rect(select).bottom-rect(raw).bottom),
+        nestedScroll:getComputedStyle(grid.parentElement).overflowY,
+        evidenceGap:rect(grid).top-rect(root.querySelector('[data-event-id]')).bottom};
+    });
+    assert.equal(geometry.badges.length,2);
+    for(const badge of geometry.badges)assert.ok(Math.abs(badge.offset)<.75&&badge.height===24,JSON.stringify({engine,locale,width,geometry}));
+    assert.equal(new Set(geometry.badges.map(x=>x.font)).size,1);
+    assert.equal(geometry.actions.length,2);
+    assert.equal(new Set(geometry.actions.map(x=>x.font)).size,1);
+    for(const action of geometry.actions)assert.ok(Math.abs(action.offset)<.75&&action.height===geometry.controlHeight,JSON.stringify(geometry));
+    assert.ok(geometry.insets.every(inset=>Math.abs(inset)<1),JSON.stringify(geometry));
+    assert.ok(geometry.selectBeforeRaw&&geometry.evidenceGap>=12&&geometry.evidenceGap<=24,JSON.stringify(geometry));
+    assert.ok(!['auto','scroll'].includes(geometry.nestedScroll));
+    if(width>640)assert.ok(geometry.sameControlBaseline<1,JSON.stringify(geometry));
+    results.push({engine,locale,theme,width,name:'detail-controls',geometry});
+    if(locale==='zh'&&[320,1440].includes(width))await page.screenshot({path:out+`${engine}-detail-${locale}-${theme}-${width}.png`});
+  }
   // Empty results use the same production CSS as populated queues. Check the
   // actual geometry so a style left only in the design preview cannot pass.
   for(const locale of ['zh','ja','en']) for(const theme of ['light','dark']) for(const width of [320,1440]) {
@@ -52,6 +83,7 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
     if(locale==='zh')await page.screenshot({path:out+`${engine}-empty-${theme}-${width}.png`});
     await page.keyboard.press('Escape');assert.equal(await shortcuts.getAttribute('open'),null);
+    await page.goto(detail);await page.locator('[data-event-id]').waitFor();await checkDetail(locale,theme,width);
     results.push({engine,locale,theme,width,name:'empty-queue',metrics});writeFileSync(out+'results.json',JSON.stringify({results},null,2));
   }
   const locales=process.env.VIS_TEST_WORKFLOW_ONLY?[]:process.env.VIS_TEST_QUICK?['en']:['zh','ja','en'];
@@ -62,6 +94,7 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
     for(const [name,url,selector]of [['queue',queue,'[data-issue-id]'],['detail',detail,'[data-event-id]'],['occurrences',detail+'&tab=occurrences','[role=tabpanel] [role=button]'],['activity',detail+'&tab=activity','textarea'],['releases',releaseUrl,'dialog[open] .file-input']].filter(([name])=>!process.env.VIS_TEST_ROUTES||process.env.VIS_TEST_ROUTES.split(',').includes(name))){
       await page.goto(url);await page.locator(selector).first().waitFor();
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,`${engine}/${locale}/${theme}/${width}/${name}`);
+      if(name==='detail')await checkDetail(locale,theme,width);
       if(name==='releases')assert.equal(await page.locator('dialog[open] > .dialog-content').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
       if(locale==='en'&&theme==='light'&&[320,1440].includes(width))await page.screenshot({path:out+`${engine}-${width}-${name}.png`});
       results.push({engine,locale,theme,width,name});writeFileSync(out+'results.json',JSON.stringify({results},null,2));

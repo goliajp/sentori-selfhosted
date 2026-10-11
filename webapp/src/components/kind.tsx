@@ -5,6 +5,7 @@
 // here may name a hex.
 
 import type { IssueSummary } from '../lib/api';
+import { Badge } from '../../shared/design/controls';
 import { useLocale, useT } from '../i18n';
 
 export const kindColor = (kind: IssueSummary['kind']): string =>
@@ -15,23 +16,13 @@ export const kindTint = (kind: IssueSummary['kind'], pct = 12): string =>
   `color-mix(in srgb, var(--s-kind-${kind}) ${pct}%, transparent)`;
 
 export function KindBadge({ kind }: { kind: IssueSummary['kind'] }) {
-  return (
-    <span
-      className="inline-block rounded px-1.5 py-0.5 text-xs font-medium"
-      style={{ backgroundColor: kindTint(kind), color: kindColor(kind) }}
-    >
-      {kind}
-    </span>
-  );
+  const tones = { error: 'danger', warn: 'warning', trace: 'info', assert: 'accent', probe: 'success' } as const;
+  return <Badge tone={tones[kind]}>{kind}</Badge>;
 }
 
 export function RegressedBadge() {
   const t = useT();
-  return (
-    <span className="inline-block rounded bg-kind-error px-1.5 py-0.5 text-xs font-semibold text-white">
-      {t('inbox.groupRegressed')}
-    </span>
-  );
+  return <Badge tone="danger">{t('inbox.groupRegressed')}</Badge>;
 }
 
 /** breadth × depth, the objective importance pair.

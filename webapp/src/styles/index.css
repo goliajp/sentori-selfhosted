@@ -352,6 +352,13 @@ time {
 
 .production-page { height: 100%; overflow: auto; padding: var(--space-page-block) var(--space-page-inline) var(--space-12); }
 .production-page h1 { font-size: 28px; line-height: 1.3; font-weight: 650; letter-spacing: -.025em; }
+.issue-actions { display: grid; grid-template-columns: minmax(140px,1fr) minmax(140px,1fr) auto; align-items: end; }
+.issue-actions > .text-link { grid-column: 1 / -1; }
+.issue-event-toolbar { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: end; gap: var(--space-4); margin-bottom: var(--space-4); }
+.issue-event-meta { margin-bottom: var(--space-5); }
+.issue-evidence-grid { margin-bottom: var(--space-4); }
+@media (max-width: 640px) { .issue-event-toolbar { grid-template-columns: minmax(0,1fr); } .issue-event-toolbar > .button { justify-self: start; } }
+@media (max-width: 768px) { .issue-actions { grid-template-columns: minmax(0,1fr); } }
 .production-page > .control-bar > .control { width: auto; max-width: 100%; }
 .queue-empty { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding-block: var(--space-4); }
 .queue-empty > .button { margin-top: var(--space-1); }

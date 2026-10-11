@@ -6,12 +6,12 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Heading, Surface } from '../../shared/design/Surface';
 import { Metric } from '../../shared/design/Metric';
 import { Tabs } from '../../shared/design/Tabs';
-import { Button, Input, Field, Badge } from '../../shared/design/controls';
+import { Button, Input, Field, Badge, ControlRow } from '../../shared/design/controls';
 
 import { KindBadge, RegressedBadge } from '../components/kind';
 import { UserChip } from '../components/identity';
 import { PanelEmpty, Select, ErrorBanner, TimeAgo, clsx, formatRelative, formatRelease, formatReleaseIn } from '../components/ui';
-import { useT } from '../i18n';
+import { useLocale, useT } from '../i18n';
 import { platformLabel } from '../lib/platform-label';
 import {
   api,
@@ -44,6 +44,7 @@ export function IssueDetailPane({
   onChanged?: () => void;
 }) {
   const t = useT();
+  const locale = useLocale();
   const sharedT = useSharedT();
   const [rawOpen,setRawOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
@@ -196,14 +197,14 @@ export function IssueDetailPane({
       : null;
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="issue-detail flex min-h-0 min-w-0 flex-1 flex-col">
       <Link className="text-link text-sm" to={`/tasks?project=${issue.projectId}&issue=${issue.id}`}>{t('team.issueTask')}</Link>
-      <Heading title={headline} description={issue.id} action={<div className="flex flex-wrap gap-2"><KindBadge kind={issue.kind}/><Badge tone={issue.status==='resolved'?'success':'neutral'}>{t(`inbox.group.${issue.status}`)}</Badge>{issue.regressedAt&&issue.status==='open'&&<RegressedBadge/>}</div>}/>
+      <Heading title={headline} description={issue.id} action={<div className="flex flex-wrap items-center gap-2"><KindBadge kind={issue.kind}/><Badge tone={issue.status==='resolved'?'success':'neutral'}>{t(`inbox.group.${issue.status}`)}</Badge>{issue.regressedAt&&issue.status==='open'&&<RegressedBadge/>}</div>}/>
       {subline&&<p className="muted mb-5 break-words">{subline}</p>}
-      <div className="control-bar">
+      <div className="control-bar issue-actions">
         <Field label={t('detail.assignee')}><Select disabled={busy||loading} value={issue.assigneeUserId ?? ''} onChange={e=>void act(()=>api.assignIssue(issue.id,e.target.value||null))}><option value="">{t('detail.unassigned')}</option>{issue.assigneeUserId&&!issue.assignees.some(user=>user.id===issue.assigneeUserId)&&<option value={issue.assigneeUserId}>{t('detail.previousAssignee',{id:issue.assigneeUserId})}</option>}{issue.assignees.map(user=><option key={user.id} value={user.id}>{user.displayName||user.email}</option>)}</Select></Field>
         <Field label={t('issue.resolveInRelease')}><Input disabled={busy} value={resolveRelease} onChange={e=>setResolveRelease(e.target.value)} placeholder={issue.lastRelease ? formatRelease(issue.lastRelease) : undefined}/></Field>
-        {issue.status==='open'?<><Button variant="primary" disabled={busy||loading} onClick={()=>void act(()=>api.resolveIssue(issue.id,resolveRelease||undefined))}>{t('issue.resolve')}</Button><Button disabled={busy||loading} onClick={()=>void act(()=>api.ignoreIssue(issue.id))}>{t('issue.ignore')}</Button></>:<Button disabled={busy||loading} onClick={()=>void act(()=>api.reopenIssue(issue.id))}>{t('issue.reopen')}</Button>}
+        <ControlRow>{issue.status==='open'?<><Button variant="primary" disabled={busy||loading} onClick={()=>void act(()=>api.resolveIssue(issue.id,resolveRelease||undefined))}>{t('issue.resolve')}</Button><Button disabled={busy||loading} onClick={()=>void act(()=>api.ignoreIssue(issue.id))}>{t('issue.ignore')}</Button></>:<Button disabled={busy||loading} onClick={()=>void act(()=>api.reopenIssue(issue.id))}>{t('issue.reopen')}</Button>}</ControlRow>
         {issue.usersCount>0&&<Link className="text-link" to={`/push?project=${issue.projectId}&tab=audience&issue=${issue.id}`}>{t('issue.notifyAffected')}</Link>}
       </div>
       {failure&&<ErrorBanner reason={failure}>{t('queue.actionFailed')}</ErrorBanner>}
@@ -216,11 +217,14 @@ export function IssueDetailPane({
       </div>
       <Tabs value={tab} onChange={value=>updateParams({tab:value})} items={[["evidence",t('detail.evidence')],["occurrences",t('issue.occurrences')],["activity",t('detail.activity')]]}>
       {tab==='evidence'&&<>
-        <div className="control-bar"><Button disabled={!current} onClick={()=>setRawOpen(true)}>{t('detail.rawEvent')}</Button><Field label={t('detail.event')}><Select value={currentId??''} onChange={e=>updateParams({occurrence:e.target.value})} disabled={occurrences.loading||!occ?.events.length}><option value="" disabled>{t('detail.selectEvent')}</option>{currentId&&!occ?.events.some(row=>row.id===currentId)&&<option value={currentId}>{currentId}</option>}{occ?.events.map(row=><option key={row.id} value={row.id}>{row.id} · {new Date(row.receivedAt).toLocaleString()}</option>)}</Select></Field></div>
+        <div className="issue-event-toolbar">
+          <Field label={t('detail.event')}><Select value={currentId??''} onChange={e=>updateParams({occurrence:e.target.value})} disabled={occurrences.loading||!occ?.events.length}><option value="" disabled>{t('detail.selectEvent')}</option>{currentId&&!occ?.events.some(row=>row.id===currentId)&&<option value={currentId}>{currentId}</option>}{occ?.events.map(row=><option key={row.id} value={row.id}>{new Date(row.receivedAt).toLocaleString(locale)} · {row.id.slice(0,8)}</option>)}</Select></Field>
+          <Button disabled={!current} onClick={()=>setRawOpen(true)}>{t('detail.rawEvent')}</Button>
+        </div>
         {occurrences.error&&<ErrorBanner reason={occurrences.error}>{t('detail.eventsFailed')}</ErrorBanner>}
         {event.error&&<div><ErrorBanner reason={event.error}>{t('detail.eventFailed')}</ErrorBanner><Button onClick={event.reload}>{t('common.retry')}</Button></div>}
         {event.data&&!current&&<ErrorBanner reason={t('detail.foreignEvent')}>{t('detail.eventFailed')}</ErrorBanner>}
-        {current&&<div className="flex flex-wrap gap-x-6 gap-y-2 text-xs muted mb-5" data-event-id={current.id}>
+        {current&&<div className="issue-event-meta flex flex-wrap gap-x-6 gap-y-2 text-xs muted" data-event-id={current.id}>
           <span>{t('detail.lastReceived')}: <TimeAgo iso={current.receivedAt}/></span>
           <span>{t('issue.deviceClock')}: <TimeAgo iso={current.occurredAt}/></span>
           <span>{formatRelease(current.release)} · {current.environment} · {platformLabel(current.platform,t)}</span>
@@ -231,8 +235,7 @@ export function IssueDetailPane({
         {current&&<>
       {/* The same evidence order at every width: code first, then replay.
           One scroll container keeps evidence reachable on a phone. */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid grid-cols-1 items-start gap-4 p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)]">
+        <div className="issue-evidence-grid grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)]">
           <section data-evidence-code className="min-w-0">
             <Panel title={t('issue.code')}>
               {hasStack ? (
@@ -332,7 +335,6 @@ export function IssueDetailPane({
             )}
           </div>
         </div>
-      </div>
 
       {/* ── the minute itself: the case's narrative spine ── */}
       <button type="button" aria-expanded={timelineOpen} aria-controls="issue-timeline" onClick={() => setTimelineOpen(!timelineOpen)} className="min-h-10 shrink-0 border-t border-border px-4 text-left text-xs text-fg-muted sm:hidden">

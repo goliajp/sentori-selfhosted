@@ -1,0 +1,142 @@
+/* Button and Badge typography, alignment and states: shared by production and preview. */
+.button {
+  position: relative;
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: var(--control-size, var(--control-height));
+  min-height: var(--control-size, var(--control-height));
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  font-family: inherit;
+  font-style: normal;
+  font-weight: 500;
+  font-size: var(--control-font-size);
+  line-height: var(--control-line-height);
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background var(--motion-fast),
+    border-color var(--motion-fast);
+}
+.button-primary {
+  background: var(--ui-action);
+  color: var(--ui-on-action);
+}
+.button-primary:hover:not(:disabled) {
+  background: var(--ui-action-hover);
+}
+.button-secondary {
+  border-color: var(--ui-control);
+  background: var(--ui-surface);
+  color: var(--ui-ink);
+}
+.button-secondary:hover:not(:disabled),
+.button-ghost:hover:not(:disabled) {
+  background: var(--ui-hover);
+}
+.button-ghost {
+  background: transparent;
+  color: var(--ui-secondary);
+}
+.button-danger {
+  background: var(--ui-danger);
+  color: var(--ui-surface);
+}
+/* Fade the surface rather than the glyphs, keeping disabled labels readable. */
+.button:disabled { cursor: not-allowed; }
+.button:disabled:not([aria-busy="true"]) {
+  opacity: 1;
+  background: var(--ui-raised);
+  border-color: var(--ui-line);
+  color: var(--ui-secondary);
+}
+.button-small {
+  --control-size: var(--control-height-small);
+  --control-font-size: 12px;
+  --control-line-height: 18px;
+  padding-inline: 10px;
+}
+.button-large {
+  --control-size: var(--control-height-large, 48px);
+  --control-font-size: 15px;
+  --control-line-height: 22px;
+  padding-inline: var(--space-6);
+}
+.button-icon {
+  width: var(--control-size, var(--control-height));
+  padding: 0;
+}
+.button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: inherit;
+  min-width: 0;
+}
+.button-content > svg {
+  display: block;
+  flex-shrink: 0;
+}
+/* Trim font leading before flex centering; no locale-wide pixel offsets.
+   Older engines fall back to the centered line box. */
+.button-label, .badge-label, .choice-label, .control-label-text { display: block; text-box-trim: trim-both; text-box-edge: text; }
+.button[aria-busy="true"] {
+  opacity: 1;
+}
+.button[aria-busy="true"] > .button-content {
+  opacity: 0;
+}
+.button > .button-spinner {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  pointer-events: none;
+}
+.badge {
+  min-height: 24px;
+  height: fit-content;
+  flex-shrink: 0;
+  line-height: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-small);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--ui-secondary);
+  background: var(--ui-raised);
+}
+.badge-success {
+  color: var(--ui-success);
+  background: var(--ui-success-bg);
+}
+.badge-warning {
+  color: var(--ui-warning);
+  background: var(--ui-warning-bg);
+}
+.badge-danger {
+  color: var(--ui-danger);
+  background: var(--ui-danger-bg);
+}
+.badge-info {
+  color: var(--ui-info);
+  background: var(--ui-info-bg);
+}
+.badge-accent {
+  color: var(--ui-chart-3);
+  background: color-mix(in srgb, var(--ui-chart-3) 12%, transparent);
+}
+.badge svg {
+  width: 12px;
+  height: 12px;
+}
+
+.button[data-wrap="true"] { max-width: 100%; height: auto; white-space: normal; padding-block: var(--space-2); }
+.button[data-wrap="true"] .button-label { overflow-wrap: anywhere; }
