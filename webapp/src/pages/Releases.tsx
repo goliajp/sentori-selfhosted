@@ -1,3 +1,4 @@
+import { currentSearchParams } from '../lib/search-params';
 import { useRef, useState } from 'react';
 import { ReleaseJobs } from '../components/ReleaseJobs';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -37,8 +38,11 @@ function Releases({projectId}:{projectId:string}){
   const health=useScopedAsyncData(JSON.stringify([projectId,appId]),()=>api.crashFree({projectId,appId,hours:720}));
   const byRelease=new Map<string,{sessions:number;crashed:number}>();
   for(const row of health.data?.releases??[]){const previous=byRelease.get(row.release)??{sessions:0,crashed:0};previous.sessions+=row.sessions??0;previous.crashed+=row.crashedSessions??0;byRelease.set(row.release,previous);}
-  function update(changes:Record<string,string>){const next=new URLSearchParams(params);for(const [key,value]of Object.entries(changes)){if(value)next.set(key,value);else next.delete(key);}setParams(next,{replace:true});}
-  const release=state.data?.rows.find(row=>row.id===selected);
+  function update(changes:Record<string,string>){const next=currentSearchParams();for(const [key,value]of Object.entries(changes)){if(value)next.set(key,value);else next.delete(key);}setParams(next,{replace:true});}
+  const listedRelease=state.data?.rows.find(row=>row.id===selected);
+  const needsDetail=!!selected&&!listedRelease&&!state.loading&&!!state.data;
+  const selectedState=useScopedAsyncData(JSON.stringify([projectId,selected,needsDetail]),()=>needsDetail?api.listReleases(projectId,{id:selected!,limit:1}).then(result=>result.releases[0]??null):Promise.resolve(null));
+  const release=listedRelease??(needsDetail?selectedState.data:null);
   return <div className="production-page">
     <Heading title={t('nav.releases')} description={t('releaseView.description')}/>
     <div className="control-bar"><Field label={t('apps.title')}><Select value={appId} onChange={e=>update({app:e.target.value,offset:'',detail:''})}><option value="">{t('apps.all')}</option>{apps.data?.apps.map(app=><option key={app.id} value={app.id}>{appDisplayName(app,t)} · {platformLabel(app.platform,t)}</option>)}</Select></Field><Field label={t('releaseView.search')}><Input type="search" maxLength={200} value={query} onChange={e=>update({q:e.target.value,offset:'',detail:''})}/></Field></div>
@@ -54,6 +58,7 @@ function Releases({projectId}:{projectId:string}){
       {key:'artifacts',label:t('releaseView.artifacts'),render:row=><Coverage release={row}/>},
       {key:'created',label:t('releaseView.created'),render:row=><TimeAgo iso={(row.createdAt??row.created_at)!}/>},
     ]}/><div className="table-pagination"><span>{state.data?t('queue.pageCount',{first:String(state.data.rows.length?offset+1:0),last:String(state.data.rows.length?offset+state.data.rows.length:0),total:String(state.data.total)}):'—'}</span><div className="flex gap-2"><Button small disabled={state.loading||pendingQuery||offset===0} onClick={()=>update({offset:String(Math.max(0,offset-50)),detail:''})}>{t('queue.previous')}</Button><Button small disabled={state.loading||pendingQuery||state.data?.nextOffset==null} onClick={()=>update({offset:String(state.data!.nextOffset),detail:''})}>{t('queue.next')}</Button></div></div></div>
+    {needsDetail&&!release&&<Surface><p role="status">{t(selectedState.loading?'shell.loading':'releaseView.notFound')}</p>{selectedState.error&&<><ErrorBanner reason={selectedState.error}>{t('releases.loadFailed')}</ErrorBanner><Button onClick={selectedState.reload}>{t('common.retry')}</Button></>}<Button onClick={()=>update({detail:''})}>{t('common.close')}</Button></Surface>}
     {release&&<ReleaseDetails key={release.id} projectId={projectId} release={release} health={byRelease.get(release.name)??null} onClose={()=>update({detail:''})} onChange={state.reload}/>}
   </div>;
 }

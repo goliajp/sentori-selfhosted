@@ -4,7 +4,7 @@ import { Button } from '../../shared/design/controls';
 // Forgot password — calls /auth/forgot-password; the reset link
 // arrives by email only.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Field, Input } from '../components/ui';
@@ -17,11 +17,14 @@ export default function ForgotPassword() {
   const [err, setErr] = useState<string | null>(null);
   const [silent, setSilent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const locked = useRef(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (locked.current) return;
     setErr(null);
     setSilent(false);
+    locked.current = true;
     setLoading(true);
     try {
       await api.forgotPassword(email);
@@ -29,6 +32,7 @@ export default function ForgotPassword() {
     } catch {
       setErr(t('auth.sendFailed'));
     } finally {
+      locked.current = false;
       setLoading(false);
     }
   }

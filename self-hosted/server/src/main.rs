@@ -42,6 +42,7 @@ mod cloud_quota;
 mod credential_vault;
 mod db;
 mod env_config;
+mod event_filter;
 mod fcm;
 mod handlers;
 mod hcm;

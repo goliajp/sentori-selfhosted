@@ -1,3 +1,5 @@
+import { ErrorBanner } from './ui';
+import { Button } from '../../shared/design/controls';
 import { platformLabel } from '../lib/platform-label';
 import { useT } from '../i18n';
 import { api } from '../lib/api';
@@ -76,9 +78,10 @@ function CrashFreeTrend({ points, hours }: { points: TrendPoint[]; hours: number
   );
 }
 
-export function CrashFreeCard({ projectId }: { projectId: string }) {
+export function CrashFreeCard({ projectId, appId, environment }: { projectId: string; appId?: string; environment?: string }) {
   const t = useT();
-  const { data } = useScopedAsyncData(projectId, () => api.crashFree({ projectId, hours: 24 }));
+  const { data, error, reload } = useScopedAsyncData(JSON.stringify([projectId,appId,environment]), () => api.crashFree({ projectId, appId, environment, hours: 24 }));
+  if (error) return <div className="surface"><ErrorBanner reason={error}>{t('inbox.loadFailed')}</ErrorBanner><Button onClick={reload}>{t('common.retry')}</Button></div>;
   if (!data) return null;
 
   // `typeof`, not `=== null`. This is a trust boundary: the number
@@ -97,6 +100,7 @@ export function CrashFreeCard({ projectId }: { projectId: string }) {
   const hours = data.windowHours ?? 24;
   return (
     <section className="surface crash-free-card">
+      <p className="text-xs subtle mb-3">{t('crashFree.scope')}</p>
       <div className="flex items-baseline justify-between">
         <h2 className="text-xs font-medium tracking-wide text-fg-muted uppercase">
           {t('crashFree.title')}

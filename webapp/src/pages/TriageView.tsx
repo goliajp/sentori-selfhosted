@@ -1,3 +1,4 @@
+import { currentSearchParams } from '../lib/search-params';
 import { ArrowLeft, Keyboard } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -14,6 +15,8 @@ import { api, type IssueSummary } from '../lib/api';
 import { issueHeadline } from '../lib/issue-title';
 import { formatApiError } from '../lib/useAsyncData';
 import { useScopedAsyncData } from '../lib/useScopedAsyncData';
+import { EventFilters } from '../components/EventFilters';
+import { readEventFilters, type EventFilters as Filters } from '../lib/event-filters';
 import { IssueDetailPane } from './IssueDetail';
 
 const PAGE_SIZE = 50;
@@ -23,8 +26,10 @@ export default function TriageView() {
   const { issueId } = useParams();
   const [params] = useSearchParams();
   const t = useT();
+  const listParams=new URLSearchParams(params);
+  for(const key of ['occurrence','occurrenceOffset','tab'])listParams.delete(key);
   if (issueId) return <div className="production-page issue-page">
-    <Link className="text-link inline-flex items-center gap-2 mb-6" to={{pathname:'/issues',search:params.toString()}}><ArrowLeft size={16}/>{t('triage.back')}</Link>
+    <Link className="text-link inline-flex items-center gap-2 mb-6" to={{pathname:'/issues',search:listParams.toString()}}><ArrowLeft size={16}/>{t('triage.back')}</Link>
     <IssueDetailPane key={issueId} issueId={issueId}/>
   </div>;
   if (!activeProject) return <div className="production-page"><Heading title={t('queue.title')}/><Surface><p>{t('inbox.emptyNoProject')}</p><Link className="text-link" to="/projects">{t('nav.projects')}</Link></Surface></div>;
@@ -36,31 +41,26 @@ function IssueQueue({projectId}: {projectId: string}) {
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '', status = params.get('status') ?? 'all';
   const group = params.get('group') ?? 'all', kind = params.get('kind') ?? '';
-  const env = params.get('env') ?? '', release = params.get('rel') ?? params.get('release') ?? '';
-  const ck = params.get('ck') ?? params.get('dimension') ?? '', cv = params.get('cv') ?? params.get('context') ?? '';
+  let eventFilters: Filters = {}, filterError = false;
+  try { eventFilters = readEventFilters(params); } catch { filterError = true; }
   const sort = params.get('sort') ?? 'impact';
   const rawOffset = Number(params.get('offset') ?? 0);
   const offset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
-  const scope = JSON.stringify([projectId,q,status,group,kind,env,release,ck,cv,sort,offset]);
-  const {data,error,loading,reload} = useScopedAsyncData(scope, () => api.listIssues({projectId,q,status,group,kind:kind || undefined,environment:env || undefined,release:release || undefined,contextKey:ck,contextValue:cv,sort,offset,limit:PAGE_SIZE}));
-  const options = useScopedAsyncData(projectId, async () => {
-    const [environments, releases, keys] = await Promise.all([api.projectEnvironments(projectId),api.listReleases(projectId),api.projectContextKeys(projectId)]);
-    return {environments:environments.environments,releases:releases.releases.map(r=>r.name),keys:keys.keys};
-  });
-  const values = useScopedAsyncData(JSON.stringify([projectId,ck]), () => ck ? api.projectContextValues(projectId,ck) : Promise.resolve({values:[]}));
+  const scope = JSON.stringify([projectId,q,status,group,kind,eventFilters,filterError,sort,offset]);
+  const {data,error,loading,reload} = useScopedAsyncData(scope, () => filterError ? Promise.reject(new Error(t('filters.invalid'))) : api.listIssues({projectId,q,status,group,kind:kind || undefined,...eventFilters,sort,offset,limit:PAGE_SIZE}));
   const health = useScopedAsyncData(projectId, () => api.projectHealth(projectId));
   const [selection,setSelection] = useState<{scope:string;ids:string[]}>({scope,ids:[]});
   const [busy,setBusy] = useState(false), [failure,setFailure] = useState<string|null>(null);
   const actionBusy = useRef(false);
   const rows = data?.issues ?? [], checked = selection.scope === scope ? selection.ids.filter(id=>rows.some(row=>row.id===id)) : [];
   function filter(changes: Record<string,string>, page = false) {
-    const next = new URLSearchParams(params);
+    const next = currentSearchParams();
     for (const [key,value] of Object.entries(changes)) { if (value) next.set(key,value); else next.delete(key); }
     if (!page) next.delete('offset');
     setParams(next,{replace:!page});
   }
   function toggle(id:string) { setSelection({scope,ids:checked.includes(id)?checked.filter(value=>value!==id):[...checked,id]}); }
-  function open(id:string) { navigate({pathname:'/issues/'+id,search:params.toString()}); }
+  function open(id:string) { const next=currentSearchParams();for(const key of ['occurrence','occurrenceOffset','tab'])next.delete(key);navigate({pathname:'/issues/'+id,search:next.toString()}); }
   async function batch(action:'resolved'|'ignored', ids=checked) {
     if (!ids.length || actionBusy.current) return;
     actionBusy.current=true; setBusy(true); setFailure(null);
@@ -85,8 +85,7 @@ function IssueQueue({projectId}: {projectId: string}) {
     addEventListener('keydown',handle);return()=>removeEventListener('keydown',handle);
   },[]);
   const number=(n:number|undefined)=>n===undefined?'—':n.toLocaleString(locale);
-  const optionList=(items:string[],selected:string)=>[...new Set([...items,...selected?[selected]:[]])];
-  function clear(){filter(Object.fromEntries(['q','status','group','kind','env','rel','release','ck','cv','dimension','context','sort'].map(key=>[key,''])));}
+  function clear(){filter(Object.fromEntries(['q','status','group','kind','env','rel','release','ck','cv','dimension','context','sort','app','appType','platform','tags'].map(key=>[key,''])));}
   return <div className="production-page">
     <Heading title={t('queue.title')} description={t('queue.description')}/>
     <div className="metrics-grid mb-6" aria-busy={loading}>
@@ -102,14 +101,11 @@ function IssueQueue({projectId}: {projectId: string}) {
           <Field label={t('queue.status')}><Select value={status} onChange={event=>filter({status:event.target.value})}><option value="all">{t('queue.all')}</option>{(['open','resolved','ignored'] as const).map(value=><option key={value} value={value}>{t(`inbox.group.${value}`)}</option>)}</Select></Field>
           <Field label={t('queue.kind')}><Select value={kind} onChange={event=>filter({kind:event.target.value})}><option value="">{t('queue.all')}</option>{KINDS.map(value=><option key={value} value={value}>{value}</option>)}</Select></Field>
         </div>
-        <details><summary className="text-link text-sm">{t('queue.moreFilters')}</summary><div className="control-bar mt-4">
-          <Field label={t('inbox.envFilter')}><Select value={env} onChange={event=>filter({env:event.target.value})}><option value="">{t('queue.all')}</option>{optionList(options.data?.environments??[],env).map(value=><option key={value}>{value}</option>)}</Select></Field>
-          <Field label={t('inbox.releaseFilter')}><Select value={release} onChange={event=>filter({rel:event.target.value,release:''})}><option value="">{t('queue.all')}</option>{optionList(options.data?.releases??[],release).map(value=><option key={value}>{value}</option>)}</Select></Field>
-          <Field label={t('inbox.ctxKeyFilter')}><Select value={ck} onChange={event=>filter({ck:event.target.value,cv:'',dimension:'',context:''})}><option value="">{t('queue.all')}</option>{optionList(options.data?.keys??[],ck).map(value=><option key={value}>{value}</option>)}</Select></Field>
-          <Field label={t('inbox.ctxValueFilter')}><Select disabled={!ck} value={cv} onChange={event=>filter({cv:event.target.value,context:''})}><option value="">{t('queue.all')}</option>{optionList(values.data?.values??[],cv).map(value=><option key={value}>{value}</option>)}</Select></Field>
+        <EventFilters projectId={projectId} value={eventFilters} onChange={filter}/>
+        <div className="control-bar filter-footer">
           <Field label={t('queue.sort')}><Select value={sort} onChange={event=>filter({sort:event.target.value})}><option value="impact">{t('queue.impact')}</option><option value="newest">{t('queue.newest')}</option></Select></Field>
           <Button onClick={clear}>{t('projects.clearFilters')}</Button>
-        </div>{(options.error||values.error)&&<ErrorBanner reason={options.error||values.error!}>{t('queue.optionsFailed')}</ErrorBanner>}</details>
+        </div>
       </div>
       {failure&&<ErrorBanner reason={failure}>{t('queue.actionFailed')}</ErrorBanner>}
       {error&&<div><ErrorBanner reason={error}>{t('inbox.loadFailed')}</ErrorBanner><Button onClick={reload}>{t('common.retry')}</Button></div>}
@@ -136,7 +132,7 @@ function IssueQueue({projectId}: {projectId: string}) {
         <div className="table-pagination"><span aria-live="polite">{data?t('queue.pageCount',{first:String(rows.length?offset+1:0),last:String(rows.length?offset+rows.length:0),total:number(data.total)}):'—'}</span><div className="flex gap-2"><Button small disabled={loading||offset===0} onClick={()=>filter({offset:String(Math.max(0,offset-PAGE_SIZE))},true)}>{t('queue.previous')}</Button><Button small disabled={loading||data?.nextOffset==null} onClick={()=>filter({offset:String(data!.nextOffset)},true)}>{t('queue.next')}</Button></div></div>
       </div>
     </Tabs>
-    <div className="section-space"><CrashFreeCard projectId={projectId}/></div>
+    <div className="section-space"><CrashFreeCard projectId={projectId} appId={eventFilters.appId} environment={eventFilters.environment}/></div>
   </div>;
 }
 

@@ -3,7 +3,7 @@ import { AuthShell } from '../components/AuthShell';
 import { Button } from '../../shared/design/controls';
 // Authentication mode is supplied by this instance.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { Field, Input } from '../components/ui';
@@ -16,20 +16,24 @@ export function LoginPage() {
   const [email, setEmail] = useState(__LOCAL_DEV_LOGIN__?.email ?? '');
   const [password, setPassword] = useState(__LOCAL_DEV_LOGIN__?.password ?? '');
   const [loading, setLoading] = useState(false);
+  const locked = useRef(false);
   const [failed, setFailed] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (locked.current) return;
+    locked.current = true;
     setLoading(true);
     setFailed(false);
     try {
       await api.login(email, password);
-      const returnTo = sessionStorage.getItem('sentori_return_to');
-      sessionStorage.removeItem('sentori_return_to');
+      let returnTo: string | null = null;
+      try { returnTo = sessionStorage.getItem('sentori_return_to'); sessionStorage.removeItem('sentori_return_to'); } catch { /* Login still succeeds when storage is unavailable. */ }
       navigate(returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//') && !returnTo.includes('\\') ? returnTo : '/');
     } catch {
       setFailed(true);
     } finally {
+      locked.current = false;
       setLoading(false);
     }
   };

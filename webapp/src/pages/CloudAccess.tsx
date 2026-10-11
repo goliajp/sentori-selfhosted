@@ -5,15 +5,16 @@ import { AuthShell } from '../components/AuthShell';
 import { ErrorBanner } from '../components/ui';
 import { useT } from '../i18n';
 import { cloudApi } from '../lib/cloud-api';
-import { formatApiError, useAsyncData } from '../lib/useAsyncData';
+import { formatApiError } from '../lib/useAsyncData';
+import { useScopedAsyncData } from '../lib/useScopedAsyncData';
 export default function CloudAccess() {
   const t = useT(), [params] = useSearchParams(), workspace = params.get('workspaceId') ?? '', challenge = params.get('challenge') ?? '';
   const valid = /^[a-f0-9-]{36}$/.test(workspace) && /^[a-f0-9]{64}$/.test(challenge);
-  const info = useAsyncData(async () => {
+  const info = useScopedAsyncData(JSON.stringify([workspace,challenge,valid]), async () => {
     if (!valid) throw new Error(t('cloud.accessInvalid'));
     const [account, access] = await Promise.all([cloudApi.me(), cloudApi.access(workspace)]);
     return {account, access};
-  }, [workspace, challenge, valid]);
+  });
   const [failure, setFailure] = useState<string|null>(null), [busy, setBusy] = useState(false), locked = useRef(false);
   async function enter() {
     if (!info.data || locked.current) return;

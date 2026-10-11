@@ -38,7 +38,7 @@ pub async fn list(
     let offset = q.offset.unwrap_or(0).clamp(0, 1_000_000);
     let limit = q.limit.unwrap_or(50).clamp(1, 100);
     let query = format!(
-        "WITH selected AS MATERIALIZED (SELECT t.* FROM tasks t WHERE project_id=$1 AND ($2::text IS NULL OR strpos(lower(title),lower($2))>0) AND ($3::text IS NULL OR stage=$3) AND (NOT $4 OR assignee_user_id=$5) AND ($8::uuid IS NULL OR issue_id=$8)), page AS (SELECT {FIELDS} AS item FROM selected t ORDER BY updated_at DESC,id DESC LIMIT $6 OFFSET $7) SELECT (SELECT count(*) FROM selected) AS total,COALESCE((SELECT jsonb_agg(item) FROM page),'[]'::jsonb) AS tasks"
+        "WITH selected AS MATERIALIZED (SELECT t.* FROM tasks t WHERE project_id=$1 AND ($2::text IS NULL OR strpos(lower(title),lower($2))>0) AND ($3::text IS NULL OR stage=$3) AND (NOT $4 OR assignee_user_id=$5) AND ($8::uuid IS NULL OR issue_id=$8)), page AS (SELECT {FIELDS} AS item FROM selected t ORDER BY updated_at DESC,id DESC LIMIT $6 OFFSET $7) SELECT (SELECT count(*) FROM selected) AS total,(SELECT jsonb_build_object('active',count(*) FILTER (WHERE stage NOT IN ('done','cancelled')),'review',count(*) FILTER (WHERE stage IN ('review','verify')),'done',count(*) FILTER (WHERE stage='done'),'overdue',count(*) FILTER (WHERE due_date<current_date AND stage NOT IN ('done','cancelled'))) FROM selected) AS summary,COALESCE((SELECT jsonb_agg(item) FROM page),'[]'::jsonb) AS tasks"
     );
     let row = sqlx::query(sqlx::AssertSqlSafe(query))
         .bind(project)
@@ -56,7 +56,7 @@ pub async fn list(
     let members:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',u.id,'name',COALESCE(u.display_name,u.email)) FROM users u WHERE u.role='superadmin' OR EXISTS(SELECT 1 FROM project_assignments a WHERE a.project_id=$1 AND a.user_id=u.id) ORDER BY u.id").bind(project).fetch_all(&state.pool).await.map_err(database_error)?;
 
     Ok(Json(
-        json!({"tasks":row.get::<Value,_>("tasks"),"members":members,"total":total,"nextOffset":(offset+limit<total).then_some(offset+limit)}),
+        json!({"tasks":row.get::<Value,_>("tasks"),"members":members,"total":total,"summary":row.get::<Value,_>("summary"),"nextOffset":(offset+limit<total).then_some(offset+limit)}),
     ))
 }
 #[derive(Deserialize)]

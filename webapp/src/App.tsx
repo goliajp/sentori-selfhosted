@@ -1,3 +1,4 @@
+import { currentSearchParams } from './lib/search-params';
 import { WorkspaceLayout } from "../shared/design/WorkspaceLayout";
 import {
   Activity,
@@ -15,10 +16,10 @@ import {
   X,
 } from 'lucide-react';
 import { createContext, lazy, useContext, useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useMatch, useSearchParams } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useMatch, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { CommandPalette, openPalette } from './components/CommandPalette';
-import { Kbd, ThemeSwitch } from './components/ui';
+import { Kbd, ThemeSwitch, ErrorBanner, Select } from './components/ui';
 import { useT } from './i18n';
 import { api, type Me, type Project } from './lib/api';
 import { formatApiError, useAsyncData } from './lib/useAsyncData';
@@ -51,13 +52,15 @@ export function useShell(): Shell {
 /// page never scrolls as a whole.
 export function App() {
   const t = useT();
-  const isPublicHome = useLocation().pathname === '/';
+  const location=useLocation(),navigate=useNavigate();
+  const isPublicHome = location.pathname === '/';
   const issueId = useMatch('/issues/:issueId')?.params.issueId;
   const [scopeParams, setScopeParams] = useSearchParams();
   const drawer = useRef<HTMLDialogElement>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [visitor, setVisitor] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectsLoaded,setProjectsLoaded] = useState(false);
   // Both boot calls used to discard their failure with `() => undefined`,
   // and both failures then looked like ordinary states of a healthy app:
   // a failed authMe left `me` null forever, so every route rendered
@@ -79,7 +82,7 @@ export function App() {
     );
   const runProjects = () =>
     api.listProjects().then(
-      (r) => setProjects(r.projects),
+      (r) => {setProjects(r.projects);setProjectsLoaded(true);},
       (e: unknown) => setProjectsError(formatApiError(e)),
     );
 
@@ -122,15 +125,17 @@ export function App() {
     : projects.find((p) => p.id === projectId) ?? projects[0] ?? null;
   useEffect(() => {
     if (!activeProject || scopeParams.get('project') === activeProject.id) return;
-    const next = new URLSearchParams(scopeParams);
+    const next = currentSearchParams();
     next.set('project', activeProject.id);
     setScopeParams(next, { replace: true });
   }, [activeProject, scopeParams, setScopeParams]);
   const setActiveProjectId = (id: string) => {
     setProjectId(id);
-    const next = new URLSearchParams(scopeParams);
-    next.set('project', id);
-    setScopeParams(next, { replace: true });
+    const next = currentSearchParams();
+    for(const key of ['app','platform','appType','env','rel','release','ck','cv','dimension','context','tags','q','offset','occurrence','occurrenceOffset','detail','id','new','issue','job','transfer'])next.delete(key);
+    if(id)next.set('project',id);else next.delete('project');
+    if(issueId){next.delete('tab');navigate({pathname:'/issues',search:next.toString()});}
+    else setScopeParams(next, { replace: true });
     try {
       localStorage.setItem('sentori_project', id);
     } catch {
@@ -176,6 +181,7 @@ export function App() {
           <Link to="/welcome" aria-label="Sentori" className="sentori-identity mb-5 flex items-center px-2.5 py-2">
             <SentoriIdentity />
           </Link>
+          <label className="shell-project-picker"><span className="field-label">{t('settings.fieldProject')}</span><Select value={activeProject?.id??''} onChange={e=>{setActiveProjectId(e.target.value);drawer.current?.close();}}><option value="" disabled>{t('settings.selectProject')}</option>{projects.map(project=><option key={project.id} value={project.id}>{project.name}</option>)}</Select></label>
           <nav aria-label={t('shell.navigation')} className="flex flex-col gap-0.5">
             <NavLink to={scopedLink("/projects")}  className={navCls}>
               <FolderKanban className={navIcon} aria-hidden />
@@ -292,7 +298,7 @@ export function App() {
             </div>
           </>}>
           <main id="workspace" tabIndex={-1} className="min-h-0 flex-1 overflow-hidden outline-none">
-            <Outlet />
+            {projectsError?<div className="p-6"><ErrorBanner reason={projectsError}>{t('shell.projectsFailed')}</ErrorBanner><button type="button" className="button" onClick={reloadProjects}>{t('common.retry')}</button></div>:!projectsLoaded?<p role="status" className="p-6 muted">{t('shell.loading')}</p>:<Outlet />}
           </main>
         </WorkspaceLayout>
       <StatusBar />

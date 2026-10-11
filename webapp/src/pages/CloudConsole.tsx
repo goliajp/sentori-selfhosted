@@ -11,7 +11,7 @@ import { cloudApi, type CloudAccount, type CloudOrganization } from '../lib/clou
 import { formatApiError, useAsyncData } from '../lib/useAsyncData';
 
 export default function CloudConsole() {
-  const t = useT(), path = useLocation().pathname, navigate = useNavigate();
+  const t = useT(), location = useLocation(), path = location.pathname, navigate = useNavigate();
   const account = useAsyncData(() => cloudApi.me(), []);
   const [failure, setFailure] = useState<string|null>(null), [busy, setBusy] = useState(false);
   async function logout() {
@@ -25,7 +25,7 @@ export default function CloudConsole() {
     <nav className="flex flex-wrap gap-4 mb-6" aria-label={t('cloud.console')}><Link className="text-link" to="/cloud">{t('cloud.organizations')}</Link><Link className="text-link" to="/cloud/account">{t('settings.tab.account')}</Link></nav>
     {(failure || account.error) && <><ErrorBanner reason={failure || account.error}>{t('cloud.actionFailed')}</ErrorBanner><Button onClick={account.reload}>{t('common.retry')}</Button></>}
     {account.loading && !account.data && <p role="status">{t('shell.loading')}</p>}
-    {account.data && (path === '/cloud/account' ? <CloudAccountSettings/> : path.startsWith('/cloud/workspaces/') ? <CloudWorkspaceDetail account={account.data}/> : <Organizations account={account.data}/>)}
+    {account.data && (path === '/cloud/account' ? <CloudAccountSettings/> : path.startsWith('/cloud/workspaces/') ? <CloudWorkspaceDetail key={path+location.search} account={account.data}/> : <Organizations account={account.data}/>)}
   </div></PublicLayout>;
 }
 

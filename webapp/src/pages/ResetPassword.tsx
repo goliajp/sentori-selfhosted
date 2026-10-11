@@ -4,7 +4,7 @@ import { Button } from '../../shared/design/controls';
 // Password-reset landing — the link in the reset email points
 // here with ?token=…; the user picks a new password.
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { Field, Input } from '../components/ui';
@@ -20,9 +20,11 @@ export default function ResetPassword() {
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
+  const locked = useRef(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (locked.current) return;
     setErr(null);
     if (password.length < 12) {
       setErr(t('auth.passwordTooShort'));
@@ -32,6 +34,7 @@ export default function ResetPassword() {
       setErr(t('auth.passwordsDiffer'));
       return;
     }
+    locked.current = true;
     setLoading(true);
     try {
       await api.resetPassword(token, password);
@@ -39,6 +42,7 @@ export default function ResetPassword() {
     } catch {
       setErr(t('auth.resetFailed'));
     } finally {
+      locked.current = false;
       setLoading(false);
     }
   }

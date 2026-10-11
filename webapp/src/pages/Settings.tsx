@@ -14,7 +14,7 @@ import { Button as DesignButton } from "../../shared/design/controls";
 // tables with headers for every list, full width put to work.
 
 import { Check, Copy } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { useShell } from '../App';
@@ -28,6 +28,7 @@ import {
   type UserRow,
 } from '../lib/api';
 import { formatApiError, useAsyncData } from '../lib/useAsyncData';
+import { useScopedAsyncData } from '../lib/useScopedAsyncData';
 import InstanceSettings from './Instance';
 
 type Tab = 'account' | 'audit' | 'instance' | 'notifications' | 'tokens' | 'users';
@@ -193,7 +194,7 @@ function UsersTab() {
       <p className="break-all mb-4">{managing?.email}</p>
       <fieldset className="form-stack" disabled={busy}><legend className="field-label mb-3">{t('settings.fieldProject')}</legend>
         {projects.length === 0 && <p>{t('table.empty')}</p>}
-        {projects.map(project => <label key={project.id} className="choice-control"><input type="checkbox" checked={managing?.projects.includes(project.id) ?? false} onChange={event => void assign(project.id, event.target.checked)} /><span className="break-all">{project.name}</span></label>)}
+        {projects.map(project => <label key={project.id} className="choice-control"><input type="checkbox" disabled={busy} checked={managing?.projects.includes(project.id) ?? false} onChange={event => void assign(project.id, event.target.checked)} /><span className="break-all">{project.name}</span></label>)}
       </fieldset>
       {failure && <ErrorBanner reason={failure}>{t('settings.memberActionFailed')}</ErrorBanner>}
     </Dialog>
@@ -336,10 +337,8 @@ function WebhookPanel() {
   const t = useT();
   const { activeProject } = useShell();
   const projectId = activeProject?.id ?? null;
-  const { data, reload } = useAsyncData(
-    () => (projectId ? api.getProject(projectId) : Promise.resolve(null)),
-    [projectId],
-  );
+  const { data, error, loading, reload } = useScopedAsyncData(projectId ?? '',
+    () => (projectId ? api.getProject(projectId) : Promise.resolve(null)));
   const [draft, setDraft] = useState<null | string>(null);
   const [state, setState] = useState<'error' | 'idle' | 'saved' | 'saving'>('idle');
 
@@ -349,11 +348,14 @@ function WebhookPanel() {
 
   return (
     <Panel title={t('notify.webhookTitle')}>
+      {error && <ErrorBanner reason={error}>{t('notify.loadFailed')}</ErrorBanner>}
       <div className="space-y-2 p-3.5">
         <p className="text-xs text-fg-muted">{t('notify.webhookHint')}</p>
         <div className="flex items-center gap-2">
           <input
             type="url"
+            aria-label={t('notify.webhookTitle')}
+            disabled={loading || !!error || state === 'saving'}
             value={value}
             placeholder={t('notify.webhookPlaceholder')}
             onChange={(e) => {
@@ -364,7 +366,7 @@ function WebhookPanel() {
           />
           <Button
             size="sm"
-            disabled={!projectId || state === 'saving'}
+            disabled={!projectId || loading || !!error || state === 'saving'}
             onClick={() => {
               if (!projectId) return;
               setState('saving');
@@ -397,6 +399,10 @@ function WebhookPanel() {
 function NotificationsTab() {
   const locale = useLocale();
   const t = useT();
+  const { activeProject } = useShell();
+  const saving = useRef(new Set<string>());
+  const [pending, setPending] = useState<string[]>([]);
+  const [saveFailure, setSaveFailure] = useState<string | null>(null);
   const [testState, setTestState] = useState<'error' | 'idle' | 'sending' | 'sent'>(
     'idle',
   );
@@ -431,6 +437,8 @@ function NotificationsTab() {
     );
 
   const flip = (p: NotificationPref, field: 'onNewIssue' | 'onRegression') => {
+    if (saving.current.has(p.projectId)) return;
+    saving.current.add(p.projectId); setPending([...saving.current]); setSaveFailure(null);
     const next = { ...p, [field]: !p[field] };
     setLocal((m) => ({ ...m, [p.projectId]: next }));
     void api
@@ -439,15 +447,18 @@ function NotificationsTab() {
         onNewIssue: next.onNewIssue,
         onRegression: next.onRegression,
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        setSaveFailure(formatApiError(error));
         // roll back on failure so the UI never lies about state
         setLocal((m) => ({ ...m, [p.projectId]: p }));
-      });
+      }).finally(() => { saving.current.delete(p.projectId); setPending([...saving.current]); });
   };
 
   return (
     <div className="space-y-4">
+      {saveFailure && <ErrorBanner reason={saveFailure}>{t('notify.saveFailed')}</ErrorBanner>}
       <Panel title={t('notify.smtpTitle')}>
+        {smtp.error && <><ErrorBanner reason={smtp.error}>{t('notify.loadFailed')}</ErrorBanner><Button onClick={smtp.reload}>{t('common.retry')}</Button></>}
         <div className="p-3.5">
           {smtp.data?.configured && (
             <div className="flex items-center gap-3 text-sm">
@@ -513,12 +524,12 @@ function NotificationsTab() {
         </div>
       </Panel>
 
-      <WebhookPanel />
+      <WebhookPanel key={activeProject?.id ?? 'none'} />
 
       <Panel title={t('notify.prefsTitle')}>
         {prefs.error && (
           <div className="p-3.5">
-            <ErrorBanner reason={prefs.error}>{t('notify.loadFailed')}</ErrorBanner>
+            <ErrorBanner reason={prefs.error}>{t('notify.loadFailed')}</ErrorBanner><Button onClick={prefs.reload}>{t('common.retry')}</Button>
           </div>
         )}
         {rows.length === 0 && !prefs.loading && !prefs.error && (
@@ -539,6 +550,7 @@ function NotificationsTab() {
                   <label className="flex items-center gap-1.5 text-xs text-fg-muted">
                     <input
                       type="checkbox"
+                      disabled={pending.includes(p.projectId)}
                       checked={p.onNewIssue}
                       onChange={() => flip(p, 'onNewIssue')}
                       className="h-3.5 w-3.5 accent-accent"
@@ -548,6 +560,7 @@ function NotificationsTab() {
                   <label className="flex items-center gap-1.5 text-xs text-fg-muted">
                     <input
                       type="checkbox"
+                      disabled={pending.includes(p.projectId)}
                       checked={p.onRegression}
                       onChange={() => flip(p, 'onRegression')}
                       className="h-3.5 w-3.5 accent-accent"

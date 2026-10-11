@@ -15,7 +15,7 @@ you know which screen to open.
 | Instruments | are the checks I planted still holding |
 | Releases | did this version ship healthy |
 | Push | did the message reach the devices |
-| Projects | which app, and is it alive at all |
+| Projects | which product and Apps are reporting |
 
 There is no dashboard-of-dashboards and no widget you arrange yourself.
 The screens are opinionated because triage is: at 3am you want the next
@@ -23,9 +23,8 @@ thing to look at, not a canvas.
 
 ## The inbox
 
-The home screen is a split: the queue on the left, the case file on the
-right. Selecting a row never leaves the queue, so you can walk a
-morning's worth of reports without losing your place.
+The home screen is the issue queue. Open a row to inspect its case file;
+Back to issues retains your search, filters and pagination.
 
 **The order is the opinion.** Regressed first, then new, then open —
 not newest first. Something you already fixed and that came back is
@@ -51,9 +50,16 @@ the queue will not let you confuse them.
 
 ### Filters
 
-Environment, release, and the five kinds. Filters live in the URL, so a
-reload lands on the same view and a link you paste into chat opens what
-you were looking at.
+Filter by App, platform, environment, release, the five event kinds, or
+business dimensions. The App type field reads `payload.context.appType`;
+additional conditions can use keys from `payload.context` or `payload.tags`.
+All conditions must match the **same event**. Queue totals and occurrence
+lists reflect the matching events, rather than the entire issue history.
+
+Filters live in the URL, so a reload or shared link preserves the view.
+Changing projects clears project-specific dimensions. The crash-free card
+uses sessions in the selected App and environment over the last 24 hours;
+it does not apply issue, release or event-tag filters.
 
 ## The issue
 
@@ -92,10 +98,18 @@ question about code you already wrote:
 - **Probes** — a tripwire in code you believe is now unreachable.
   **Silence is the good outcome.** A probe that fires means the path
   you thought you removed is still being taken.
-- **Traces** — did the step run, and how long did it take.
+- **Traces** — did the step run, how often, and when was it last seen.
 
-This is a status surface, not a data browser. If you need to slice it,
-the [protocol](protocol.md) documents the query API.
+The overview plots received event activity and startup percentiles from
+actual reported data. Choose a one-hour, 24-hour, seven-day or 30-day window,
+search by name, or filter by release. Chart controls switch to an accessible
+data table, hide individual series, zoom the time range and export CSV.
+Missing observations remain empty; failed queries show an error and retry.
+
+Assertion and probe counters are cumulative project totals. Their charts
+explicitly identify that scope; the time window applies to event activity,
+trace events and startup samples. Prewarmed startup samples are counted
+separately and excluded from percentiles.
 
 ## Releases
 

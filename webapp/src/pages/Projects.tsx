@@ -1,3 +1,4 @@
+import { currentSearchParams } from '../lib/search-params';
 import { ArrowUpRight, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -33,7 +34,7 @@ export default function ProjectsPage() {
   // Retain known cards while fetching, including freshly created projects.
   const rows = projects.map(project => ({health: null, failure: null, ...data?.find(row => row.id === project.id), ...project}));
   const visible = rows.filter(row => row.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()) && (!platformFilter || row.health?.apps?.some(app => app.platform === platformFilter)));
-  function filter(key: string, value: string) { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); setParams(next, { replace: true }); }
+  function filter(key: string, value: string) { const next = currentSearchParams(); if (value) next.set(key, value); else next.delete(key); setParams(next, { replace: true }); }
   function edit(project: Project | 'new') { setEditing(project); setName(project === 'new' ? '' : project.name); setFailure(null); setConflict(false); }
   function open(project: Project, page: string) { setActiveProjectId(project.id); navigate({pathname: '/' + page, search: new URLSearchParams({project: project.id}).toString()}); }
   async function save(event: React.FormEvent) {
@@ -99,7 +100,7 @@ export default function ProjectsPage() {
         {row.failure && <div className="mt-4"><ErrorBanner reason={row.failure}>{t('projects.healthUnavailable')}</ErrorBanner><Button small onClick={reload}>{t('common.retry')}</Button></div>}
       </Surface>)}
     </div>
-    {!visible.length && <Surface><p>{t(projects.length ? 'projects.noMatches' : 'projects.emptyTitle')}</p><p className="muted mt-3">{projects.length ? t('projects.filterHint') : t(owner ? 'projects.emptyHint' : 'setup.askOwner')}</p>{projects.length > 0 && <Button className="mt-5" onClick={() => { const next = new URLSearchParams(params); next.delete('q'); next.delete('platform'); setParams(next, {replace: true}); }}>{t('projects.clearFilters')}</Button>}</Surface>}
+    {!visible.length && <Surface><p>{t(projects.length ? 'projects.noMatches' : 'projects.emptyTitle')}</p><p className="muted mt-3">{projects.length ? t('projects.filterHint') : t(owner ? 'projects.emptyHint' : 'setup.askOwner')}</p>{projects.length > 0 && <Button className="mt-5" onClick={() => { const next = currentSearchParams(); next.delete('q'); next.delete('platform'); setParams(next, {replace: true}); }}>{t('projects.clearFilters')}</Button>}</Surface>}
     <Dialog open={!!editing} onClose={() => { if (!busy) setEditing(null); }} closeLabel={t('common.close')} title={t(editing === 'new' ? 'settings.createProject' : 'projects.edit')} footer={<Button type="submit" form="project-edit" variant="primary" busy={busy}>{t('settings.save')}</Button>}>
       <form id="project-edit" className="form-stack" onSubmit={save}>
         <Field label={t('settings.projectName')}><Input required pattern={String.raw`.*\S.*`} maxLength={200} value={name} onChange={e => setName(e.target.value)} data-autofocus disabled={busy}/></Field>

@@ -1,3 +1,4 @@
+import { eventFilterParams, type EventFilters } from './event-filters';
 import type { ProjectTransfer, TransferCreate, TransferCommand, TransferTail, TransferUpload } from './transfer-contract';
 export type CloudUsage = {
   limits: { monthlyEvents: number; monthlyReplays: number; monthlyIngestBytes: number; artifactBytes: number; projects: number; eventRetentionDays: number; replayRetentionDays: number; eventsPerSecond: number };
@@ -431,6 +432,9 @@ export type LaunchRow = {
   p95: null | number;
 };
 export type InstrumentsPanel = {
+  windowHours: number;
+  users: number;
+  activity: {at:string;events:number;errors:number;warnings:number;assertions:number;probes:number;traces:number}[];
   asserts: AssertRow[];
   probes: ProbeRow[];
   traces: TraceRow[];
@@ -709,7 +713,7 @@ class Api {
     return this.send<{ version: number; secret: string | null }>('PUT', `/admin/api/projects/${project}/task-integration`, body);
   }
   listTasks(project: string, query: URLSearchParams) {
-    return this.get<{ tasks: Task[]; members: { id: string; name: string }[]; total: number; nextOffset: number | null }>(`/admin/api/projects/${project}/tasks?${query}`);
+    return this.get<{ tasks: Task[]; members: { id: string; name: string }[]; total: number; summary: {active:number;review:number;done:number;overdue:number}; nextOffset: number | null }>(`/admin/api/projects/${project}/tasks?${query}`);
   }
   listMonitors(project: string) { return this.get<{ monitors: Monitor[] }>(`/admin/api/projects/${project}/monitors`); }
   listIntegrations(project: string) { return this.get<{ integrations: Integration[]; vaultConfigured: boolean; smtpConfigured: boolean }>(`/admin/api/projects/${project}/integrations`); }
@@ -773,7 +777,7 @@ class Api {
     }>(`/admin/api/sessions/crash-free?${usp.toString()}`);
   }
 
-  listIssues(q: {
+  listIssues(q: EventFilters & {
     status?: string;
     kind?: string;
     projectId?: string;
@@ -787,7 +791,7 @@ class Api {
     contextValue?: string;
     release?: string;
   }) {
-    const usp = new URLSearchParams();
+    const usp = eventFilterParams(q);
     if (q.status) usp.set('status', q.status);
     if (q.kind) usp.set('kind', q.kind);
     if (q.projectId) usp.set('project_id', q.projectId);
@@ -805,23 +809,16 @@ class Api {
     const qs = usp.toString();
     return this.get<{ issues: IssueSummary[]; total: number; limit: number; offset: number; nextOffset: number | null; summary: { events: number; open: number; regressed: number; releases: number } }>(`/admin/api/issues${qs ? `?${qs}` : ''}`);
   }
-  /** Deployment environments this project's events have reported. */
-  projectEnvironments(projectId: string) {
-    return this.get<{ environments: string[] }>(
-      `/admin/api/projects/${projectId}/environments`,
-    );
+  projectEnvironments(projectId: string, filters: EventFilters = {}) {
+    return this.get<{ environments: string[] }>(`/admin/api/projects/${projectId}/environments?${eventFilterParams(filters)}`);
   }
-  /** Context keys this project's events have reported — slicing
-   *  dimensions whose meaning belongs to the host, not to Sentori. */
-  projectContextKeys(projectId: string) {
-    return this.get<{ keys: string[] }>(
-      `/admin/api/projects/${projectId}/context-keys`,
-    );
+  projectContextKeys(projectId: string, filters: EventFilters = {}, source = 'context') {
+    const params = eventFilterParams(filters); params.set('source', source);
+    return this.get<{ keys: string[] }>(`/admin/api/projects/${projectId}/context-keys?${params}`);
   }
-  projectContextValues(projectId: string, key: string) {
-    return this.get<{ values: string[] }>(
-      `/admin/api/projects/${projectId}/context-values?key=${encodeURIComponent(key)}`,
-    );
+  projectContextValues(projectId: string, key: string, filters: EventFilters = {}, source = 'context') {
+    const params = eventFilterParams(filters); params.set('source', source); params.set('key', key);
+    return this.get<{ values: string[] }>(`/admin/api/projects/${projectId}/context-values?${params}`);
   }
   getIssue(id: string) {
     return this.get<IssueDetail>(`/admin/api/issues/${id}`);
@@ -844,8 +841,8 @@ class Api {
   addNote(id: string, body: string) {
     return this.post<{ ok: boolean }>(`/admin/api/issues/${id}/notes`, { body });
   }
-  listOccurrences(id: string, offset = 0, limit = 100) {
-    return this.get<{ events: OccurrenceRow[]; total: number; nextOffset: number | null }>(`/admin/api/issues/${id}/events?offset=${offset}&limit=${limit}`);
+  listOccurrences(id: string, offset = 0, limit = 100, filters: EventFilters = {}) {
+    return this.get<{ events: OccurrenceRow[]; total: number; nextOffset: number | null }>(`/admin/api/issues/${id}/events?offset=${offset}&limit=${limit}&${eventFilterParams(filters)}`);
   }
 
   // ── events + attachments ──
@@ -873,8 +870,9 @@ class Api {
   }
 
   // ── releases ──
-  listReleases(projectId: string, query: {appId?:string;q?:string;offset?:number;limit?:number} = {}, signal?: AbortSignal) {
+  listReleases(projectId: string, query: {id?:string;appId?:string;q?:string;offset?:number;limit?:number} = {}, signal?: AbortSignal) {
     const params = new URLSearchParams();
+    if(query.id)params.set('id',query.id);
     if(query.q)params.set('q',query.q);
     if(query.appId)params.set('appId',query.appId);
     if(query.offset!==undefined)params.set('offset',String(query.offset));
@@ -896,8 +894,12 @@ class Api {
    *  exists to name the status and the message — had nothing to name.
    *  The banner said `Error: 500` while the server had answered with
    *  `upstream_unavailable — the database refused the connection`. */
-  instruments(projectId: string) {
-    return this.get<InstrumentsPanel>(`/admin/api/projects/${projectId}/instruments`);
+  instruments(projectId: string, query: {q?:string;release?:string;hours?:number} = {}) {
+    const params=new URLSearchParams();
+    if(query.q)params.set('q',query.q);
+    if(query.release)params.set('release',query.release);
+    if(query.hours)params.set('hours',String(query.hours));
+    return this.get<InstrumentsPanel>(`/admin/api/projects/${projectId}/instruments?${params}`);
   }
 
   // ── push ──

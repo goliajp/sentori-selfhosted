@@ -1,3 +1,5 @@
+import { WorkbenchEmpty } from '../components/WorkbenchEmpty';
+import { Link } from 'react-router-dom';
 import { useIntegrationCommand } from '../lib/useIntegrationCommand';
 import { useState } from 'react';
 import { Mail, Webhook, GitPullRequest, Link2, ExternalLink } from 'lucide-react';
@@ -16,13 +18,13 @@ import { ErrorBanner, TimeAgo } from '../components/ui';
 
 export default function IntegrationsPage() {
   const { activeProject } = useShell(), t = useT();
-  return activeProject ? <Integrations key={activeProject.id} project={activeProject.id}/> : <p className="p-6">{t('team.chooseProject')}</p>;
+  return activeProject ? <Integrations key={activeProject.id} project={activeProject.id}/> : <div className="production-page"><Heading title={t('integration.title')}/><Surface><WorkbenchEmpty title={t('team.chooseProject')} action={<Link className="text-link" to="/projects">{t('nav.projects')}</Link>}/></Surface></div>;
 }
 function Integrations({ project }: { project: string }) {
   const t = useT(), { me } = useShell(), list = useScopedAsyncData(project, () => api.listIntegrations(project));
   const [editor, setEditor] = useState<IntegrationKind | null>(null), [test, setTest] = useState<Integration | null>(null), [revision, setRevision] = useState(0), [queued, setQueued] = useState(false);
   const names = { email: t('integration.email'), webhook: 'Webhook', github: 'GitHub', jira: 'Jira' }, icons = { email: Mail, webhook: Webhook, github: GitPullRequest, jira: Link2 }, owner = me.role === 'superadmin';
-  return <div className="team-page p-4 md:p-6"><Heading title={t('integration.title')} description={t('integration.description')}/><div className="team-toolbar"><p className="muted text-sm">{t('integration.configuredHint')}</p><Button onClick={() => { list.reload(); setRevision(v => v + 1); }}>{t('team.refresh')}</Button></div>
+  return <div className="production-page team-page"><Heading title={t('integration.title')} description={t('integration.description')}/><div className="team-toolbar"><p className="muted text-sm">{t('integration.configuredHint')}</p><Button onClick={() => { list.reload(); setRevision(v => v + 1); }}>{t('team.refresh')}</Button></div>
     {list.error && <ErrorBanner reason={list.error}>{t('team.failed')}</ErrorBanner>}{list.loading && <p role="status">{t('shell.loading')}</p>}{list.data && !list.data.vaultConfigured && <p className="mb-4">{t('team.vaultRequired')}</p>}
     {list.data && <div className="team-integration-grid">{integrationKinds.map(kind => { const item = list.data!.integrations.find(i => i.kind === kind), Icon = icons[kind], destination = item?.summary.repository || item?.summary.recipient || item?.summary.endpoint || item?.summary.endpointOrigin; return <section key={kind} className="team-integration-card" data-integration-kind={kind}><header><span><Icon size={22}/></span><h2>{names[kind]}</h2><Badge>{!item ? t('integration.unconfigured') : item.enabled ? t('integration.configured') : t('monitor.paused')}</Badge></header><p>{t(`integration.hint.${kind}`)}</p><dl><dt>{t('integration.destination')}</dt><dd>{destination || '—'}</dd></dl>{kind === 'email' && !list.data!.smtpConfigured && <p>{t('integration.smtpMissing')}</p>}<footer><Button disabled={!owner || !list.data!.vaultConfigured} onClick={() => setEditor(kind)}>{t('integration.configure')}</Button><Button disabled={!owner || !item?.enabled || !list.data!.vaultConfigured || kind === 'email' && !list.data!.smtpConfigured} onClick={() => { setQueued(false); setTest(item!); }}>{t('integration.sendTest')}</Button></footer></section>; })}</div>}
     {queued && <p role="status" className="mt-4">{t('integration.queuedHint')}</p>}<TaskIntegration key={project} project={project}/><div className="team-space"><Deliveries key={revision} project={project} owner={owner}/></div>

@@ -9,6 +9,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
+use sqlx::Row;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -305,15 +306,14 @@ pub async fn delete(
 
 /// The backend probe's story for one project: latest check + a
 /// day's uptime. `Value::Null` when no URL is configured.
-async fn backend_block(state: &Arc<AppState>, project_id: Uuid) -> Value {
+async fn backend_block(state: &Arc<AppState>, project_id: Uuid) -> Result<Value, sqlx::Error> {
     let url: Option<String> =
         sqlx::query_scalar("SELECT backend_health_url FROM projects WHERE id = $1")
             .bind(project_id)
             .fetch_one(&state.pool)
-            .await
-            .unwrap_or(None);
+            .await?;
     let Some(url) = url else {
-        return Value::Null;
+        return Ok(Value::Null);
     };
     let last = sqlx::query(
         "SELECT ok, status_code, latency_ms, checked_at FROM backend_checks \
@@ -321,8 +321,7 @@ async fn backend_block(state: &Arc<AppState>, project_id: Uuid) -> Value {
     )
     .bind(project_id)
     .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
+    .await?;
     let agg = sqlx::query(
         "SELECT count(*) AS total, count(*) FILTER (WHERE ok) AS ok_n \
          FROM backend_checks \
@@ -330,15 +329,10 @@ async fn backend_block(state: &Arc<AppState>, project_id: Uuid) -> Value {
     )
     .bind(project_id)
     .fetch_one(&state.pool)
-    .await
-    .ok();
-    let (total, ok_n) = agg.map_or((0i64, 0i64), |r| {
-        (
-            sqlx::Row::get::<i64, _>(&r, "total"),
-            sqlx::Row::get::<i64, _>(&r, "ok_n"),
-        )
-    });
-    json!({
+    .await?;
+    let total = agg.get::<i64, _>("total");
+    let ok_n = agg.get::<i64, _>("ok_n");
+    Ok(json!({
         "url": url,
         "lastOk": last.as_ref().map(|r| sqlx::Row::get::<bool, _>(r, "ok")),
         "lastStatus": last.as_ref().and_then(|r| sqlx::Row::get::<Option<i32>, _>(r, "status_code")),
@@ -346,7 +340,7 @@ async fn backend_block(state: &Arc<AppState>, project_id: Uuid) -> Value {
         "lastCheckedAt": last.as_ref().map(|r| crate::wire_time::rfc3339(sqlx::Row::get(r, "checked_at"))),
         "checks24h": total,
         "ok24h": ok_n,
-    })
+    }))
 }
 
 /// One `GROUP BY` aggregate folded into a JSON map — the health
@@ -358,12 +352,11 @@ async fn count_by(
     // runtime-built string here, and the honest answer is that this
     // helper never wanted one — every caller passes a literal.
     sql: &'static str,
-) -> serde_json::Map<String, Value> {
+) -> Result<serde_json::Map<String, Value>, sqlx::Error> {
     let rows = sqlx::query(sql)
         .bind(project_id)
         .fetch_all(&state.pool)
-        .await
-        .unwrap_or_default();
+        .await?;
     let mut out = serde_json::Map::new();
     for r in &rows {
         out.insert(
@@ -371,93 +364,109 @@ async fn count_by(
             Value::from(sqlx::Row::get::<i64, _>(r, "n")),
         );
     }
-    out
+    Ok(out)
 }
 
-/// GET /admin/api/projects/{id}/environments — the deployment
-/// environments this project's events have actually reported, for
-/// the queue's environment filter. Small by construction (a handful
-/// of deployment targets), newest-traffic first.
+#[derive(Default, Deserialize)]
+pub struct FilterOptionsQuery {
+    #[serde(flatten)]
+    pub filters: crate::event_filter::EventFilter,
+    pub source: Option<String>,
+    pub key: Option<String>,
+}
+
+/// Real event dimensions in the authorized project and selected app scope.
 pub async fn environments(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Path(project_id): Path<Uuid>,
+    Query(q): Query<FilterOptionsQuery>,
 ) -> (StatusCode, Json<Value>) {
-    if let Err(e) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
-        return e;
+    if let Err(error) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
+        return error;
     }
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT environment FROM events WHERE project_id = $1 \
-         GROUP BY environment ORDER BY max(received_at) DESC",
-    )
-    .bind(project_id)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
-    let envs: Vec<String> = rows.into_iter().map(|(e,)| e).collect();
-    (StatusCode::OK, Json(json!({ "environments": envs })))
+    filter_options(&state, project_id, &q, "environments").await
 }
 
-/// GET /admin/api/projects/{id}/context-keys — the context keys this
-/// project's events have actually reported. Sentori does not know
-/// what `qa` or `tenant` MEAN — it only offers them as slicing
-/// dimensions; the reader supplies the semantics (insight
-/// context-dimensions feedback: generic capability for private
-/// vocabulary, first-class fields only for universal concepts).
 pub async fn context_keys(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Path(project_id): Path<Uuid>,
+    Query(q): Query<FilterOptionsQuery>,
 ) -> (StatusCode, Json<Value>) {
-    if let Err(e) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
-        return e;
+    if let Err(error) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
+        return error;
     }
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT key FROM events, \
-                LATERAL jsonb_object_keys(payload->'context') AS key \
-         WHERE project_id = $1 \
-           AND jsonb_typeof(payload->'context') = 'object' \
-         GROUP BY key ORDER BY max(received_at) DESC LIMIT 50",
-    )
-    .bind(project_id)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
-    let keys: Vec<String> = rows.into_iter().map(|(k,)| k).collect();
-    (StatusCode::OK, Json(json!({ "keys": keys })))
+    filter_options(&state, project_id, &q, "keys").await
 }
 
-#[derive(Deserialize)]
-pub struct ContextValuesQuery {
-    pub key: String,
-}
-
-/// GET /admin/api/projects/{id}/context-values?key=X — the values
-/// that key has taken, newest-traffic first. Booleans and numbers
-/// arrive as their text form ('true', '42') — the same form the
-/// issues filter compares with.
 pub async fn context_values(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Path(project_id): Path<Uuid>,
-    Query(q): Query<ContextValuesQuery>,
+    Query(q): Query<FilterOptionsQuery>,
 ) -> (StatusCode, Json<Value>) {
-    if let Err(e) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
-        return e;
+    if let Err(error) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
+        return error;
     }
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT payload->'context'->>$2 AS val FROM events \
-         WHERE project_id = $1 AND payload->'context' ? $2 \
-           AND payload->'context'->>$2 IS NOT NULL \
-         GROUP BY val ORDER BY max(received_at) DESC LIMIT 50",
-    )
-    .bind(project_id)
-    .bind(&q.key)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
-    let values: Vec<String> = rows.into_iter().map(|(v,)| v).collect();
-    (StatusCode::OK, Json(json!({ "values": values })))
+    filter_options(&state, project_id, &q, "values").await
+}
+
+async fn filter_options(
+    state: &Arc<AppState>,
+    project_id: Uuid,
+    q: &FilterOptionsQuery,
+    field: &str,
+) -> (StatusCode, Json<Value>) {
+    let filters = match q.filters.validated() {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    let source = q.source.as_deref().unwrap_or("context");
+    if !["context", "tags"].contains(&source)
+        || (field == "values" && q.key.as_ref().is_none_or(|k| k.is_empty() || k.len() > 200))
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid_filter", "field":"source_or_key"})),
+        );
+    }
+    let (value, lateral) = match field {
+        "keys" => (
+            "dimension.key",
+            "CROSS JOIN LATERAL jsonb_object_keys(CASE WHEN jsonb_typeof(e.payload->($3::text))='object' THEN e.payload->($3::text) ELSE '{}'::jsonb END) dimension(key)",
+        ),
+        "values" => ("e.payload->($3::text)->>($4::text)", ""),
+        _ => ("e.environment", ""),
+    };
+    // Uniform parameter positions let the same event predicate serve all facets.
+    let sql = format!(
+        "SELECT {value} AS value FROM events e {lateral}
+        WHERE e.project_id=$1 AND {} AND $3::text IS NOT NULL AND $4::text IS NOT NULL
+          AND {value} IS NOT NULL
+        GROUP BY value ORDER BY max(e.received_at) DESC, ({value}) COLLATE \"C\" LIMIT 200",
+        crate::event_filter::predicate(2)
+    );
+    let result: Result<Vec<(String,)>, _> = sqlx::query_as(sqlx::AssertSqlSafe(sql))
+        .bind(project_id)
+        .bind(filters)
+        .bind(source)
+        .bind(q.key.as_deref().unwrap_or(""))
+        .fetch_all(&state.pool)
+        .await;
+    match result {
+        Ok(rows) => (
+            StatusCode::OK,
+            Json(json!({field: rows.into_iter().map(|(v,)| v).collect::<Vec<_>>()})),
+        ),
+        Err(error) => {
+            warn!(%error, "event filter options failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error":"internal"})),
+            )
+        }
+    }
 }
 
 /// GET /admin/api/projects/{id}/health — what the SDK's own traffic
@@ -471,16 +480,14 @@ pub async fn health(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Path(project_id): Path<Uuid>,
-) -> (StatusCode, Json<Value>) {
-    if let Err(e) = super::tokens::ensure_project_access(&state, &ctx, project_id).await {
-        return e;
-    }
+) -> Result<Reply, Reply> {
+    super::tokens::ensure_project_access(&state, &ctx, project_id).await?;
     let last_event_at: Option<time::OffsetDateTime> =
         sqlx::query_scalar("SELECT max(received_at) FROM events WHERE project_id = $1")
             .bind(project_id)
             .fetch_one(&state.pool)
             .await
-            .unwrap_or(None);
+            .map_err(|error| failure(&error))?;
     let mut counts = count_by(
         &state,
         project_id,
@@ -488,7 +495,8 @@ pub async fn health(
          WHERE project_id = $1 AND received_at > now() - interval '24 hours' \
          GROUP BY kind",
     )
-    .await;
+    .await
+    .map_err(|error| failure(&error))?;
     // GROUP BY returns no row for a kind with no events, so a quiet
     // project answered `{}` — and the console, reading a missing key as
     // "unknown", drew a dash where the true answer is zero. It sat next
@@ -505,7 +513,7 @@ pub async fn health(
     .bind(project_id)
     .fetch_one(&state.pool)
     .await
-    .unwrap_or(0);
+    .map_err(|error| failure(&error))?;
     let platforms = count_by(
         &state,
         project_id,
@@ -513,14 +521,14 @@ pub async fn health(
          WHERE project_id = $1 AND received_at > now() - interval '24 hours' \
          GROUP BY platform",
     )
-    .await;
+    .await
+    .map_err(|error| failure(&error))?;
     let latest_release: Option<String> = sqlx::query_scalar(
-        "SELECT release FROM events WHERE project_id = $1 ORDER BY received_at DESC LIMIT 1",
+        "SELECT release FROM events WHERE project_id = $1 ORDER BY received_at DESC,id DESC LIMIT 1",
     )
     .bind(project_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or(None);
+    .fetch_optional(&state.pool)
+    .await.map_err(|error| failure(&error))?;
     let artifact_kinds: Vec<String> = match &latest_release {
         Some(rel) => sqlx::query_scalar(
             "SELECT DISTINCT a.kind FROM release_artifacts a \
@@ -531,7 +539,7 @@ pub async fn health(
         .bind(rel)
         .fetch_all(&state.pool)
         .await
-        .unwrap_or_default(),
+        .map_err(|error| failure(&error))?,
         None => Vec::new(),
     };
     let replay_row = sqlx::query(
@@ -547,20 +555,18 @@ pub async fn health(
     .bind(project_id)
     .fetch_one(&state.pool)
     .await
-    .ok();
-    let (eligible, with_screens) = replay_row.map_or((0, 0), |r| {
-        (
-            sqlx::Row::get::<i64, _>(&r, "eligible"),
-            sqlx::Row::get::<i64, _>(&r, "with_screens"),
-        )
-    });
-    let backend = backend_block(&state, project_id).await;
+    .map_err(|error| failure(&error))?;
+    let eligible = replay_row.get::<i64, _>("eligible");
+    let with_screens = replay_row.get::<i64, _>("with_screens");
+    let backend = backend_block(&state, project_id)
+        .await
+        .map_err(|error| failure(&error))?;
     let (apps, artifact_summary) = match super::apps::project_summary(&state.pool, project_id).await
     {
         Ok(summary) => summary,
-        Err(error) => return failure(&error),
+        Err(error) => return Err(failure(&error)),
     };
-    (
+    Ok((
         StatusCode::OK,
         Json(json!({
             "backend": backend,
@@ -574,5 +580,5 @@ pub async fn health(
             "latestReleaseArtifacts": artifact_kinds,
             "replay24h": { "eligible": eligible, "withScreens": with_screens },
         })),
-    )
+    ))
 }

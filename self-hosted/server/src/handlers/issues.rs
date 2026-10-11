@@ -46,24 +46,8 @@ pub struct ListQuery {
     pub sort: Option<String>,
     #[serde(default)]
     pub group: Option<String>,
-    /// Deployment-environment filter: only issues with at least one
-    /// event in this environment (issues aggregate across
-    /// environments; the queue slices them).
-    #[serde(default)]
-    pub environment: Option<String>,
-    /// Context-dimension filter (key + value together): only issues
-    /// with at least one event whose `payload.context[key]` equals the
-    /// value (text form). Sentori attaches no meaning to the key —
-    /// the reader does.
-    #[serde(default)]
-    pub context_key: Option<String>,
-    #[serde(default)]
-    pub context_value: Option<String>,
-    /// Release filter: issues with at least one event in this
-    /// release (release stays out of the fingerprint — the
-    /// resolve/regression narrative is cross-release).
-    #[serde(default)]
-    pub release: Option<String>,
+    #[serde(flatten)]
+    pub filters: crate::event_filter::EventFilter,
 }
 
 fn issue_row_json(r: &sqlx::postgres::PgRow) -> Value {
@@ -83,16 +67,16 @@ fn issue_row_json(r: &sqlx::postgres::PgRow) -> Value {
         // the same way, with nothing saying which was which.
         // `try_get` because the detail query does not compute it: a
         // caller that does not ask gets null rather than a panic.
-        "lastSeen": crate::wire_time::rfc3339(r.get("last_seen")),
+        "lastSeen": crate::wire_time::rfc3339(r.try_get::<Option<time::OffsetDateTime>, _>("matched_last_seen").ok().flatten().unwrap_or_else(|| r.get("last_seen"))),
         "lastReceivedAt": r
             .try_get::<Option<time::OffsetDateTime>, _>("last_received_at")
             .ok()
             .flatten()
             .map(crate::wire_time::rfc3339),
-        "eventCount": r.get::<i64, _>("event_count"),
-        "usersCount": r.get::<i64, _>("users_count"),
-        "maxPerUser": r.get::<i64, _>("max_per_user"),
-        "lastRelease": r.get::<String, _>("last_release"),
+        "eventCount": r.try_get::<Option<i64>, _>("matched_events").ok().flatten().unwrap_or_else(|| r.get("event_count")),
+        "usersCount": r.try_get::<Option<i64>, _>("matched_users").ok().flatten().unwrap_or_else(|| r.get("users_count")),
+        "maxPerUser": r.try_get::<Option<i64>, _>("matched_max_per_user").ok().flatten().unwrap_or_else(|| r.get("max_per_user")),
+        "lastRelease": r.try_get::<Option<String>, _>("matched_last_release").ok().flatten().unwrap_or_else(|| r.get("last_release")),
         "assigneeUserId": r.get::<Option<Uuid>, _>("assignee_user_id"),
         "resolvedAt": crate::wire_time::rfc3339_opt(r.get("resolved_at")),
         "resolvedInRelease": r.get::<Option<String>, _>("resolved_in_release"),
@@ -202,47 +186,53 @@ fn list_window(q: &ListQuery) -> Result<ListWindow<'_>, (StatusCode, Json<Value>
     })
 }
 
-const ISSUE_LIST_SQL: &str = "WITH filtered AS MATERIALIZED (
-           SELECT * FROM issues
-           WHERE ($1 = 'all' OR status = $1)
-             AND ($2::uuid IS NULL OR project_id = $2)
-             AND ($3::text IS NULL OR kind = $3)
-             AND ($4::uuid[] IS NULL OR project_id = ANY($4))
-             AND ($6::text IS NULL OR environment = $6
-                  OR (environment IS NULL AND EXISTS (
-                    SELECT 1 FROM events e WHERE e.issue_id = issues.id AND e.environment = $6)))
-             AND ($7::text IS NULL OR $8::text IS NULL OR EXISTS (
-                    SELECT 1 FROM events e WHERE e.issue_id = issues.id
-                      AND e.payload->'context'->>$7 = $8))
-             AND ($9::text IS NULL OR EXISTS (
-                    SELECT 1 FROM events e WHERE e.issue_id = issues.id AND e.release = $9))
-             AND ($10::text IS NULL OR strpos(lower(group_title), lower($10)) > 0
-                  OR strpos(lower(message_sample), lower($10)) > 0
-                  OR strpos(id::text, lower($10)) > 0)
-             AND ($12 = 'all' OR ($12 = 'open' AND status = 'open')
-                  OR ($12 = 'regressed' AND status = 'open' AND regressed_at IS NOT NULL)
-                  OR ($12 = 'fresh' AND first_seen > now() - interval '24 hours'))
+const ISSUE_LIST_SQL: &str = "WITH matching AS MATERIALIZED (
+           SELECT e.id,e.issue_id,e.user_key,e.occurred_at,e.received_at,e.release,
+                  count(*) OVER (PARTITION BY e.issue_id,e.user_key) AS per_user
+           FROM events e WHERE $11 AND ($2::uuid IS NULL OR e.project_id=$2)
+             AND ($4::uuid[] IS NULL OR e.project_id=ANY($4)) AND {event_predicate}
+         ), event_stats AS (
+           SELECT issue_id,count(*) AS matched_events,count(DISTINCT user_key) AS matched_users,
+             coalesce(max(per_user) FILTER (WHERE user_key IS NOT NULL),0) AS matched_max_per_user,
+             max(occurred_at) AS matched_last_seen,max(received_at) AS matched_last_received_at,
+             (array_agg(release ORDER BY occurred_at DESC,id DESC))[1] AS matched_last_release
+           FROM matching GROUP BY issue_id
+         ), filtered AS MATERIALIZED (
+           SELECT i.*,s.matched_events,s.matched_users,s.matched_max_per_user,s.matched_last_seen,
+                  s.matched_last_received_at,s.matched_last_release
+           FROM issues i LEFT JOIN event_stats s ON s.issue_id=i.id
+           WHERE ($1 = 'all' OR i.status = $1)
+             AND ($2::uuid IS NULL OR i.project_id = $2)
+             AND ($3::text IS NULL OR i.kind = $3)
+             AND ($4::uuid[] IS NULL OR i.project_id = ANY($4))
+             AND (NOT $11 OR s.matched_events IS NOT NULL)
+             AND ($7::text IS NULL OR strpos(lower(i.group_title), lower($7)) > 0
+                  OR strpos(lower(i.message_sample), lower($7)) > 0 OR strpos(i.id::text, lower($7)) > 0)
+             AND ($9 = 'all' OR ($9 = 'open' AND i.status = 'open')
+                  OR ($9 = 'regressed' AND i.status = 'open' AND i.regressed_at IS NOT NULL)
+                  OR ($9 = 'fresh' AND i.first_seen > now() - interval '24 hours'))
          )
          SELECT page.*, totals.total, totals.events, totals.open_count, totals.regressed_count,
                 totals.release_count,
-                (SELECT max(received_at) FROM events e WHERE e.issue_id = page.id) AS last_received_at
-         FROM (SELECT count(*) AS total, COALESCE(sum(event_count), 0)::bigint AS events,
+                coalesce(page.matched_last_received_at,(SELECT max(received_at) FROM events e WHERE e.issue_id = page.id)) AS last_received_at
+         FROM (SELECT count(*) AS total, COALESCE(sum(coalesce(matched_events,event_count)), 0)::bigint AS events,
                       count(*) FILTER (WHERE status = 'open') AS open_count,
                       count(*) FILTER (WHERE status = 'open' AND regressed_at IS NOT NULL) AS regressed_count,
-                      count(DISTINCT last_release) FILTER (WHERE last_release <> '') AS release_count
+                      CASE WHEN $11 THEN (SELECT count(DISTINCT m.release) FROM matching m JOIN filtered f ON f.id=m.issue_id WHERE m.release<>'')
+                           ELSE count(DISTINCT last_release) FILTER (WHERE last_release <> '') END AS release_count
                FROM filtered) totals
          LEFT JOIN LATERAL (
            SELECT * FROM filtered
-           ORDER BY CASE WHEN $11 = 'impact' THEN (regressed_at IS NOT NULL AND status = 'open') END DESC,
-                    CASE WHEN $11 = 'impact' THEN users_count END DESC,
-                    CASE WHEN $11 = 'impact' THEN max_per_user END DESC,
-                    last_seen DESC, id DESC
-           LIMIT $5 OFFSET $13
+           ORDER BY CASE WHEN $8 = 'impact' THEN (regressed_at IS NOT NULL AND status = 'open') END DESC,
+                    CASE WHEN $8 = 'impact' THEN coalesce(matched_users,users_count) END DESC,
+                    CASE WHEN $8 = 'impact' THEN coalesce(matched_max_per_user,max_per_user) END DESC,
+                    coalesce(matched_last_seen,last_seen) DESC, id DESC
+           LIMIT $5 OFFSET $10
          ) page ON true
-         ORDER BY CASE WHEN $11 = 'impact' THEN (page.regressed_at IS NOT NULL AND page.status = 'open') END DESC,
-                  CASE WHEN $11 = 'impact' THEN page.users_count END DESC,
-                  CASE WHEN $11 = 'impact' THEN page.max_per_user END DESC,
-                  page.last_seen DESC, page.id DESC";
+         ORDER BY CASE WHEN $8 = 'impact' THEN (page.regressed_at IS NOT NULL AND page.status = 'open') END DESC,
+                  CASE WHEN $8 = 'impact' THEN coalesce(page.matched_users,page.users_count) END DESC,
+                  CASE WHEN $8 = 'impact' THEN coalesce(page.matched_max_per_user,page.max_per_user) END DESC,
+                  coalesce(page.matched_last_seen,page.last_seen) DESC, page.id DESC";
 
 /// Inbox list. Regressed floats above everything, then objective
 /// importance (breadth desc, depth desc), then recency.
@@ -274,16 +264,23 @@ pub async fn list(
     // Materialize one authorized/filter snapshot for both the count and page.
     // The left join preserves totals for empty pages, including limit=0. Only
     // page rows compute the receipt clock. UUID is the stable ordering tie-break.
-    let rows = sqlx::query(ISSUE_LIST_SQL)
+    let filters = match q.filters.validated() {
+        Ok(filters) => filters,
+        Err(error) => return error,
+    };
+    let filtered = filters["appId"] != Value::Null
+        || filters["platform"] != Value::Null
+        || filters["environment"] != Value::Null
+        || filters["release"] != Value::Null
+        || filters["tags"] != json!([]);
+    let sql = ISSUE_LIST_SQL.replace("{event_predicate}", &crate::event_filter::predicate(6));
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
         .bind(status)
         .bind(q.project_id)
         .bind(q.kind.as_deref())
         .bind(scope.as_deref())
         .bind(limit)
-        .bind(q.environment.as_deref())
-        .bind(q.context_key.as_deref())
-        .bind(q.context_value.as_deref())
-        .bind(q.release.as_deref())
+        .bind(&filters)
         .bind(
             q.q.as_deref()
                 .map(str::trim)
@@ -292,6 +289,7 @@ pub async fn list(
         .bind(sort)
         .bind(group)
         .bind(offset)
+        .bind(filtered)
         .fetch_all(&state.pool)
         .await;
     match rows {
@@ -635,6 +633,8 @@ fn internal(error: &sqlx::Error) -> (StatusCode, Json<Value>) {
 
 #[derive(Deserialize)]
 pub struct OccurrencesQuery {
+    #[serde(flatten)]
+    pub filters: crate::event_filter::EventFilter,
     #[serde(default)]
     pub limit: Option<i64>,
     #[serde(default)]
@@ -664,18 +664,28 @@ pub async fn occurrences(
     // the newest occurrence that HAS a visual replay — the newest
     // event alone may come from an older SDK that captured nothing,
     // and a replay from an hour ago beats no replay at all.
-    let rows = sqlx::query(
-        "SELECT page.*, totals.total, sc.ref AS screens_ref
-         FROM (SELECT count(*) AS total FROM events WHERE issue_id = $1) totals
+    let filters = match q.filters.validated() {
+        Ok(filters) => filters,
+        Err(error) => return error,
+    };
+    let sql = format!("WITH filtered AS MATERIALIZED (
+           SELECT e.* FROM events e WHERE e.issue_id=$1 AND {}
+         ) SELECT page.*, totals.total, sc.ref AS screens_ref
+         FROM (SELECT count(*) AS total FROM filtered) totals
          LEFT JOIN LATERAL (
-           SELECT id, project_id, kind, platform, occurred_at, received_at, release, environment, user_key
-           FROM events WHERE issue_id = $1 ORDER BY received_at DESC, id DESC LIMIT $2 OFFSET $3
+           SELECT * FROM filtered ORDER BY received_at DESC, id DESC LIMIT $2 OFFSET $3
          ) page ON true
          LEFT JOIN LATERAL (
            SELECT a.ref FROM event_attachments a WHERE a.event_id = page.id AND a.project_id = page.project_id
              AND a.kind = 'screens' ORDER BY a.ref LIMIT 1
-         ) sc ON true ORDER BY page.received_at DESC, page.id DESC",
-    ).bind(issue_id).bind(limit).bind(offset).fetch_all(&state.pool).await;
+         ) sc ON true ORDER BY page.received_at DESC, page.id DESC", crate::event_filter::predicate(4));
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
+        .bind(issue_id)
+        .bind(limit)
+        .bind(offset)
+        .bind(&filters)
+        .fetch_all(&state.pool)
+        .await;
     let rows = match rows {
         Ok(rows) => rows,
         Err(error) => return internal(&error),

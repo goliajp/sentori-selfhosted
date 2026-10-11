@@ -18,6 +18,7 @@ import {
   type IssueReleaseRow,
   type OccurrenceRow,
 } from '../lib/api';
+import { readEventFilters, type EventFilters } from '../lib/event-filters';
 import { isBareTypeTitle } from '../lib/issue-title';
 import { formatApiError } from '../lib/useAsyncData';
 import { useScopedAsyncData } from '../lib/useScopedAsyncData';
@@ -60,7 +61,9 @@ export function IssueDetailPane({
   const actionBusy = useRef(false);
 
   const { data: issue, error, loading, reload } = useScopedAsyncData(issueId, () => api.getIssue(issueId));
-  const occurrences = useScopedAsyncData(JSON.stringify([issueId,occurrenceOffset]), () => api.listOccurrences(issueId,occurrenceOffset,50));
+  let filters: EventFilters = {}, invalidFilters = false;
+  try { filters = readEventFilters(params); } catch { invalidFilters = true; }
+  const occurrences = useScopedAsyncData(JSON.stringify([issueId,occurrenceOffset,filters,invalidFilters]), () => invalidFilters ? Promise.reject(new Error(t('filters.invalid'))) : api.listOccurrences(issueId,occurrenceOffset,50,filters));
   const occ = occurrences.data;
   const currentId = params.get('occurrence') || occ?.events[0]?.id;
   const event = useScopedAsyncData(currentId ?? '', () => currentId ? api.getEvent(currentId) : Promise.resolve(null));

@@ -29,6 +29,7 @@ use crate::state::AppState;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListQuery {
+    pub id: Option<Uuid>,
     pub app_id: Option<Uuid>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
@@ -64,7 +65,7 @@ pub async fn list(
     // beside it was just as red (2026-08-10).
     let rows = sqlx::query(
         "WITH filtered AS MATERIALIZED (
-           SELECT * FROM releases WHERE project_id = $1 AND ($2::text IS NULL OR strpos(lower(name),lower($2))>0)
+           SELECT * FROM releases WHERE project_id = $1 AND ($6::uuid IS NULL OR id=$6) AND ($2::text IS NULL OR strpos(lower(name),lower($2))>0)
              AND ($5::uuid IS NULL OR EXISTS(SELECT 1 FROM app_releases ar WHERE ar.release_id=releases.id AND ar.app_id=$5 AND ar.project_id=$1))
          ) SELECT page.*, totals.total,
            ARRAY(SELECT DISTINCT a.platform FROM app_releases ar JOIN apps a ON a.id=ar.app_id
@@ -80,7 +81,7 @@ pub async fn list(
          FROM (SELECT count(*) AS total FROM filtered) totals
          LEFT JOIN LATERAL (SELECT * FROM filtered ORDER BY created_at DESC,id DESC LIMIT $3 OFFSET $4) page ON true
          ORDER BY page.created_at DESC,page.id DESC",
-    ).bind(project_id).bind(q.q.as_deref()).bind(limit).bind(offset).bind(q.app_id)
+    ).bind(project_id).bind(q.q.as_deref()).bind(limit).bind(offset).bind(q.app_id).bind(q.id)
     .fetch_all(&state.pool)
     .await
     // Was `unwrap_or_default()`, which reports a broken query as a

@@ -1,3 +1,6 @@
+import { currentSearchParams } from '../lib/search-params';
+import { Metric } from '../../shared/design/Metric';
+import { WorkbenchEmpty } from '../components/WorkbenchEmpty';
 import { ExternalTask } from '../components/IntegrationDelivery';
 import { TaskIntegration } from '../components/TaskIntegration';
 import { useRef, useState } from 'react';
@@ -37,39 +40,49 @@ function useCommand(project: string, saved: (task: Task) => void) {
 }
 export default function TasksPage() {
   const { activeProject } = useShell(), t = useT();
-  return activeProject ? <Tasks key={activeProject.id} project={activeProject.id}/> : <p className="p-6">{t('team.chooseProject')}</p>;
+  return activeProject ? <Tasks key={activeProject.id} project={activeProject.id}/> : <div className="production-page"><Heading title={t('team.title')}/><Surface><WorkbenchEmpty title={t('team.chooseProject')} action={<Link className="text-link" to="/projects">{t('nav.projects')}</Link>}/></Surface></div>;
 }
 function Tasks({ project }: { project: string }) {
   const t = useT(), labels = useLabels();
-  const [params, setParams] = useSearchParams(), [editor, setEditor] = useState<Task | 'new' | null>(params.has('new') ? 'new' : null);
-  const query = new URLSearchParams();
-  for (const key of ['q', 'stage', 'mine', 'offset']) if (params.get(key)) query.set(key, params.get(key)!);
+  const [params, setParams] = useSearchParams(), [editingTask, setEditingTask] = useState<Task | null>(null);
+  const editor = params.has('new') ? 'new' : editingTask;
+  const rawOffset=Number(params.get('offset')??0), offset=Number.isSafeInteger(rawOffset)&&rawOffset>=0?rawOffset:0;
+  const query = new URLSearchParams({offset:String(offset)});
+  for (const key of ['q', 'stage', 'mine']) if (params.get(key)) query.set(key, params.get(key)!);
   if (params.get('issue')) query.set('issueId', params.get('issue')!);
   const list = useScopedAsyncData(`${project}:${query}`, () => api.listTasks(project, query));
-  const id = params.get('id'), view = params.get('view') ?? 'list';
+  const id = params.get('id'), view = params.get('view') === 'board' ? 'board' : 'list';
+  const backParams=new URLSearchParams(params);backParams.delete('id');backParams.delete('new');
+  const taskUrl=(id:string)=>{const next=new URLSearchParams(params);next.set('project',project);next.set('id',id);next.delete('new');return {pathname:'/tasks',search:next.toString()};};
   const members = list.data?.members ?? [];
-  const set = (key: string, value: string) => { const next = new URLSearchParams(params); if (value) next.set(key, value); else next.delete(key); if (key !== 'offset') next.delete('offset'); setParams(next); };
-  const saved = (task: Task) => { setEditor(null); const next = new URLSearchParams(params); next.set('id', task.id); next.delete('new'); next.delete('issue'); setParams(next); list.reload(); };
-  const card = (task: Task) => <Link key={task.id} data-task-id={task.id} className="team-task-card" to={{ pathname: '/tasks', search: new URLSearchParams({ project, id: task.id }).toString() }}><div><span className="team-task-id">{task.id.slice(0, 8)}</span><Badge tone={task.stage === 'done' ? 'success' : 'neutral'}>{labels[task.stage]}</Badge></div><strong>{task.title}</strong><footer><span>{task.priority === 'urgent' ? t('team.urgent') : task.priority === 'high' ? t('team.high') : task.priority === 'low' ? t('team.low') : t('team.normal')}</span><span>{members.find(m => m.id === task.assignee)?.name ?? (task.assignee ? t('team.formerAssignee') : t('team.unassigned'))}</span></footer></Link>;
-  return <div className="team-page p-4 md:p-6">
-    {id ? <TaskDetail key={id} project={project} id={id} members={members} onEdit={setEditor}/> : <>
-      <Heading title={t('team.title')} description={t('team.description')} action={<Button variant="primary" onClick={() => setEditor('new')}><Plus size={15}/>{t('team.create')}</Button>}/>
-      <div className="team-toolbar">
+  const set = (key: string, value: string) => { const next = currentSearchParams(); if (value) next.set(key, value); else next.delete(key); if (key !== 'offset') next.delete('offset'); setParams(next); };
+  const saved = (task: Task) => { setEditingTask(null); const next = currentSearchParams(); next.set('id', task.id); next.delete('new'); next.delete('issue'); setParams(next); list.reload(); };
+  const card = (task: Task) => <Link key={task.id} data-task-id={task.id} className="team-task-card" to={taskUrl(task.id)}><div><span className="team-task-id">{task.id.slice(0, 8)}</span><Badge tone={task.stage === 'done' ? 'success' : 'neutral'}>{labels[task.stage]}</Badge></div><strong>{task.title}</strong><footer><span>{task.priority === 'urgent' ? t('team.urgent') : task.priority === 'high' ? t('team.high') : task.priority === 'low' ? t('team.low') : t('team.normal')}</span><span>{members.find(m => m.id === task.assignee)?.name ?? (task.assignee ? t('team.formerAssignee') : t('team.unassigned'))}</span></footer></Link>;
+  return <div className="production-page team-page">
+    {id ? <TaskDetail key={id} project={project} id={id} members={members} onEdit={setEditingTask} backSearch={backParams.toString()}/> : <>
+      <Heading title={t('team.title')} description={t('team.description')} action={<Button variant="primary" onClick={() => set('new','task')}><Plus size={15}/>{t('team.create')}</Button>}/>
+      <div className="metrics-grid mb-6" aria-busy={list.loading}>
+        <Metric label={t('workbench.activeTasks')} value={list.data?.summary?.active??'—'} note={t('workbench.filteredTasks')}/>
+        <Metric label={t('workbench.reviewTasks')} value={list.data?.summary?.review??'—'}/>
+        <Metric label={t('workbench.doneTasks')} value={list.data?.summary?.done??'—'}/>
+        <Metric label={t('workbench.overdueTasks')} value={list.data?.summary?.overdue??'—'}/>
+      </div>
+      <div className="surface workbench-toolbar"><div className="team-toolbar">
         <Input type="search" aria-label={t('team.search')} placeholder={t('team.search')} value={params.get('q') ?? ''} onChange={e => set('q', e.target.value)}/>
         <Select label={t('team.assignee')} value={params.get('mine') ?? ''} onChange={v => set('mine', v)} options={[['', t('team.everyone')], ['true', t('team.mine')]]}/>
         <Select label={t('team.stage')} value={params.get('stage') ?? ''} onChange={v => set('stage', v)} options={[['', t('team.all')], ...taskStages.map(s => [s, labels[s]] as [string, string])]}/>
         <SegmentedControl label={t('team.view')} value={view} onChange={v => set('view', v)} options={[["list", t('team.list')], ["board", t('team.board')]]}/>
         <Button small onClick={list.reload}>{t('team.refresh')}</Button>
-      </div>
+      </div></div>
       {list.error && <ErrorBanner reason={list.error}>{t('team.failed')}</ErrorBanner>}
       {list.loading && <p role="status">{t('shell.loading')}</p>}
-      {list.data && <><p className="muted text-xs mb-4">{t('team.pageHint', { count: String(list.data.total) })}</p>
-        {list.data.tasks.length === 0 ? <p>{t('team.empty')}</p> : view === 'board' ? <div className="team-task-board" role="region" tabIndex={0} aria-label={t('team.board')}>{taskStages.map(s => <section key={s}><h2>{labels[s]} <span>{list.data!.tasks.filter(task => task.stage === s).length}</span></h2>{list.data!.tasks.filter(task => task.stage === s).map(card)}</section>)}</div> : <div className="team-task-list">{list.data.tasks.map(card)}</div>}
-        <div className="flex gap-2 mt-4"><Button small disabled={!Number(params.get('offset'))} onClick={() => set('offset', String(Math.max(0, Number(params.get('offset')) - 50)))}>{t('queue.previous')}</Button><Button small disabled={list.data.nextOffset === null} onClick={() => set('offset', String(list.data!.nextOffset))}>{t('queue.next')}</Button></div>
-      </>}
+      {list.data && <div className="surface task-results"><p className="surface-head muted text-xs">{t('team.pageHint', { count: String(list.data.total) })}</p>
+        {list.data.tasks.length === 0 ? <WorkbenchEmpty kind="tasks" title={t('team.empty')} description={t('workbench.tasksEmptyHint')} action={<><Button variant="primary" onClick={()=>set('new','task')}><Plus size={15}/>{t('workbench.firstTask')}</Button>{(params.get('q')||params.get('stage')||params.get('mine')||params.get('issue')||offset>0)&&<Button onClick={()=>{const next=new URLSearchParams({project});setParams(next);}}>{t('projects.clearFilters')}</Button>}</>}/> : view === 'board' ? <div className="team-task-board" role="region" tabIndex={0} aria-label={t('team.board')}>{taskStages.map(s => <section key={s}><h2>{labels[s]} <span>{list.data!.tasks.filter(task => task.stage === s).length}</span></h2>{list.data!.tasks.filter(task => task.stage === s).map(card)}</section>)}</div> : <div className="team-task-list">{list.data.tasks.map(card)}</div>}
+        <div className="table-pagination"><span>{t('queue.pageCount',{first:String(list.data.tasks.length?offset+1:0),last:String(list.data.tasks.length?offset+list.data.tasks.length:0),total:String(list.data.total)})}</span><div className="flex gap-2"><Button small disabled={list.loading||offset===0} onClick={() => set('offset', String(Math.max(0,offset-50)))}>{t('queue.previous')}</Button><Button small disabled={list.loading||list.data.nextOffset===null} onClick={() => set('offset', String(list.data!.nextOffset))}>{t('queue.next')}</Button></div></div>
+      </div>}
     </>}
-    {!id && <TaskIntegration key={project} project={project}/>}
-    {editor && <TaskEditor key={editor === 'new' ? 'new' : `${editor.id}:${editor.version}`} project={project} task={editor === 'new' ? null : editor} issue={params.get('issue')} members={members} onSaved={saved} onClose={() => { setEditor(null); const next = new URLSearchParams(params); next.delete('new'); setParams(next, { replace: true }); }}/>}
+    {!id && <div className="workbench-section"><TaskIntegration key={project} project={project}/></div>}
+    {editor && <TaskEditor key={editor === 'new' ? 'new' : `${editor.id}:${editor.version}`} project={project} task={editor === 'new' ? null : editor} issue={params.get('issue')} members={members} onSaved={saved} onClose={() => { setEditingTask(null); const next = currentSearchParams(); next.delete('new'); setParams(next, { replace: true }); }}/>}
   </div>;
 }
 function TaskEditor({ project, task, issue, members, onSaved, onClose }: { project: string; task: Task | null; issue: string | null; members: { id: string; name: string }[]; onSaved: (task: Task) => void; onClose: () => void }) {
@@ -91,7 +104,7 @@ function TaskEditor({ project, task, issue, members, onSaved, onClose }: { proje
     </form>
   </Dialog>;
 }
-function TaskDetail({ project, id, members, onEdit }: { project: string; id: string; members: { id: string; name: string }[]; onEdit: (task: Task) => void }) {
+function TaskDetail({ project, id, members, onEdit, backSearch }: { project: string; id: string; members: { id: string; name: string }[]; onEdit: (task: Task) => void; backSearch:string }) {
   const t = useT(), labels = useLabels();
   const [offset, setOffset] = useState(0), [revision, setRevision] = useState(0), [body, setBody] = useState(''), [mention, setMention] = useState('');
   const detail = useScopedAsyncData(`${project}:${id}:${offset}:${revision}`, () => api.getTask(project, id, offset));
@@ -99,7 +112,7 @@ function TaskDetail({ project, id, members, onEdit }: { project: string; id: str
   const task = detail.data?.task;
   const events: Record<string, string> = { created: t('team.created'), updated: t('team.updated'), stage: t('team.stageChanged'), comment: t('team.commented'), 'issue.regressed': t('team.regressed'), 'auto.work.started': t('team.autoWork'), 'auto.pr.opened': t('team.autoPrOpened'), 'auto.pr.merged': t('team.autoPrMerged'), 'auto.ci.completed': t('team.autoChecks'), 'auto.release.deployed': t('team.autoDeployment') };
   return <>
-    <Link className="team-back" to={`/tasks?project=${project}`}><ArrowLeft size={14}/>{t('team.title')}</Link>
+    <Link className="team-back" to={{pathname:'/tasks',search:backSearch}}><ArrowLeft size={14}/>{t('team.title')}</Link>
     {detail.error && <ErrorBanner reason={detail.error}>{t('team.failed')}</ErrorBanner>}
     <div className="mb-4"><Button small onClick={detail.reload}>{t('team.refresh')}</Button></div>
     {task && <><Heading title={task.title} description={task.id} action={<Button onClick={() => onEdit(task)}>{t('team.edit')}</Button>}/>

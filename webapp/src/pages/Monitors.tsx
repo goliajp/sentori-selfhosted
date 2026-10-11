@@ -1,11 +1,15 @@
+import { currentSearchParams } from '../lib/search-params';
 import { useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Activity, Plus } from 'lucide-react';
-import { Heading } from '../../shared/design/Surface';
+import { Heading, Surface } from '../../shared/design/Surface';
 import { Badge, Button, Field, Input } from '../../shared/design/controls';
 import { Dialog } from '../../shared/design/Dialog';
+import { Metric } from '../../shared/design/Metric';
+import { WorkbenchEmpty } from '../components/WorkbenchEmpty';
+import { TelemetryChart } from '../components/TelemetryChart';
 import { useShell } from '../App';
-import { ErrorBanner, TimeAgo } from '../components/ui';
+import { ErrorBanner, Select, TimeAgo } from '../components/ui';
 import { useT } from '../i18n';
 import { api, ApiError } from '../lib/api';
 import { commandId } from '../lib/team-contract';
@@ -27,15 +31,28 @@ function useCommand(project: string, saved: () => void) {
 }
 export default function MonitorsPage() {
   const { activeProject, me } = useShell(), t = useT();
-  return activeProject ? <Monitors key={activeProject.id} project={activeProject.id} owner={me.role === 'superadmin'}/> : <p className="p-6">{t('team.chooseProject')}</p>;
+  return activeProject ? <Monitors key={activeProject.id} project={activeProject.id} owner={me.role === 'superadmin'}/> : <div className="production-page"><Heading title={t('monitor.title')}/><Surface><WorkbenchEmpty title={t('team.chooseProject')} action={<Link className="text-link" to="/projects">{t('nav.projects')}</Link>}/></Surface></div>;
 }
 function Monitors({ project, owner }: { project: string; owner: boolean }) {
-  const t = useT(), [params] = useSearchParams(), list = useScopedAsyncData(project, () => api.listMonitors(project));
+  const t = useT(), [params,setParams] = useSearchParams(), list = useScopedAsyncData(project, () => api.listMonitors(project));
   const [editor, setEditor] = useState<Monitor | 'new' | null>(null);
-  return <div className="team-page p-4 md:p-6"><Heading title={t('monitor.title')} description={t('monitor.description')} action={owner && <Button variant="primary" onClick={() => setEditor('new')}><Plus size={15}/>{t('monitor.create')}</Button>}/>
-    <div className="team-toolbar"><p className="muted text-sm">{t('monitor.publicOnly')}</p><Button onClick={list.reload}>{t('team.refresh')}</Button></div>
+  const query=params.get('q')??'',status=params.get('state')??'';
+  const monitors=list.data?.monitors??[], visible=monitors.filter(m=>(m.name+' '+m.url).toLocaleLowerCase().includes(query.toLocaleLowerCase())&&(!status||(m.enabled?m.status:'paused')===status));
+  const filter=(key:string,value:string)=>{const next=currentSearchParams();if(value)next.set(key,value);else next.delete(key);setParams(next,{replace:true});};
+  return <div className="production-page team-page"><Heading title={t('monitor.title')} description={t('monitor.description')} action={owner && <Button variant="primary" onClick={() => setEditor('new')}><Plus size={15}/>{t('monitor.create')}</Button>}/>
+    <div className="metrics-grid mb-6" aria-busy={list.loading}>
+      <Metric label={t('workbench.monitoredServices')} value={list.data?monitors.length:'—'} note={t('workbench.projectScope')}/>
+      <Metric label={t('monitor.operational')} value={list.data?monitors.filter(m=>m.enabled&&m.status==='operational').length:'—'}/>
+      <Metric label={t('workbench.openIncidents')} value={list.data?monitors.filter(m=>m.incidentOpen).length:'—'}/>
+      <Metric label={t('monitor.paused')} value={list.data?monitors.filter(m=>!m.enabled).length:'—'}/>
+    </div>
+    <div className="surface workbench-toolbar"><div className="team-toolbar">
+      <Field label={t('workbench.searchServices')}><Input type="search" maxLength={200} value={query} onChange={e=>filter('q',e.target.value)}/></Field>
+      <Field label={t('queue.status')}><Select value={status} onChange={e=>filter('state',e.target.value)}><option value="">{t('queue.all')}</option>{(['operational','degraded','down','unknown','paused'] as const).map(value=><option key={value} value={value}>{t(`monitor.${value}`)}</option>)}</Select></Field>
+      <span className="team-toolbar-spacer"/><Button disabled={list.loading} onClick={list.reload}>{t('team.refresh')}</Button>
+    </div></div>
     {list.error && <ErrorBanner reason={list.error}>{t('team.failed')}</ErrorBanner>}{list.loading && <p role="status">{t('shell.loading')}</p>}
-    {list.data && (list.data.monitors.length ? <div className="team-monitor-list">{list.data.monitors.map(m => <MonitorCard key={`${m.id}:${m.version}`} monitor={m} owner={owner} highlighted={params.get('id') === m.id} onEdit={() => setEditor(m)} reload={list.reload}/>)}</div> : <p>{t('monitor.empty')}</p>)}
+    {list.data && (visible.length ? <div className="team-monitor-list">{visible.map(m => <MonitorCard key={`${m.id}:${m.version}`} monitor={m} owner={owner} highlighted={params.get('id') === m.id} onEdit={() => setEditor(m)} reload={list.reload}/>)}</div> : <Surface body={false}><WorkbenchEmpty title={t(monitors.length?'queue.noMatches':'monitor.empty')} description={t(monitors.length?'queue.noMatchesHint':'workbench.monitorsEmptyHint')} action={monitors.length?<Button onClick={()=>{const next=currentSearchParams();next.delete('q');next.delete('state');setParams(next);}}>{t('projects.clearFilters')}</Button>:owner?<Button variant="primary" onClick={()=>setEditor('new')}><Plus size={15}/>{t('workbench.firstMonitor')}</Button>:undefined}/><div className="workbench-note">{t('monitor.publicOnly')}</div></Surface>)}
     {editor && <Editor key={editor === 'new' ? 'new' : editor.id} project={project} monitor={editor === 'new' ? null : editor} onClose={() => setEditor(null)} saved={() => { setEditor(null); list.reload(); }}/>}
   </div>;
 }
@@ -44,6 +61,7 @@ function MonitorCard({ monitor: m, owner, highlighted, onEdit, reload }: { monit
   const labels = { unknown: t('monitor.unknown'), operational: t('monitor.operational'), degraded: t('monitor.degraded'), down: t('monitor.down') };
   return <section className="team-monitor" data-monitor-id={m.id} data-highlighted={highlighted}><header><div className="team-monitor-identity"><span className="team-monitor-signal" aria-hidden><span className="team-health-dot" data-state={m.enabled ? m.status : 'unknown'}/></span><div><h2>{m.name}</h2><code>{m.url}</code></div></div><div className="team-monitor-controls"><Badge tone={!m.enabled ? 'neutral' : m.status === 'operational' ? 'success' : m.status === 'down' ? 'danger' : m.status === 'degraded' ? 'warning' : 'neutral'}>{m.enabled ? labels[m.status] : t('monitor.paused')}</Badge>{owner && <Button small onClick={onEdit}>{t('monitor.edit')}</Button>}</div></header>
     <div className="team-monitor-metrics"><div><small>{t('monitor.availability')}</small><strong>{m.availability === null ? '—' : `${m.availability.toFixed(1)}%`}</strong></div><div><small>{t('monitor.latency')}</small><strong>{last ? `${last.latency} ms` : '—'}</strong></div><div><small>{t('monitor.lastCheck')}</small>{last ? <TimeAgo iso={last.at}/> : <strong>—</strong>}</div></div>
+    <TelemetryChart title={t('monitor.latency')} description={t('workbench.monitorLatencyHint')} time labels={m.samples.map(s=>s.at)} series={[{key:'latency',label:t('monitor.latency'),values:m.samples.map(s=>s.ok?s.latency:null)}]} unit="ms"/>
     <div className="team-uptime-bars" role="img" aria-label={`${t('monitor.samples')}: ${m.samples.length}`}>{m.samples.map((s, i) => <span key={`${s.at}:${i}`} data-state={s.ok ? 'operational' : 'down'} title={`${s.at} · ${s.code ?? s.error} · ${s.latency} ms`}/>)}</div>
     <p className="muted text-xs">{t('monitor.window', { count: String(m.checks30d) })}</p>{m.incidentOpen && <p role="status" className="text-danger mt-3">{t('monitor.incident')}</p>}
     <footer><span>{m.intervalSeconds / 60} min · {t('monitor.failureThreshold')}: {m.failureThreshold}</span>{owner && <Button small busy={command.busy} disabled={!m.enabled} onClick={() => command.uncertain ? command.retry() : void command.run({ commandId: commandId(), id: m.id, expectedVersion: m.version, action: 'check', configuration: null })}><Activity size={14}/>{command.uncertain ? t('common.retry') : t('monitor.checkNow')}</Button>}<Link className="text-link" to={`/tasks?project=${m.projectId}&new=task`}>{t('team.create')}</Link></footer>

@@ -1,5 +1,6 @@
+import { WorkbenchEmpty } from '../components/WorkbenchEmpty';
 import { useRef, useState, type ReactNode } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, Send } from 'lucide-react';
 import { Heading, Surface } from '../../shared/design/Surface';
 import { Metric } from '../../shared/design/Metric';
@@ -147,7 +148,7 @@ export default function PushPage() {
   return activeProject ? (
     <Push key={activeProject.id} project={activeProject.id} />
   ) : (
-    <p className="p-6">{t('team.chooseProject')}</p>
+    <div className="production-page"><Heading title={t('nav.push')}/><Surface><WorkbenchEmpty title={t('team.chooseProject')} action={<Link className="text-link" to="/projects">{t('nav.projects')}</Link>}/></Surface></div>
   );
 }
 function Push({ project }: { project: string }) {
@@ -163,7 +164,7 @@ function Push({ project }: { project: string }) {
     });
   }
   return (
-    <div className="team-page push-page p-4 md:p-6" data-push-section={section}>
+    <div className="production-page team-page push-page" data-push-section={section}>
       <Heading title={t('nav.push')} description={t('pushOps.description')} />
       <Tabs
         variant="line"

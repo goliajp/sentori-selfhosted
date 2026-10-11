@@ -116,7 +116,9 @@ export function IntegrateSection({ project }: { project: string }) {
 /// A block of code, lit by its own grammar, and a way to take it.
 function CodeBlock({ text, language }: { language: string; text: string }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
+  const [result,setResult] = useState<{text:string;ok:boolean}|null>(null);
+  const copied = result?.text === text && result.ok;
+  const failed = result?.text === text && !result.ok;
   return (
     <div className="relative min-w-0 max-w-full">
       {/* The grammar's own escaped output, over text this module
@@ -128,12 +130,12 @@ function CodeBlock({ text, language }: { language: string; text: string }) {
       />
       <button
         type="button"
-        title={copied ? t('identity.copied') : t('identity.copyHint')}
+        title={t(failed?'setup.copyFailed':copied?'identity.copied':'identity.copyHint')}
+        aria-label={t(failed?'setup.copyFailed':copied?'identity.copied':'identity.copyHint')}
         className="absolute right-2 top-2 rounded border border-border bg-surface p-1 text-fg-subtle hover:text-fg"
-        onClick={() => {
-          void navigator.clipboard.writeText(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1200);
+        onClick={async () => {
+          try {await navigator.clipboard.writeText(text);setResult({text,ok:true});}
+          catch {setResult({text,ok:false});}
         }}
       >
         {copied ? (
@@ -142,6 +144,7 @@ function CodeBlock({ text, language }: { language: string; text: string }) {
           <Copy className="size-3.5" />
         )}
       </button>
+      {failed && <p role="status" className="text-xs text-danger p-3">{t('setup.copyFailed')}</p>}
     </div>
   );
 }
@@ -149,19 +152,21 @@ function CodeBlock({ text, language }: { language: string; text: string }) {
 /// One value, and a way to take it.
 function Copyable({ text }: { text: string }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
+  const [result,setResult] = useState<{text:string;ok:boolean}|null>(null);
+  const copied = result?.text === text && result.ok;
+  const failed = result?.text === text && !result.ok;
   return (
     <button
       type="button"
-      title={copied ? t('identity.copied') : t('identity.copyHint')}
+      title={t(failed?'setup.copyFailed':copied?'identity.copied':'identity.copyHint')}
+        aria-label={t(failed?'setup.copyFailed':copied?'identity.copied':'identity.copyHint')}
       className="group inline-flex max-w-full min-w-0 items-center gap-1.5 text-left font-mono text-sm text-fg"
-      onClick={() => {
-        void navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1200);
+      onClick={async () => {
+        try {await navigator.clipboard.writeText(text);setResult({text,ok:true});}
+        catch {setResult({text,ok:false});}
       }}
     >
-      <span className="min-w-0 break-all">{text}</span>
+      <span className="min-w-0 break-all">{text}{failed && <span role="status" className="block text-xs text-danger">{t('setup.copyFailed')}</span>}</span>
       {copied ? (
         <Check className="size-3 shrink-0 text-ok" />
       ) : (
