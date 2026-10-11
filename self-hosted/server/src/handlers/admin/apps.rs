@@ -30,6 +30,8 @@ pub async fn summaries(pool: &PgPool, project_id: Uuid) -> Result<Vec<Value>, sq
         "SELECT jsonb_build_object(
            'id',a.id,'projectId',a.project_id,'platform',a.platform,'identifier',a.identifier,
            'name',a.name,'repositoryUrl',a.repository_url,'version',a.version,
+           'identitySource',CASE WHEN a.name IS NOT NULL THEN 'configured'
+             WHEN a.has_explicit_identifier THEN 'reported' WHEN a.identifier<>'' THEN 'release' ELSE 'unknown' END,
            'createdAt',a.created_at,'lastEventAt',a.last_event_at,'lastSessionAt',a.last_session_at,
            'events24h',(SELECT count(*) FROM events e WHERE e.project_id=$1 AND e.app_id=a.id AND e.received_at>now()-interval '24 hours'),
            'errors24h',(SELECT count(*) FROM events e WHERE e.project_id=$1 AND e.app_id=a.id AND e.kind='error' AND e.received_at>now()-interval '24 hours'),

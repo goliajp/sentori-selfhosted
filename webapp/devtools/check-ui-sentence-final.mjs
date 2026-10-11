@@ -13,6 +13,7 @@
 //   node devtools/check-ui-sentence-final.mjs
 
 import { readFileSync } from 'node:fs';
+import ts from 'typescript';
 
 const FILES = ['src/i18n/zh.ts', 'src/i18n/ja.ts'];
 // Above this a single sentence is a description rather than a label.
@@ -26,17 +27,22 @@ let judged = 0;
 
 for (const file of FILES) {
   const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-  text.split('\n').forEach((line, i) => {
-    const m = /^\s*'([\w.]+)':\s*'([^']*)',\s*$/.exec(line);
-    if (!m) return;
-    const [, key, value] = m;
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  function visit(node) {
+    if (!ts.isPropertyAssignment(node) || !ts.isStringLiteralLike(node.name) || !ts.isStringLiteralLike(node.initializer)) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+    const key = node.name.text, value = node.initializer.text;
     if (!/[一-鿿ぁ-ヿ]/.test(value)) return;
     judged += 1;
     if (!value.endsWith('。')) return;
     if ((value.match(ENDERS) ?? []).length > 1) return; // several sentences: prose
     if (value.length > LABEL_MAX) return; // one long sentence: a description
-    bad.push(`${file}:${i + 1}  ${key}  ${value}`);
-  });
+    const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+    bad.push(`${file}:${line}  ${key}  ${value}`);
+  }
+  visit(source);
 }
 
 if (judged < 200) {

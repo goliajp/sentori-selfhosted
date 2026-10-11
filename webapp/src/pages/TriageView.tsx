@@ -8,7 +8,7 @@ import { Tabs } from '../../shared/design/Tabs';
 import { useShell } from '../App';
 import { CrashFreeCard } from '../components/CrashFreeCard';
 import { KindBadge } from '../components/kind';
-import { DataTable, ErrorBanner, Select, TimeAgo } from '../components/ui';
+import { DataTable, ErrorBanner, Kbd, Select, TimeAgo } from '../components/ui';
 import { useT, useLocale } from '../i18n';
 import { api, type IssueSummary } from '../lib/api';
 import { issueHeadline } from '../lib/issue-title';
@@ -114,13 +114,17 @@ function IssueQueue({projectId}: {projectId: string}) {
       {failure&&<ErrorBanner reason={failure}>{t('queue.actionFailed')}</ErrorBanner>}
       {error&&<div><ErrorBanner reason={error}>{t('inbox.loadFailed')}</ErrorBanner><Button onClick={reload}>{t('common.retry')}</Button></div>}
       <div className="surface" aria-busy={loading}>
-        <div className="control-bar selection-toolbar p-4">
+        <div className="control-bar selection-toolbar">
           <label className="flex items-center gap-2"><input type="checkbox" aria-label={t('queue.selectPage')} checked={!!rows.length&&checked.length===rows.length} disabled={busy||loading||!rows.length} onChange={()=>setSelection({scope,ids:checked.length===rows.length?[]:rows.map(row=>row.id)})}/><span aria-live="polite">{t('inbox.selectedCount',{n:String(checked.length)})}</span></label>
           <Button small disabled={busy||loading||!checked.length} onClick={()=>batch('resolved')}>{t('issue.resolve')}</Button>
           <Button small disabled={busy||loading||!checked.length} onClick={()=>batch('ignored')}>{t('issue.ignore')}</Button>
-          <details className="table-shortcuts"><summary className="button button-ghost button-small button-icon" aria-label={t('queue.shortcuts')}><Keyboard size={16}/></summary><div className="table-shortcuts-panel">{t('queue.shortcutHint')}</div></details>
+          <IssueShortcuts/>
         </div>
-        <DataTable<IssueSummary> appearance="design" rowKey={row=>row.id} rows={rows} empty={loading?t('projects.loading'):error?t('inbox.loadFailed'):t('queue.noMatches')} columns={[
+        <DataTable<IssueSummary> appearance="design" rowKey={row=>row.id} rows={rows} empty={loading?t('projects.loading'):error?t('inbox.loadFailed'):<div className="queue-empty">
+          <p className="font-medium text-fg">{t('queue.noMatches')}</p>
+          <p>{t(health.data?.lastEventAt===null?'inbox.awaitingFirstHint':'queue.noMatchesHint')}</p>
+          {health.data?.lastEventAt===null?<Link className="text-link" to={'/setup?project='+projectId}>{t('setup.title')}</Link>:<Button onClick={clear}>{t('projects.clearFilters')}</Button>}
+        </div>} columns={[
           {key:'select',label:t('queue.select'),render:row=><input type="checkbox" aria-label={t('queue.selectIssue',{title:issueHeadline(row).headline})} checked={checked.includes(row.id)} disabled={busy||loading} onChange={()=>toggle(row.id)}/>},
           {key:'title',label:t('queue.issue'),render:row=><button className="text-left issue-list-title" data-issue-id={row.id} onClick={()=>open(row.id)}><span className="text-action font-semibold">{issueHeadline(row).headline}</span><span className="block subtle text-xs mt-1">{row.id}</span></button>},
           {key:'kind',label:t('queue.kind'),render:row=><KindBadge kind={row.kind}/>},
@@ -131,8 +135,41 @@ function IssueQueue({projectId}: {projectId: string}) {
         ]}/>
         <div className="table-pagination"><span aria-live="polite">{data?t('queue.pageCount',{first:String(rows.length?offset+1:0),last:String(rows.length?offset+rows.length:0),total:number(data.total)}):'—'}</span><div className="flex gap-2"><Button small disabled={loading||offset===0} onClick={()=>filter({offset:String(Math.max(0,offset-PAGE_SIZE))},true)}>{t('queue.previous')}</Button><Button small disabled={loading||data?.nextOffset==null} onClick={()=>filter({offset:String(data!.nextOffset)},true)}>{t('queue.next')}</Button></div></div>
       </div>
-      {!loading&&!error&&!rows.length&&<Surface className="mt-6"><p>{t(health.data?.lastEventAt===null?'inbox.awaitingFirstHint':'queue.noMatchesHint')}</p>{health.data?.lastEventAt===null?<Link className="text-link" to={'/setup?project='+projectId}>{t('setup.title')}</Link>:<Button onClick={clear}>{t('projects.clearFilters')}</Button>}</Surface>}
     </Tabs>
     <div className="section-space"><CrashFreeCard projectId={projectId}/></div>
   </div>;
+}
+
+function IssueShortcuts() {
+  const t = useT();
+  const details = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    const close = (event: PointerEvent) => {
+      if (details.current && !details.current.contains(event.target as Node)) details.current.open = false;
+    };
+    addEventListener('pointerdown', close);
+    return () => removeEventListener('pointerdown', close);
+  }, []);
+  const shortcuts = [
+    {keys: ['J', 'K'], label: t('queue.shortcutMove')},
+    {keys: ['Enter'], label: t('queue.shortcutOpen')},
+    {keys: ['X'], label: t('queue.shortcutSelect')},
+    {keys: ['R'], label: t('issue.resolve')},
+    {keys: ['I'], label: t('issue.ignore')},
+  ];
+  return <details ref={details} className="table-shortcuts" onKeyDown={event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.currentTarget.open = false;
+      event.currentTarget.querySelector('summary')?.focus();
+    }
+  }}>
+    <summary className="button button-ghost button-small" aria-label={t('queue.shortcuts')}><Keyboard size={16}/>{t('queue.shortcutButton')}</summary>
+    <div className="table-shortcuts-panel">
+      <p className="table-shortcuts-title">{t('queue.shortcuts')}</p>
+      <dl className="table-shortcuts-list">{shortcuts.map(shortcut => <div key={shortcut.keys[0]}>
+        <dt>{shortcut.keys.map(key => <Kbd key={key}>{key}</Kbd>)}</dt><dd>{shortcut.label}</dd>
+      </div>)}</dl>
+    </div>
+  </details>;
 }

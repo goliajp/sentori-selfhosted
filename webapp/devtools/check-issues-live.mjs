@@ -29,6 +29,31 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
   const detail=origin+`/issues/${issueId}?project=${project.id}`;
   const release=(await call(`/admin/api/projects/${project.id}/releases`)).releases[0];assert.ok(release);
   const releaseUrl=origin+`/releases?project=${project.id}&detail=${release.id}`;
+  // Empty results use the same production CSS as populated queues. Check the
+  // actual geometry so a style left only in the design preview cannot pass.
+  for(const locale of ['zh','ja','en']) for(const theme of ['light','dark']) for(const width of [320,1440]) {
+    await page.evaluate(({locale,theme})=>{localStorage.setItem('sentori_locale',locale);localStorage.setItem('sentori-theme',theme);},{locale,theme});
+    await page.setViewportSize({width,height:1100});
+    await page.goto(queue+'&q=no-matching-issue-fixture');
+    await page.locator('.queue-empty').waitFor();
+    await page.locator('.crash-free-empty').waitFor();
+    const metrics=await page.locator('.table-pagination').evaluate(el=>{
+      const box=el.getBoundingClientRect(),count=el.firstElementChild.getBoundingClientRect(),actions=el.lastElementChild.getBoundingClientRect();
+      const table=el.closest('.surface').getBoundingClientRect(),stats=document.querySelector('.crash-free-card').getBoundingClientRect();
+      const empty=document.querySelector('.queue-empty'),button=empty.querySelector('button').getBoundingClientRect(),hint=empty.querySelectorAll('p')[1].getBoundingClientRect();
+      return {left:count.left-box.left,right:box.right-actions.right,bottom:box.bottom-actions.bottom,sectionGap:stats.top-table.bottom,actionGap:button.top-hint.bottom,footerOverflow:el.scrollWidth>el.clientWidth+1};
+    });
+    assert.ok(metrics.left>=12&&metrics.right>=12&&metrics.bottom>=8&&metrics.sectionGap>=20&&metrics.actionGap>=8&&!metrics.footerOverflow,`${engine}/${locale}/${theme}/${width}: ${JSON.stringify(metrics)}`);
+    const shortcuts=page.locator('.table-shortcuts');await shortcuts.locator('summary').click();
+    assert.equal(await shortcuts.locator('dl > div').count(),5);assert.equal(await shortcuts.locator('kbd').count(),6);
+    const help=await shortcuts.locator('.table-shortcuts-panel').evaluate(el=>({left:el.getBoundingClientRect().left,right:el.getBoundingClientRect().right,overflow:el.scrollWidth>el.clientWidth+1}));
+    assert.ok(help.left>=0&&help.right<=width&&!help.overflow,JSON.stringify(help));
+    assert.equal(await page.locator('.queue-empty p,.crash-free-empty p').evaluateAll(elements=>elements.some(el=>el.textContent.trim().endsWith('。'))),false);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
+    if(locale==='zh')await page.screenshot({path:out+`${engine}-empty-${theme}-${width}.png`});
+    await page.keyboard.press('Escape');assert.equal(await shortcuts.getAttribute('open'),null);
+    results.push({engine,locale,theme,width,name:'empty-queue',metrics});writeFileSync(out+'results.json',JSON.stringify({results},null,2));
+  }
   const locales=process.env.VIS_TEST_WORKFLOW_ONLY?[]:process.env.VIS_TEST_QUICK?['en']:['zh','ja','en'];
   const widths=process.env.VIS_TEST_QUICK?[320,1440]:[320,768,1440,3840];
   for(const locale of locales)for(const theme of ['light','dark'])for(const width of widths){

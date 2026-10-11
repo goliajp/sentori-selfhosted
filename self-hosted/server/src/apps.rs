@@ -245,6 +245,10 @@ pub async fn observe(
 ) -> Result<Uuid, sqlx::Error> {
     lock_apps(tx, project_id, platform).await?;
     let version_id = release_id(tx, project_id, release).await?;
+    // A crash without launch configuration can report "unknown". Different
+    // applications share that placeholder; it cannot establish an identity.
+    let identifying_release =
+        version_id.filter(|_| !release.trim().eq_ignore_ascii_case("unknown"));
     let (identifier, fallback, explicit): (String, String, bool) = sqlx::query_as(
         "SELECT sentori_app_identifier($1,$2),sentori_app_identifier($1,'null'::jsonb),sentori_app_identifier('',$2)<>''",
     ).bind(release).bind(payload).fetch_one(&mut **tx).await?;
@@ -253,7 +257,8 @@ pub async fn observe(
         fallback,
         explicit,
     };
-    let existing = resolve_app(tx, project_id, platform, version_id, &mut identity).await?;
+    let existing =
+        resolve_app(tx, project_id, platform, identifying_release, &mut identity).await?;
     let event = matches!(source, Observation::Event);
     let session = matches!(source, Observation::Session);
     let app_id = if let Some(id) = existing {
@@ -276,7 +281,7 @@ pub async fn observe(
     };
     if let Some(release) = version_id {
         link_release(tx, project_id, app_id, release, event || session).await?;
-        if identity.explicit {
+        if identity.explicit && identifying_release.is_some() {
             merge_inferred_app(
                 tx,
                 project_id,

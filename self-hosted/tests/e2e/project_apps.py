@@ -47,6 +47,7 @@ def run(*, base, owner, sql, password, client, request):
     assert ios['releaseCount'] == 2 and ios['latestRelease']['name'] == 'mobile@1.1'
     assert android['releaseCount'] == 1 and android['latestRelease']['name'] == 'mobile@1.0'
     assert ios['events24h'] == 2 and android['events24h'] == 1
+    assert all(app['identitySource'] == 'release' for app in rows)
     assert all(app['lastEventAt'] for app in rows)
     assert {app['id'] for app in call(path + '/health')['apps']} == {app['id'] for app in rows}
     assert call(path + '/releases?appId=' + ios['id'])['total'] == 2
@@ -103,6 +104,7 @@ def run(*, base, owner, sql, password, client, request):
     with concurrent.futures.ThreadPoolExecutor(2) as executor:
         assert sum(executor.map(edit, ['Mobile iOS A', 'Mobile iOS B'])) == 1
     updated = next(app for app in call(path + '/apps')['apps'] if app['id'] == ios['id'])
+    assert updated['identitySource'] == 'configured'
     assert updated['version'] == 3 and updated['repositoryUrl'] == 'https://github.com/example/mobile'
     assert next(app for app in call(path + '/apps')['apps'] if app['id'] == android['id'])['repositoryUrl'] is None
     call(app_path, 'PATCH', {'expectedVersion': 3, 'platform': 'android'}, 422)
@@ -218,6 +220,23 @@ def run(*, base, owner, sql, password, client, request):
     assert unknown not in separate.values()
     ingest('/v1/events', identified('shared-native@1', 'jp.example.other'))
     assert sql(f"SELECT app_id FROM sessions WHERE id='{ambiguous['id']}';") == unknown
+
+    # A missing crash version is shared across applications. One identified
+    # crash must not absorb earlier or later unidentifiable reports.
+    unknown_before = event('weapp', 'unknown')
+    ingest('/v1/events', unknown_before)
+    unassigned = sql(f"SELECT app_id FROM events WHERE id='{unknown_before['id']}';")
+    for identifier in ['jp.example.first', 'jp.example.second']:
+        ingest('/v1/events', event('weapp', 'unknown', payload={'app': {'identifier': identifier}}))
+        unknown_after = event('weapp', 'unknown')
+        ingest('/v1/events', unknown_after)
+        assert sql(f"SELECT app_id FROM events WHERE id='{unknown_before['id']}';") == unassigned
+        assert sql(f"SELECT app_id FROM events WHERE id='{unknown_after['id']}';") == unassigned
+    identities = {app['identifier']: app for app in call(path + '/apps')['apps'] if app['platform'] == 'weapp'}
+    assert set(identities) == {'mini', '', 'jp.example.first', 'jp.example.second'}, identities
+    assert identities['']['identitySource'] == 'unknown'
+    assert identities['']['events24h'] == 3
+    assert all(identities[identifier]['identitySource'] == 'reported' for identifier in ['jp.example.first', 'jp.example.second'])
 
     before = len(call(path + '/apps')['apps'])
     artifact('javascript-build@1', 'sourcemap', json.dumps({'version': 3, 'sources': ['app.js'], 'names': [], 'mappings': 'AAAA'}))
