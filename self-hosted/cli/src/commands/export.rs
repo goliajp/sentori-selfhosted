@@ -109,6 +109,8 @@ async fn export_one(
 /// so `export --project` filtered two and silently exported nothing
 /// for the rest.
 const PROJECT_SCOPED: &[&str] = &[
+    "apps",
+    "app_releases",
     "cloud_replay_usage",
     "project_transfer_routes",
     "audit_logs",

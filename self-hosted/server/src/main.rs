@@ -27,6 +27,7 @@ use tokio::net::TcpListener;
 use tracing::info;
 
 mod apns;
+mod apps;
 mod archive_worker;
 mod audience;
 mod audit;

@@ -572,6 +572,24 @@ pub async fn ingest(
         crate::notification_queue::issue(&mut tx, ev.project_id, issue_id, ev.id, is_new_issue)
             .await?;
     }
+    // Discover only after issue/probe updates, so discovery never holds its
+    // app lock while waiting for an issue row owned by another ingest.
+    let app_id = crate::apps::observe(
+        &mut tx,
+        ev.project_id,
+        &ev.platform,
+        &ev.release,
+        &ev.payload,
+        crate::apps::Observation::Event,
+    )
+    .await?;
+    sqlx::query("UPDATE events SET app_id=$3 WHERE id=$1 AND project_id=$2")
+        .bind(ev.id)
+        .bind(ev.project_id)
+        .bind(app_id)
+        .execute(&mut *tx)
+        .await?;
+
     tx.commit().await?;
     Ok(IngestOutcome {
         event_id: ev.id,

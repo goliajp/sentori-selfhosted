@@ -127,7 +127,18 @@ export type EventDetail = {
   attachments: AttachmentRow[];
 };
 
+export type ArtifactSummary = {kind: string; count: number; usable: boolean; broken: boolean; unchecked: boolean}[];
+export type ProjectApp = {
+  id: string; projectId: string; platform: string; identifier: string; name: string | null;
+  repositoryUrl: string | null; version: number; createdAt: string;
+  lastEventAt: string | null; lastSessionAt: string | null; events24h: number; errors24h: number;
+  releaseCount: number; latestRelease: {id: string; name: string; createdAt: string} | null;
+  artifactSummary: ArtifactSummary;
+};
+
 export type ProjectHealth = {
+  apps: ProjectApp[];
+  artifactSummary: ArtifactSummary;
   /** Null until the SDK carries a backendHealthUrl for the project. */
   backend: null | {
     url: string;
@@ -175,6 +186,7 @@ export type UserRow = {
 };
 
 export type ReleaseRow = {
+  apps?: Pick<ProjectApp, 'id' | 'name' | 'identifier' | 'platform'>[];
   id: string;
   name: string;
   created_at?: string;
@@ -622,6 +634,12 @@ class Api {
   ) {
     return this.send<{ ok: boolean }>('PATCH', `/admin/api/projects/${id}`, patch);
   }
+  listApps(projectId: string) {
+    return this.get<{apps: ProjectApp[]}>(`/admin/api/projects/${projectId}/apps`);
+  }
+  updateApp(projectId: string, appId: string, patch: {name?: string; repositoryUrl?: string; expectedVersion: number}) {
+    return this.send<{ok: boolean; version: number}>('PATCH', `/admin/api/projects/${projectId}/apps/${appId}`, patch);
+  }
   deleteProject(id: string, expectedVersion?: number) {
     const query = expectedVersion === undefined ? '' : `?expectedVersion=${expectedVersion}`;
     return this.send<{ ok: boolean }>('DELETE', `/admin/api/projects/${id}${query}`);
@@ -719,9 +737,10 @@ class Api {
   // ── issues ──
   /** Crash-free rate for a window, and the same broken out per
    *  release — the comparison a ship/no-ship decision is made on. */
-  crashFree(q: { projectId: string; hours?: number; environment?: string }) {
+  crashFree(q: { appId?: string; projectId: string; hours?: number; environment?: string }) {
     const usp = new URLSearchParams({ projectId: q.projectId });
     if (q.hours) usp.set('hours', String(q.hours));
+    if (q.appId) usp.set('appId', q.appId);
     if (q.environment) usp.set('environment', q.environment);
     return this.get<{
       crashFreeSessions: null | number;
@@ -853,9 +872,10 @@ class Api {
   }
 
   // ── releases ──
-  listReleases(projectId: string, query: {q?:string;offset?:number;limit?:number} = {}, signal?: AbortSignal) {
+  listReleases(projectId: string, query: {appId?:string;q?:string;offset?:number;limit?:number} = {}, signal?: AbortSignal) {
     const params = new URLSearchParams();
     if(query.q)params.set('q',query.q);
+    if(query.appId)params.set('appId',query.appId);
     if(query.offset!==undefined)params.set('offset',String(query.offset));
     if(query.limit!==undefined)params.set('limit',String(query.limit));
     return this.get<{ releases: ReleaseRow[]; total: number; nextOffset: number | null }>(`/admin/api/projects/${projectId}/releases?${params}`, signal);

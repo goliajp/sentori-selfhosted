@@ -422,29 +422,10 @@ async fn store(
     .await
     .map_err(super::jobs::database_error)?;
 
-    // `try_get`, not `get`. `Row::get` panics on a column the result
-    // does not carry, and a panic here takes a tokio worker down over
-    // an artifact upload — the one thing this endpoint is not allowed
-    // to do. It happened: a backend whose Describe reported no columns
-    // for a data-modifying CTE turned a map upload into
-    // `ColumnNotFound("prev_hash")` mid-request, and the client saw an
-    // empty reply rather than an error it could read.
-    //
-    // `prev_hash` is informational — it answers "did these bytes
-    // change" — so losing it costs a field, not the upload.
-    let prev_hash: Option<String> = row.try_get("prev_hash").unwrap_or_else(|e| {
-        warn!(error = %e, "artifact upload: no prev_hash column in the result");
-        None
-    });
-    // `id` is not informational; without it the response is a lie.
-    // Still an error rather than a panic.
-    let Ok(id) = row.try_get::<Uuid, _>("id") else {
-        warn!("artifact upload: the insert returned no id column");
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "artifact stored but the insert returned no id" })),
-        ));
-    };
+    let (id, prev_hash) = stored_identity(&row)?;
+    crate::apps::observe_artifact(&mut tx, release_id, &kind)
+        .await
+        .map_err(super::jobs::database_error)?;
     tx.commit().await.map_err(super::jobs::database_error)?;
     let hash_hex = hash.to_hex();
     Ok((
@@ -629,6 +610,36 @@ fn maybe_gunzip(data: &[u8]) -> Result<Vec<u8>, String> {
         return Err(format!("decompressed file exceeds {MAX_BYTES} bytes"));
     }
     Ok(out)
+}
+
+/// Read the database receipt without panicking if metadata is unavailable.
+fn stored_identity(
+    row: &sqlx::postgres::PgRow,
+) -> Result<(Uuid, Option<String>), (StatusCode, Json<Value>)> {
+    // `try_get`, not `get`. `Row::get` panics on a column the result
+    // does not carry, and a panic here takes a tokio worker down over
+    // an artifact upload — the one thing this endpoint is not allowed
+    // to do. It happened: a backend whose Describe reported no columns
+    // for a data-modifying CTE turned a map upload into
+    // `ColumnNotFound("prev_hash")` mid-request, and the client saw an
+    // empty reply rather than an error it could read.
+    //
+    // `prev_hash` is informational — it answers "did these bytes
+    // change" — so losing it costs a field, not the upload.
+    let prev_hash: Option<String> = row.try_get("prev_hash").unwrap_or_else(|e| {
+        warn!(error = %e, "artifact upload: no prev_hash column in the result");
+        None
+    });
+    // `id` is not informational; without it the response is a lie.
+    // Still an error rather than a panic.
+    let Ok(id) = row.try_get::<Uuid, _>("id") else {
+        warn!("artifact upload: the insert returned no id column");
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "artifact stored but the insert returned no id" })),
+        ));
+    };
+    Ok((id, prev_hash))
 }
 
 #[cfg(test)]

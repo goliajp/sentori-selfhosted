@@ -48,7 +48,7 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
         assert response.code == status, (response.code, status, value)
         return value
     def event(message):
-        return dict(id=str(uuid.uuid4()), kind='error', occurredAt=datetime.datetime.now(datetime.timezone.utc).isoformat(), platform='javascript', payload={'error': {'type': 'Error', 'message': message}})
+        return dict(id=str(uuid.uuid4()), kind='error', occurredAt=datetime.datetime.now(datetime.timezone.utc).isoformat(), platform='javascript', release='transfer@1', payload={'app': {'identifier': 'jp.example.transferred'}, 'error': {'type': 'Error', 'message': message}})
     def row(call, identity): return next(item for item in call()['items'] if item['id'] == identity)
     def command(call, identity, action, status=200, **extra):
         transfer = row(call, identity)
@@ -87,9 +87,11 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
         token = source('/admin/api/projects/'+project+'/tokens', 'POST', {'name':'Old SDK','scope':'ingest'}, 201)['token']
         original = event('Initial migration event')
         sdk(runtime()[1], token, '/v1/events', original, 202)
+        source_app=source('/admin/api/projects/'+project+'/apps')['apps'][0]
+        source('/admin/api/projects/'+project+'/apps/'+source_app['id'],'PATCH',dict(expectedVersion=1,name='Transferred app',repositoryUrl='https://github.com/example/transferred'))
         sql("UPDATE events SET received_at=now()+interval '1 day' WHERE id='"+original['id']+"';")
         session=str(uuid.uuid4())
-        sdk(runtime()[1],token,'/v1/events:batch',{'sessions':[{'id':session,'status':'ok','startedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'platform':'javascript','durationMs':123}]},200)
+        sdk(runtime()[1],token,'/v1/events:batch',{'sessions':[{'id':session,'status':'ok','startedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),'platform':'javascript','release':'transfer@1','durationMs':123}]},200)
         transfer = str(uuid.uuid4())
         definition = dict(commandId=str(uuid.uuid4()), id=transfer, direction='source', instanceId=a['id'], generation=a['generation'], sourceInstanceId=a['id'], sourceGeneration=a['generation'], targetInstanceId=b['id'], targetGeneration=b['generation'], projectIds=[project])
         source(method='POST', data=definition, status=403, http=member)
@@ -145,6 +147,11 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
         assert sql("SELECT count(*) FROM projects WHERE id<>'"+other+"';",'transfer_target')=='0'
         first=upload(archive)['jobId'];done(target,transfer,first)
         mapped=row(target,transfer)['projectMapping'][project]
+        target_app=target('/admin/api/projects/'+mapped+'/apps')['apps'][0]
+        assert target_app['id']!=source_app['id'] and target_app['name']=='Transferred app' and target_app['repositoryUrl']=='https://github.com/example/transferred'
+        assert sql("SELECT has_explicit_identifier FROM apps WHERE id='"+target_app['id']+"';",'transfer_target')=='t'
+        assert target_app['releaseCount']==1 and target_app['latestRelease']['name']=='transfer@1'
+        assert sql("SELECT app_id FROM events WHERE id='"+original['id']+"';",'transfer_target')==target_app['id']
         assert mapped!=project and sql("SELECT count(*) FROM events WHERE project_id='"+mapped+"';",'transfer_target')=='1'
         assert sql("SELECT count(*) FROM tokens WHERE project_id='"+mapped+"';",'transfer_target')=='0'
         assert sql("SELECT key_blob IS NULL FROM project_transfer_jobs WHERE id='"+first+"';",'transfer_target')=='t'

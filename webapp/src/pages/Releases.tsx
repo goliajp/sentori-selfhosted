@@ -14,6 +14,7 @@ import { api, type ArtifactRow, type ReleaseRow } from '../lib/api';
 import { formatApiError } from '../lib/useAsyncData';
 import { useScopedAsyncData } from '../lib/useScopedAsyncData';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
+import { platformLabel } from '../lib/platform-label';
 import { formatCrashFree } from '../lib/crash-free';
 import { lightColour, lightState, type LightState } from '../lib/release-lights';
 
@@ -24,26 +25,29 @@ export default function ReleasesPage(){
 }
 function Releases({projectId}:{projectId:string}){
   const t=useT();const [params,setParams]=useSearchParams();
-  const query=params.get('q')??'',selected=params.get('detail');
+  const query=params.get('q')??'',selected=params.get('detail'),appId=params.get('app')??'';
+  const apps=useScopedAsyncData(projectId,()=>api.listApps(projectId));
   const settledQuery=useDebouncedValue(query,150),pendingQuery=query!==settledQuery;
   const rawOffset=Number(params.get('offset')??0),offset=Number.isSafeInteger(rawOffset)&&rawOffset>=0?rawOffset:0;
-  const state=useScopedAsyncData(JSON.stringify([projectId,settledQuery,offset]),async signal=>{
-    const result=await api.listReleases(projectId,{q:settledQuery,offset,limit:50},signal);
+  const state=useScopedAsyncData(JSON.stringify([projectId,appId,settledQuery,offset]),async signal=>{
+    const result=await api.listReleases(projectId,{appId,q:settledQuery,offset,limit:50},signal);
     return {...result,rows:result.releases};
   });
-  const health=useScopedAsyncData(projectId,()=>api.crashFree({projectId,hours:720}));
+  const health=useScopedAsyncData(JSON.stringify([projectId,appId]),()=>api.crashFree({projectId,appId,hours:720}));
   const byRelease=new Map<string,{sessions:number;crashed:number}>();
   for(const row of health.data?.releases??[]){const previous=byRelease.get(row.release)??{sessions:0,crashed:0};previous.sessions+=row.sessions??0;previous.crashed+=row.crashedSessions??0;byRelease.set(row.release,previous);}
   function update(changes:Record<string,string>){const next=new URLSearchParams(params);for(const [key,value]of Object.entries(changes)){if(value)next.set(key,value);else next.delete(key);}setParams(next,{replace:true});}
   const release=state.data?.rows.find(row=>row.id===selected);
   return <div className="production-page">
     <Heading title={t('nav.releases')} description={t('releaseView.description')}/>
-    <div className="control-bar"><Field label={t('releaseView.search')}><Input type="search" maxLength={200} value={query} onChange={e=>update({q:e.target.value,offset:'',detail:''})}/></Field></div>
+    <div className="control-bar"><Field label={t('apps.title')}><Select value={appId} onChange={e=>update({app:e.target.value,offset:'',detail:''})}><option value="">{t('apps.all')}</option>{apps.data?.apps.map(app=><option key={app.id} value={app.id}>{app.name || app.identifier || platformLabel(app.platform,t)} · {platformLabel(app.platform,t)}</option>)}</Select></Field><Field label={t('releaseView.search')}><Input type="search" maxLength={200} value={query} onChange={e=>update({q:e.target.value,offset:'',detail:''})}/></Field></div>
     <Legend/>
     {state.error&&<div><ErrorBanner reason={state.error}>{t('releases.loadFailed')}</ErrorBanner><Button onClick={state.reload}>{t('common.retry')}</Button></div>}
+    {apps.error&&<ErrorBanner reason={apps.error}>{t('apps.loadFailed')}</ErrorBanner>}
     {health.error&&<ErrorBanner reason={health.error}>{t('releaseView.healthFailed')}</ErrorBanner>}
     <div className="surface" aria-busy={state.loading||pendingQuery}><DataTable<Row> appearance="design" rowKey={row=>row.id} rows={pendingQuery?[]:state.data?.rows??[]} empty={t(state.loading||pendingQuery?'projects.loading':state.error?'releases.loadFailed':'releases.emptyTitle')} columns={[
       {key:'name',label:t('inbox.releaseFilter'),render:row=><button className="text-link font-semibold" onClick={()=>update({detail:row.id})}>{row.name}</button>},
+      {key:'apps',label:t('apps.title'),render:row=>row.apps?.map(app=>`${app.name || app.identifier || platformLabel(app.platform,t)} · ${platformLabel(app.platform,t)}`).join(', ')||'—'},
       {key:'sessions',label:t('releaseView.sessions'),align:'right',render:row=>byRelease.get(row.name)?.sessions.toLocaleString()??'—'},
       {key:'crashFree',label:t('releases.crashFree'),align:'right',render:row=><CrashFreeCell health={byRelease.get(row.name)??null}/>},
       {key:'artifacts',label:t('releaseView.artifacts'),render:row=><Coverage release={row}/>},
@@ -60,7 +64,7 @@ function Coverage({release}:{release:Row}){
     const on=artifacts!==undefined
       ?artifacts.some(row=>row.usable==null)?undefined:artifacts.some(row=>row.usable===true)
       :release.artifactSummary===undefined||summary?.unchecked?undefined:summary?.usable??false;
-    return <Light key={kind} on={on} warn={artifacts?.some(row=>row.usable===false)??summary?.broken} label={['js','ios','android','src'][index]} used={kind==='sourcemap'||kind==='dsym'&&!!release.platforms?.includes('ios')||kind==='proguard'&&!!release.platforms?.includes('android')}/>;
+    return <Light key={kind} on={on} warn={artifacts?.some(row=>row.usable===false)??summary?.broken} label={['JavaScript','iOS','Android','Source'][index]} used={kind==='sourcemap'||kind==='dsym'&&!!release.platforms?.includes('ios')||kind==='proguard'&&!!release.platforms?.includes('android')}/>;
   })}</div>;
 }
 function ReleaseDetails({projectId,release,health,onClose,onChange}:{projectId:string;release:Row;health:{sessions:number;crashed:number}|null;onClose:()=>void;onChange:()=>void}){

@@ -9,6 +9,33 @@ This guide walks through the full lifecycle: when to use teams, how
 they interact with project access, ownership transfer, and the audit
 log that records every admin action.
 
+
+## Projects and apps
+
+SDKs use a project endpoint and project token. A project aggregates its apps and
+keeps shared access, tasks and ingestion credentials. Creating a project does
+not select or register an app platform.
+
+The server discovers apps from accepted events and sessions. Each app has one
+runtime platform, its own release history, an optional display name and Git
+repository URL. An existing release prefix such as `storefront@1.2.0` identifies
+`storefront`; optional app identity metadata takes precedence. Without a usable
+identity, the server groups observations by platform within the project. No new
+client configuration is required.
+
+Projects show detected platforms and links to the corresponding SDK guides.
+An empty project starts with neutral indicators. Native symbol uploads identify
+iOS or Android before a device reports, but “Files uploaded” is distinct from
+“Connected.” JavaScript source maps show file coverage without guessing whether
+the runtime is a browser or React Native. Invalid and unchecked files do not
+count as usable coverage. A quiet app stays visible after its 24-hour counters
+return to zero.
+
+Open an app's latest release to filter its versions and crash-free sessions.
+Edit the app to set its display name or repository. Shared build artifacts can
+serve several apps, such as the iOS and Android variants of one React Native
+release; existing upload URLs and release IDs remain valid.
+
 ## Vocabulary in one paragraph
 
 An **org** owns **projects** and has **members** with one of three roles:

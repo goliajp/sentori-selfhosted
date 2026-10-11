@@ -555,10 +555,17 @@ pub async fn health(
         )
     });
     let backend = backend_block(&state, project_id).await;
+    let (apps, artifact_summary) = match super::apps::project_summary(&state.pool, project_id).await
+    {
+        Ok(summary) => summary,
+        Err(error) => return failure(&error),
+    };
     (
         StatusCode::OK,
         Json(json!({
             "backend": backend,
+            "apps": apps,
+            "artifactSummary": artifact_summary,
             "lastEventAt": last_event_at.map(crate::wire_time::rfc3339),
             "counts24h": counts,
             "users24h": users_24h,

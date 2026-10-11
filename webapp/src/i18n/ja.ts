@@ -4,6 +4,18 @@
 import type { Messages } from './en';
 
 export const ja: Messages = {
+  'apps.title': "アプリ",
+  'apps.all': "すべてのアプリ",
+  'apps.loadFailed': "アプリを読み込めません",
+  'apps.platforms': "検出されたプラットフォームと導入ガイド",
+  'apps.filesOnly': "ファイルをアップロード済み",
+  'apps.empty': "データを受信するとアプリを自動で識別します。上のプラットフォームから導入ガイドを開けます",
+  'apps.edit': "アプリを編集",
+  'apps.name': "アプリ名",
+  'apps.repository': "Git リポジトリ",
+  'apps.repositoryHint': "このアプリのリポジトリ URL",
+  'apps.conflict': "アプリが変更されました。ダイアログを閉じて再読み込みしてください",
+
   "instanceHealth.title": "インスタンス健全性チェック",
   "instanceHealth.hint": "読み取り専用です。テストデータの書き込みや外部接続は行いません。バックアップ履歴だけでは外部コピーや復元の成功は確認できません",
   "instanceHealth.run": "健全性を確認",
@@ -618,7 +630,7 @@ export const ja: Messages = {
   'projects.edit': 'プロジェクトを編集',
   'projects.open': '問題を開く',
   'projects.healthUnavailable': 'ヘルスデータを取得できません',
-  'projects.connected': 'イベント受信済み',
+  'projects.connected': '接続済み',
   'projects.loading': '状態を読み込み中',
   'projects.waiting': '最初のイベントを待機中',
   'projects.errors24h': '24 時間のエラー数',

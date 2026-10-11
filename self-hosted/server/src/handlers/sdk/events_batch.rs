@@ -155,23 +155,46 @@ async fn store_sessions(state: &Arc<AppState>, project_id: Uuid, sessions: &[Val
         } else {
             super::events::UNKNOWN_PLATFORM
         };
-        let result = sqlx::query(
-            "INSERT INTO sessions \
+        let result: Result<(), sqlx::Error> = async {
+            let mut tx = state.pool.begin().await?;
+            let inserted = sqlx::query(
+                "INSERT INTO sessions \
              (id, project_id, status, release, environment, platform, \
               started_at, duration_ms, user_key) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
              ON CONFLICT (id) DO NOTHING",
-        )
-        .bind(session.id)
-        .bind(project_id)
-        .bind(status)
-        .bind(&session.release)
-        .bind(&session.environment)
-        .bind(platform)
-        .bind(session.started_at)
-        .bind(session.duration_ms.max(0))
-        .bind(session.user_key.as_deref().or(session.user_id.as_deref()))
-        .execute(&state.pool)
+            )
+            .bind(session.id)
+            .bind(project_id)
+            .bind(status)
+            .bind(&session.release)
+            .bind(&session.environment)
+            .bind(platform)
+            .bind(session.started_at)
+            .bind(session.duration_ms.max(0))
+            .bind(session.user_key.as_deref().or(session.user_id.as_deref()))
+            .execute(&mut *tx)
+            .await?;
+            if inserted.rows_affected() > 0 {
+                let payload = json!({"app": raw.get("app")});
+                let app_id = crate::apps::observe(
+                    &mut tx,
+                    project_id,
+                    platform,
+                    &session.release,
+                    &payload,
+                    crate::apps::Observation::Session,
+                )
+                .await?;
+                sqlx::query("UPDATE sessions SET app_id=$3 WHERE id=$1 AND project_id=$2")
+                    .bind(session.id)
+                    .bind(project_id)
+                    .bind(app_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            tx.commit().await
+        }
         .await;
         if let Err(e) = result {
             warn!(project_id = %project_id, error = %e, "session insert failed");

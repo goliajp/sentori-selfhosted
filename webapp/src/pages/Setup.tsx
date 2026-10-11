@@ -15,7 +15,7 @@ import { findSetupEvent, hasReadableSource, SETUP_DOCS, SETUP_PLATFORMS, setupCh
 import { setupSnippets } from '../lib/setup-snippets';
 import { formatApiError } from '../lib/useAsyncData';
 
-type SetupProject = Pick<Project, 'id' | 'name' | 'platform'>;
+type SetupProject = Pick<Project, 'id' | 'name'>;
 
 export default function Setup() {
   const t = useT();
@@ -43,7 +43,7 @@ export default function Setup() {
           me.role === 'superadmin' && (params.has('new') || projects.length === 0) ? <CreateProject onCreated={(p) => {
             setCreated(p); setActiveProjectId(p.id); void reloadProjects(); setParams({project:p.id});
           }} /> : <p className="rounded-xl border border-border bg-surface p-6 text-sm text-fg-muted">{t('setup.askOwner')}</p>
-        ) : <ProjectSetup key={project.id} project={project} />}
+        ) : <ProjectSetup key={`${project.id}:${params.get('platform') ?? ''}`} project={project} initialPlatform={params.get('platform')} />}
     </div>
   );
 }
@@ -51,7 +51,6 @@ export default function Setup() {
 function CreateProject({ onCreated }: { onCreated: (p: SetupProject) => void }) {
   const t = useT();
   const [name, setName] = useState('');
-  const [platform, setPlatform] = useState<SetupPlatform>('react-native');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
@@ -59,22 +58,21 @@ function CreateProject({ onCreated }: { onCreated: (p: SetupProject) => void }) 
       e.preventDefault();
       if (!name.trim() || busy) return;
       setBusy(true); setError(null);
-      void api.createProject(name.trim(), platform).then(
-        ({ id }) => onCreated({ id, name: name.trim(), platform }),
+      void api.createProject(name.trim()).then(
+        ({ id }) => onCreated({ id, name: name.trim() }),
         (err: unknown) => { setError(formatApiError(err)); setBusy(false); },
       );
     }}>
       <Field label={t('settings.projectName')}><Input required maxLength={200} disabled={busy} autoComplete="off" value={name} onChange={(e) => setName(e.target.value)} /></Field>
-      <Field label={t('setup.platform')}><Select disabled={busy} value={platform} onChange={(e) => setPlatform(setupPlatform(e.target.value))}>{SETUP_PLATFORMS.map((p) => <option key={p} value={p}>{platformLabel(p, t)}</option>)}</Select></Field>
       {error && <ErrorBanner reason={error}>{t('settings.createProjectFailed')}</ErrorBanner>}
       <DesignButton type="submit" variant="primary" busy={busy} disabled={!name.trim()}>{t(busy ? 'setup.creating' : 'settings.createProject')}<ArrowRight className="h-4 w-4" aria-hidden /></DesignButton>
     </form></Surface>
   );
 }
 
-function ProjectSetup({ project }: { project: SetupProject }) {
+function ProjectSetup({ project, initialPlatform }: { project: SetupProject; initialPlatform: string | null }) {
   const t = useT();
-  const [platform, setPlatform] = useState<SetupPlatform>(() => setupPlatform(project.platform));
+  const [platform, setPlatform] = useState<SetupPlatform>(() => setupPlatform(initialPlatform === 'javascript' ? 'web' : initialPlatform));
   const [token, setToken] = useState('');
   const [release, setRelease] = useState('myapp@1.0.0');
   const [origin, setOrigin] = useState(() => window.location.origin);
