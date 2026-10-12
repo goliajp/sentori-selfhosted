@@ -476,7 +476,7 @@ time {
 
 .production-workbench .queue-filters-primary > .button { margin-top: 0; justify-self: start; }
 
-.production-workspace[data-scope=product] > .studio-nav { padding-top: 52px; }
+.production-workspace[data-scope=product] > .studio-nav { padding-top: 0; }
 .production-workspace[data-scope=product] .studio-nav nav { margin-top: 0; }
 .instance-statusbar { display: flex; align-items: center; flex-shrink: 0; gap: 12px; min-height: 26px; padding: 0 10px; border-top: 1px solid var(--ui-line); background: var(--ui-chrome); color: var(--ui-secondary); font-size: 11px; }
 .instance-statusbar button { display: flex; align-items: center; gap: 8px; min-height: 25px; min-width: 0; }

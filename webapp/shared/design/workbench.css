@@ -1,5 +1,8 @@
 /* The application is a viewport workspace; each pane owns its scroll position. */
-.studio-shell[data-workbench="true"] { height: 100dvh; min-height: 0; overflow: hidden; }
+.studio-shell[data-workbench="true"] { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100dvh; min-height: 0; overflow: hidden; }
+.studio-shell[data-workbench="true"] > .studio-topbar { grid-column: 1 / -1; }
+.studio-shell[data-workbench="true"] > .studio-nav { grid-row: 2; position: static; height: auto; min-height: 0; }
+.studio-shell[data-workbench="true"] > .studio-content { grid-row: 2; }
 .studio-shell[data-workbench="true"] .studio-content { display: flex; flex-direction: column; min-height: 0; }
 .studio-shell[data-workbench="true"] .page-content { display: flex; flex: 1; flex-direction: column; min-height: 0; width: 100%; max-width: none; padding: 0; }
 .studio-shell[data-workbench="true"] .page-content > .studio-footer { display: none; }
