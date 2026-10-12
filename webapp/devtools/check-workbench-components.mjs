@@ -21,5 +21,8 @@ sharedComponent('src/components/Workbench.tsx','Picker','../../shared/design/Pic
 sharedComponent('vis/src/components/Workbench.tsx','WorkbenchLayout','../../../shared/design/WorkbenchLayout');
 sharedComponent('vis/src/components/DocumentTabs.tsx','DocumentTabs','../../../shared/design/DocumentTabs');
 sharedComponent('vis/src/components/Selection.tsx','Picker','../../../shared/design/Picker');
+sharedComponent('src/pages/Releases.tsx','StatusLabel','../../shared/design/StatusLabel');
+sharedComponent('vis/src/pages/Operations.tsx','StatusLabel','../../../shared/design/StatusLabel');
+sharedComponent('vis/src/components/DataChart.tsx','StatusLabel','../../../shared/design/StatusLabel');
 for(const [file,style] of [['src/styles/index.css','workbench.css'],['src/styles/index.css','selection.css'],['vis/src/workbench.css','workbench.css'],['vis/src/selection.css','selection.css']])assert.ok(readFileSync(new URL('../'+file,import.meta.url),'utf8').includes(`shared/design/${style}`),`${file} must load shared ${style}`);
 console.log('PASS: production and preview render the same workbench, document tabs and picker owners');

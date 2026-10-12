@@ -64,12 +64,12 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
   await page.unroute('**/admin/api/projects/*/instruments?*');await page.getByRole('button',{name:'Refresh',exact:true}).click();await page.locator('.telemetry-plot svg').first().waitFor();
   // A direct detail remains reachable outside the visible list page.
   const release=(await call(`/admin/api/projects/${project.id}/releases?q=deep-link`)).releases[0];
-  await visit(origin+`/releases?project=${project.id}&offset=50&detail=${release.id}`);await page.getByRole('dialog',{name:'deep-link@1',exact:true}).waitFor();
-  // Closing a detail opens the list document and starts its own reads. Await
-  // those reads before a full navigation instead of an already-fired idle event.
-  const listReads=[`/admin/api/projects/${project.id}/apps`,`/admin/api/projects/${project.id}/releases?offset=50&limit=50`,`/admin/api/sessions/crash-free?projectId=${project.id}&hours=720`]
-    .map(path=>page.waitForResponse(response=>response.url()===origin+path&&response.status()===200).then(response=>response.finished()));
-  await page.keyboard.press('Escape');await page.waitForURL(url=>!url.searchParams.has('detail'));await Promise.all(listReads);
+  await visit(origin+`/releases?project=${project.id}&offset=50&detail=${release.id}`);await page.getByRole('region',{name:'deep-link@1',exact:true}).waitFor();
+  assert.equal(await page.locator('dialog[open]').count(),0);
+  await page.locator('.release-item-list [aria-current=true]').waitFor();
+  assert.equal(await page.locator('.workbench-tab').count(),1);
+  await page.getByRole('button',{name:'Back to list',exact:true}).click();await page.waitForURL(url=>!url.searchParams.has('detail'));
+  assert.equal(await page.locator('.workbench-tab').count(),1);
   await visit(instruments);await page.locator('.telemetry-plot svg').first().waitFor();
   // Command search is server-backed, keeps project identity and supports Escape.
   await page.keyboard.press('Control+k');await page.getByRole('dialog').getByRole('combobox').fill('Shared failure');await page.getByRole('option').filter({hasText:'Shared failure'}).waitFor();await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});

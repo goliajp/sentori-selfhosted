@@ -147,3 +147,7 @@ Owners can also prepare an offline reset from **Self-hosted → Overview** after
 re-entering their password and the instance identity. The operator command creates
 a fresh independent backup before clearing data; interrupted cleanup blocks startup
 until `finish-reset` succeeds. Follow the [reset procedure](../docs/self-hosting.md#reset-with-an-independent-recovery-copy).
+
+### Instance operator identity
+
+Set `SENTORI_OPERATOR_NAME` in `self-hosted/docker/.env` to the organization operating this instance, then run `docker compose up -d` from that directory to apply it. For direct server deployments, set the same server environment variable. The authenticated system API exposes this display name to the console's instance information. It identifies the service operator, not the software author or signed-in account. If omitted, the console explicitly shows that the operator is not configured; it never assumes that a self-hosted instance is operated by GOLIA.

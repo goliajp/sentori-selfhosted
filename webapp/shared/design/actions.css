@@ -84,7 +84,7 @@
 }
 /* Trim font leading before flex centering; no locale-wide pixel offsets.
    Older engines fall back to the centered line box. */
-.button-label, .badge-label, .choice-label, .control-label-text { display: block; text-box-trim: trim-both; text-box-edge: text; }
+.button-label, .badge-label, .choice-label, .control-label-text, .status-label-text { display: block; text-box-trim: trim-both; text-box-edge: text; }
 .button[aria-busy="true"] {
   opacity: 1;
 }
@@ -140,3 +140,10 @@
 
 .button[data-wrap="true"] { max-width: 100%; height: auto; white-space: normal; padding-block: var(--space-2); }
 .button[data-wrap="true"] .button-label { overflow-wrap: anywhere; }
+
+/* Status text must be an explicit trimmed box, never an anonymous flex item. */
+.status-label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; min-height: 18px; line-height: 18px; vertical-align: middle; }
+.status-label-marker { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; line-height: 0; }
+.status-label-marker > i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--ui-muted); }
+.status-label-marker > svg { display: block; }
+.status-label-text { min-width: 0; overflow-wrap: anywhere; }

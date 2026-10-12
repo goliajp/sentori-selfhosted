@@ -10,6 +10,7 @@ export type SystemInfo = {
   apiVersion: 1;
   serverVersion: string;
   deployment: 'self-hosted' | 'cloud';
+  operatorName?: string | null;
   capabilities: Record<string, Capability | undefined>;
 };
 export type InstanceCheck = {
