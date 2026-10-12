@@ -42,6 +42,7 @@ pub struct SystemInfo {
     api_version: u8,
     server_version: &'static str,
     deployment: &'static str,
+    operator_name: Option<String>,
     capabilities: BTreeMap<&'static str, Capability>,
 }
 
@@ -96,6 +97,7 @@ fn describe(role: Role, backup_configured: bool, transfer_configured: bool) -> S
         api_version: 1,
         server_version: env!("CARGO_PKG_VERSION"),
         deployment: "self-hosted",
+        operator_name: None,
         capabilities,
     }
 }
@@ -109,6 +111,10 @@ pub async fn get(
         crate::instance_operations::configured(&state),
         crate::project_transfers::configured(&state),
     );
+    info.operator_name = std::env::var("SENTORI_OPERATOR_NAME")
+        .ok()
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty());
     if state.cloud.is_some() {
         info.deployment = "cloud";
         for name in [

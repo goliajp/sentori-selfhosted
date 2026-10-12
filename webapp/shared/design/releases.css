@@ -1,5 +1,5 @@
 
-.release-coverage, .release-legend { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.release-coverage, .release-legend { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .release-legend { font-size: 12px; color: var(--ui-secondary); margin-block: var(--space-4); }
 .release-coverage > span, .release-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .release-coverage i, .release-legend i { width: 7px; height: 7px; border-radius: 50%; background: var(--ui-muted); }
@@ -8,3 +8,37 @@
 .release-coverage [data-state="missing"] i, .release-legend [data-state="missing"] i { background: var(--ui-danger); }
 .release-coverage { column-gap: 10px; row-gap: 4px; font-size: 11px; }
 .release-coverage > span { white-space: nowrap; }
+/* A release is a selection in one document, with independently scrolling panes. */
+.production-page.release-workspace { display: flex; flex-direction: column; overflow: hidden; scrollbar-gutter: auto; }
+.release-workspace > .page-heading,.release-workspace > .control-bar { flex-shrink: 0; }
+.release-workspace-body { display: flex; flex: 1; min-height: 0; min-width: 0; gap: 12px; }
+.release-list { flex: 1; overflow: auto; min-width: 0; }
+.release-workspace[data-selected=true] .release-list { flex: 0 0 clamp(200px,30%,300px); }
+.release-item-list { display: flex; flex-direction: column; }
+.release-item-list > button { display: flex; flex-direction: column; gap: 8px; padding: 12px; text-align: left; border-bottom: 1px solid var(--ui-line); border-left: 2px solid transparent; }
+.release-item-list > button > strong { font-size: 12px; overflow-wrap: anywhere; }
+.release-item-list small { color: var(--ui-muted); font-size: 11px; }
+.release-item-list > button:hover { background: var(--ui-hover); }
+.release-item-list > button[aria-current=true] { border-left-color: var(--ui-action); background: var(--ui-selected); }
+.release-detail { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; border: 1px solid var(--ui-line); background: var(--ui-surface); }
+.release-detail-header { display: flex; align-items: start; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--ui-line); background: var(--ui-chrome); }
+.release-detail-header h2 { font-size: 15px; line-height: 22px; font-weight: 600; overflow-wrap: anywhere; margin-top: 4px; }
+.release-detail-header > .button { flex-shrink: 0; }
+.release-detail-body { flex: 1; overflow: auto; padding: 16px; }
+.release-detail-footer { padding: 8px 16px; border-top: 1px solid var(--ui-line); }
+.release-detail [hidden] { display: none; }
+.release-detail .surface { --panel-content-inset: 12px; --panel-inset-inline: 12px; }
+.release-workspace[data-selected=true] .table-pagination { flex-wrap: wrap; gap: 8px; }
+@container document (max-width: 680px) { .release-workspace[data-selected=true] .release-list { display: none; } }
+
+.preview-release-workspace { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.preview-release-workspace > .page-heading,.preview-release-workspace > .control-bar { flex-shrink: 0; }
+@media (max-width: 900px) { .preview-release-workspace[data-selected=true] .release-list { display: none; } }
+
+.release-light-used { color: var(--ui-secondary); }
+.release-light-unused { color: var(--ui-muted); }
+.release-detail .section-stack { gap: 12px; }
+.release-detail .metrics-grid { grid-template-columns: repeat(2,minmax(0,1fr)); margin-bottom: 0; }
+.release-workspace[data-selected=true] > .page-heading { margin-bottom: 12px; }
+.release-workspace[data-selected=true] > .page-heading p { display: none; }
+.release-workspace > .control-bar { margin-bottom: 12px; }

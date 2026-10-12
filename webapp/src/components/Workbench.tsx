@@ -1,3 +1,4 @@
+import { StatusLabel } from '../../shared/design/StatusLabel';
 import { Activity, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, UNSAFE_LocationContext, UNSAFE_NavigationContext, useLocation, useNavigate, type Location, type To } from 'react-router-dom';
 import { Box, ChevronDown, CircleDot, X } from 'lucide-react';
@@ -8,6 +9,7 @@ import { Button } from '../../shared/design/controls';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/en';
 import { DocumentRuntimeContext } from '../lib/document-context';
+import { WorkbenchEmpty } from './WorkbenchEmpty';
 import { platformLabel } from '../lib/platform-label';
 import { issueHeadline } from '../lib/issue-title';
 import { api } from '../lib/api';
@@ -18,7 +20,7 @@ type OpenDocument = { key: string; projectId: string; location: Location; contex
 const routes: Record<string, MessageKey> = { '/':'nav.inbox', '/issues':'nav.inbox', '/projects':'nav.projects', '/tasks':'team.title', '/inbox':'team.inbox', '/status':'monitor.title', '/integrations':'integration.title', '/instruments':'nav.instruments', '/releases':'nav.releases', '/setup':'nav.setup', '/push':'nav.push', '/settings':'nav.settings', '/transfers':'transfer.title', '/self-hosted':'lifecycle.title' };
 function documentKey(location: Pick<Location,'pathname'|'search'>, projectId: string) {
   const params = new URLSearchParams(location.search);
-  return `${projectId}:${location.pathname === '/' ? '/issues' : location.pathname.startsWith('/settings') ? '/settings' : location.pathname}:${location.pathname === '/releases' ? params.get('detail') ?? '' : location.pathname === '/tasks' ? params.get('id') ?? '' : ''}`;
+  return `${projectId}:${location.pathname === '/' ? '/issues' : location.pathname.startsWith('/settings') ? '/settings' : location.pathname}:${location.pathname === '/tasks' ? params.get('id') ?? '' : ''}`;
 }
 
 export function Workbench({ children }: { children: ReactNode }) {
@@ -28,13 +30,13 @@ export function Workbench({ children }: { children: ReactNode }) {
   const documentProjectId=projectId || new URLSearchParams(location.search).get('project') || '';
   const key = documentKey(location, documentProjectId);
   const [documents, setDocuments] = useState<OpenDocument[]>([]);
-  const [closing, setClosing] = useState<string | null>(null);
+  const [closing, setClosing] = useState<Location | null>(null);
   const [bottomTab, setBottomTab] = useState('issues');
   const current = documents.find(item => item.key === key);
   // A route snapshot includes the outlet's match context and location. Hidden
   // Activities pause effects/listeners while retaining forms and scroll DOM.
-  if (closing && closing !== key) setClosing(null);
-  if (closing !== key && (!current || current.location !== location)) {
+  if (closing && closing !== location) setClosing(null);
+  if (closing !== location && (!current || current.location !== location)) {
     const next = { key, projectId:documentProjectId, location, context, content: children, title: current?.title };
     setDocuments(current ? documents.map(item => item.key === key ? next : item) : [...documents, next]);
   }
@@ -74,17 +76,16 @@ export function Workbench({ children }: { children: ReactNode }) {
     const project = shell.projects.find(project => project.id === item.projectId);
     const path = item.location.pathname;
     const params = new URLSearchParams(item.location.search);
-    const name = item.title ?? (path.startsWith('/issues/') ? path.split('/').at(-1)! : params.get('detail') ?? (path === '/tasks' ? params.get('id') : null) ?? t(routes[path] ?? 'nav.settings'));
+    const name = item.title ?? (path.startsWith('/issues/') ? path.split('/').at(-1)! : (path === '/tasks' ? params.get('id') : null) ?? t(routes[path] ?? 'nav.settings'));
     return `${name}${project && project.id !== projectId ? ` · ${project.name}` : ''}`;
   }
   const select = (item: OpenDocument) => navigate({ pathname: item.location.pathname, search: item.location.search, hash: item.location.hash });
-  function close(target: string) {
-    const remaining = documents.filter(item => item.key !== target);
-    if (!remaining.length) return;
-    setClosing(target); setDocuments(remaining);
-    const next=target===key?remaining[Math.max(0, documents.findIndex(item => item.key === target)-1)]:remaining.find(item=>item.key===key)!;
-    if (target === key) select(next);
-    requestAnimationFrame(()=>document.getElementById(`tab-${next.key}`)?.focus({preventScroll:true}));
+  function closeMany(targets: string[]) {
+    const remaining = documents.filter(item => !targets.includes(item.key));
+    setClosing(location); setDocuments(remaining);
+    const next = remaining.find(item => item.key === key) ?? remaining[Math.max(0, documents.findIndex(item => item.key === key)-1)] ?? remaining.at(-1);
+    if (next && targets.includes(key)) select(next);
+    requestAnimationFrame(() => next ? document.getElementById(`tab-${next.key}`)?.focus({preventScroll:true}) : document.getElementById('workspace')?.focus());
   }
   const href = (path: string, params: Record<string, string> = {}) => ({ pathname: path, search: new URLSearchParams({ project: projectId, ...params }).toString() });
   const summary = (count: number, total: number) => t('bench.recent', { count: String(count), total: String(total) });
@@ -94,24 +95,25 @@ export function Workbench({ children }: { children: ReactNode }) {
   const inspectedRelease = release.data;
   const inspection = issueId ? issue : releaseId ? release : taskId ? task : null;
   const values: [MessageKey, string][] = details ? [['bench.project', shell.activeProject?.name ?? '—'], ['bench.status', t(`inbox.group.${details.status}`)], ['bench.release', details.lastRelease || t('bench.unknown')], ['bench.environment', details.environment || t('bench.unknown')], ['bench.events', details.eventCount.toLocaleString(locale)]] : [['bench.project', shell.activeProject?.name ?? '—'], ['bench.platform', platformLabel(shell.activeProject?.platform,t)], ...(issues ? [['bench.issues', issues.total.toLocaleString(locale)] as [MessageKey,string]] : []), ...(releases ? [['bench.releases', releases.total.toLocaleString(locale)] as [MessageKey,string]] : [])];
-  const currentTitle = details ? issueHeadline(details).headline : inspectedRelease?.name ?? task.data?.task.title;
+  const currentTitle = details ? issueHeadline(details).headline : task.data?.task.title;
   if (current && currentTitle && current.title !== currentTitle) setDocuments(previous => previous.map(item => item.key === key ? { ...item, title: currentTitle } : item));
   if (inspectedRelease) values.splice(1, values.length, ['bench.release',inspectedRelease.name], ['bench.platform',(inspectedRelease.platforms??[]).map(platform=>platformLabel(platform,t)).join(', ') || t('bench.unknown')]);
   if (task.data) values.splice(1, values.length, ['team.stage',t(`team.${task.data.task.stage}`)], ['team.priority',t(`team.${task.data.task.priority}`)], ['bench.release',task.data.task.fixRelease || t('bench.unknown')]);
   return <WorkbenchLayout className="production-workbench" storageKey="sentori-workbench-layout" routeKey={`${location.pathname}${location.search}`}
     labels={{ title:t('bench.title'), explorer:t('bench.explorer'), inspector:t('bench.inspector'), activity:t('bench.activity'), toggleExplorer:t('bench.toggleExplorer'), toggleInspector:t('bench.toggleInspector'), toggleActivity:t('bench.toggleActivity'), reset:t('bench.reset'), close:t('common.close'), resize:name=>t('bench.resize',{name}) }}
     toolbar={<><Picker className="workbench-project-picker" multiple={false} searchable locale={locale} aria-label={t('bench.projectSwitcher')} placeholder={t('settings.selectProject')} value={projectId} options={shell.projects.map(project=>({value:project.id,label:project.name}))} onChange={id=>shell.setActiveProjectId(id)}/><span className="workbench-toolbar-title">{t('bench.title')}</span></>}
-    tabs={<DocumentTabs entries={entries.map(item=>({ key:item.key,title:title(item) }))} active={key} select={target=>select(entries.find(item=>item.key===target)!)} close={close}
+    tabs={<DocumentTabs entries={entries.map(item=>({ key:item.key,title:title(item) }))} active={key} select={target=>select(entries.find(item=>item.key===target)!)} close={target=>closeMany([target])} closeMany={closeMany}
       reorder={(target,index)=>setDocuments(previous=>{const item=previous.find(item=>item.key===target)!;const next=previous.filter(item=>item.key!==target);next.splice(index,0,item);return next;})}
-      labels={{navigation:t('bench.tabs'),hint:t('bench.tabHint'),close:name=>t('bench.closeTab',{name}),moved:(name,position,total)=>t('bench.moved',{name,position:String(position),total:String(total)})}}/>}
+      locale={locale} labels={{navigation:t('bench.tabs'),hint:t('bench.tabHint'),close:name=>t('bench.closeTab',{name}),moved:(name,position,total)=>t('bench.moved',{name,position:String(position),total:String(total)})}}/>}
     explorer={<div className="workbench-tree">{resourceState}{resources.data && <>
-      <details open><summary><ChevronDown size={13}/><CircleDot size={14}/>{t('bench.issues')}<span>{issues?.total.toLocaleString(locale)}</span></summary><p className="workbench-resource-count">{summary(issues!.issues.length,issues!.total)}</p>{issues!.issues.map(item=><Link key={item.id} to={href(`/issues/${item.id}`)} title={issueHeadline(item).headline} aria-current={issueId===item.id?'page':undefined}><span className={`workbench-kind kind-${item.kind}`}/><span>{issueHeadline(item).headline}</span><small>{item.eventCount.toLocaleString(locale)}</small></Link>)}{!issues!.issues.length && <p className="workbench-message">{t('bench.empty')}</p>}</details>
-      <details open><summary><ChevronDown size={13}/><Box size={14}/>{t('bench.releases')}<span>{releases?.total.toLocaleString(locale)}</span></summary><p className="workbench-resource-count">{summary(releases!.releases.length,releases!.total)}</p>{releases!.releases.map(item=><Link key={item.id} to={href('/releases',{detail:item.id})} title={item.name}><Box size={13}/><span>{item.name}</span></Link>)}{!releases!.releases.length && <p className="workbench-message">{t('bench.empty')}</p>}</details>
+      <details open><summary><ChevronDown size={13}/><CircleDot size={14}/><span className="control-label-text">{t('bench.issues')}</span><span>{issues?.total.toLocaleString(locale)}</span></summary><p className="workbench-resource-count">{summary(issues!.issues.length,issues!.total)}</p>{issues!.issues.map(item=><Link key={item.id} to={href(`/issues/${item.id}`)} title={issueHeadline(item).headline} aria-current={issueId===item.id?'page':undefined}><span className={`workbench-kind kind-${item.kind}`}/><span className="control-label-text">{issueHeadline(item).headline}</span><small>{item.eventCount.toLocaleString(locale)}</small></Link>)}{!issues!.issues.length && <p className="workbench-message">{t('bench.empty')}</p>}</details>
+      <details open><summary><ChevronDown size={13}/><Box size={14}/><span className="control-label-text">{t('bench.releases')}</span><span>{releases?.total.toLocaleString(locale)}</span></summary><p className="workbench-resource-count">{summary(releases!.releases.length,releases!.total)}</p>{releases!.releases.map(item=><Link key={item.id} to={href('/releases',{detail:item.id})} title={item.name}><Box size={13}/><span className="control-label-text">{item.name}</span></Link>)}{!releases!.releases.length && <p className="workbench-message">{t('bench.empty')}</p>}</details>
     </>}</div>}
     inspector={<div className="workbench-inspector-body"><span className="eyebrow">{t('bench.context')}</span><h2>{(details ? issueHeadline(details).headline : undefined) ?? inspectedRelease?.name ?? task.data?.task.title ?? shell.activeProject?.name ?? t('nav.projects')}</h2>{inspection?.error ? <div role="alert"><p>{inspection.error}</p><Button small onClick={inspection.reload}>{t('common.retry')}</Button></div> : inspection?.loading ? <p role="status">{t('shell.loading')}</p> : <dl>{values.map(([name,value])=><div key={name}><dt>{t(name)}</dt><dd>{value}</dd></div>)}</dl>}{!inspection && <p>{t('bench.selection')}</p>}</div>}
     activity={closeActivity=><><div className="workbench-bottom-tabs" role="tablist" aria-label={t('bench.activity')}>{['issues','activity'].map((tab,index)=><button type="button" key={tab} role="tab" id={`live-bottom-${tab}`} aria-controls="live-bottom-content" aria-selected={bottomTab===tab} tabIndex={bottomTab===tab?0:-1} onClick={()=>setBottomTab(tab)} onKeyDown={event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?'issues':event.key==='End'?'activity':index===0?'activity':'issues';setBottomTab(next);document.getElementById(`live-bottom-${next}`)?.focus();}}}>{t(tab==='issues'?'bench.issues':'bench.activity')}</button>)}<Button small variant="ghost" className="button-icon" aria-label={t('bench.toggleActivity')} onClick={closeActivity}><X size={14}/></Button></div>
-      <div id="live-bottom-content" className="workbench-bottom-content" role="tabpanel" aria-labelledby={`live-bottom-${bottomTab}`}>{bottomTab==='issues'?<>{resourceState}{issues && <><p className="workbench-resource-count">{summary(issues.issues.length,issues.total)}</p><table><tbody>{issues.issues.map(item=><tr key={item.id}><td><span className={`workbench-kind kind-${item.kind}`}/>{item.kind}</td><td><Link to={href(`/issues/${item.id}`)}>{issueHeadline(item).headline}</Link></td><td>{item.lastRelease}</td><td>{item.eventCount.toLocaleString(locale)}</td></tr>)}</tbody></table></>}</>:!issueId?<p className="workbench-message">{t('bench.selectIssue')}</p>:issue.error?<p className="workbench-message" role="alert">{issue.error}</p>:issue.loading?<p className="workbench-message" role="status">{t('shell.loading')}</p>:details?.activity.length?<table><tbody>{details.activity.map(item=><tr key={item.id}><td>{new Date(item.at).toLocaleString(locale)}</td><td>{item.actorEmail ?? t('detail.system')}</td><td>{t(`detail.activity.${item.kind}`)}</td><td>{item.kind==='note'?String(item.body.text??''):JSON.stringify(item.body)}</td></tr>)}</tbody></table>:<p className="workbench-message">{t('bench.empty')}</p>}</div></>}
-  >{entries.map(item=><WorkbenchDocument key={item.key} item={item} active={item.key===key} locationContext={item.key===key?context:item.context} updateInactive={updateInactive}>
+      <div id="live-bottom-content" className="workbench-bottom-content" role="tabpanel" aria-labelledby={`live-bottom-${bottomTab}`}>{bottomTab==='issues'?<>{resourceState}{issues && <><p className="workbench-resource-count">{summary(issues.issues.length,issues.total)}</p><table><tbody>{issues.issues.map(item=><tr key={item.id}><td><StatusLabel marker={<span className={`workbench-kind kind-${item.kind}`}/>}>{item.kind}</StatusLabel></td><td><Link to={href(`/issues/${item.id}`)}>{issueHeadline(item).headline}</Link></td><td>{item.lastRelease}</td><td>{item.eventCount.toLocaleString(locale)}</td></tr>)}</tbody></table></>}</>:!issueId?<p className="workbench-message">{t('bench.selectIssue')}</p>:issue.error?<p className="workbench-message" role="alert">{issue.error}</p>:issue.loading?<p className="workbench-message" role="status">{t('shell.loading')}</p>:details?.activity.length?<table><tbody>{details.activity.map(item=><tr key={item.id}><td>{new Date(item.at).toLocaleString(locale)}</td><td>{item.actorEmail ?? t('detail.system')}</td><td>{t(`detail.activity.${item.kind}`)}</td><td>{item.kind==='note'?String(item.body.text??''):JSON.stringify(item.body)}</td></tr>)}</tbody></table>:<p className="workbench-message">{t('bench.empty')}</p>}</div></>}
+  >{!entries.length && <WorkbenchEmpty title={t('bench.noDocuments')} description={t('bench.openDocument')} action={<Button onClick={()=>setClosing(null)}>{t('bench.reopenDocument')}</Button>}/>}
+  {entries.map(item=><WorkbenchDocument key={item.key} item={item} active={item.key===key} locationContext={item.key===key?context:item.context} updateInactive={updateInactive}>
     <Suspense fallback={<p className="workbench-message" role="status">{t('shell.loading')}</p>}>{item.key===key?children:item.content}</Suspense>
   </WorkbenchDocument>)}</WorkbenchLayout>;
 }

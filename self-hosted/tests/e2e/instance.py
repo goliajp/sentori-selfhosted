@@ -64,6 +64,7 @@ def main():
     root = pathlib.Path(__file__).resolve().parents[3]
     password = 'instance-test-' + uuid.uuid4().hex
     base = None
+    operator_name = os.environ.get('SENTORI_TEST_OPERATOR_NAME')
     mailbox = None
     if args.mailbox:
         from fixture_mailbox import Mailbox
@@ -82,6 +83,7 @@ def main():
             '-e', 'DATABASE_URL=postgres://sentori:test@' + db + '/' + database,
             '-e', 'SENTORI_OWNER_EMAIL=owner@example.test', '-e', 'SENTORI_OWNER_PASSWORD=' + password,
             '-e', 'SENTORI_BASE_URL=http://localhost:8080',
+            *(['-e', 'SENTORI_OPERATOR_NAME=' + operator_name] if operator_name else []),
             '-e', 'SENTORI_MASTER_KEY=' + ('' if secret_files else '71' * 32),
             *(['-e','SENTORI_MASTER_KEY_FILE=/data/instance-master.key'] if secret_files else []),
             '-e', 'SENTORI_BACKUP_DIR=/data/backups',
@@ -123,6 +125,7 @@ def main():
         endpoint = '/admin/api/instance'
         request(client(), base, endpoint, status=401)
         request(client(), base, '/admin/api/system', status=401)
+        assert request(owner, base, '/admin/api/system').get('operatorName') == operator_name
         initial = request(owner, base, endpoint)
         assert initial['initializedAt'] is None
         identity = initial['id']

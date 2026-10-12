@@ -8,18 +8,18 @@ await withLiveBrowsers('jobs',async({engine,page,origin,out,password,call})=>{
   const release=(await call(`/admin/api/projects/${project.id}/releases`)).releases[0];assert.ok(release);
   const path=`/admin/api/projects/${project.id}`,jobsPath=path+`/jobs?releaseId=${release.id}&limit=10`;
   const releaseUrl=origin+`/releases?project=${project.id}&detail=${release.id}`;
-  await page.goto(releaseUrl);await page.locator('[data-job-id]').first().waitFor();
+  await page.goto(releaseUrl);await page.locator('.release-detail [role=tab]').nth(1).click();await page.locator('[data-job-id]').first().waitFor();
   for(const locale of (process.env.VIS_TEST_WORKFLOW_ONLY?[]:['zh','ja','en']))for(const theme of ['light','dark'])for(const width of [320,768,1440,3840]){
     await page.evaluate(({locale,theme})=>{localStorage.setItem('sentori_locale',locale);localStorage.setItem('sentori-theme',theme);},{locale,theme});
-    await page.setViewportSize({width,height:1100});await page.goto(releaseUrl);await page.locator('[data-job-id]').first().waitFor();
+    await page.setViewportSize({width,height:1100});await page.goto(releaseUrl);await page.locator('.release-detail [role=tab]').nth(1).click();await page.locator('[data-job-id]').first().waitFor();
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,`${engine}/${locale}/${theme}/${width}`);
-    assert.equal(await page.locator('dialog[open] > .dialog-content').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
+    assert.equal(await page.locator('.release-detail-body').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
     await page.locator('[data-job-id]').last().scrollIntoViewIfNeeded();
     if(locale==='en'&&theme==='light'&&[320,1440].includes(width))await page.screenshot({path:out+`${engine}-${width}-jobs.png`});
     results.push({engine,locale,theme,width});
     writeFileSync(out+'results.json',JSON.stringify({results},null,2));
   }
-  await page.evaluate(()=>localStorage.setItem('sentori_locale','en'));await page.setViewportSize({width:1440,height:1100});await page.goto(releaseUrl);await page.locator('[data-job-id]').first().waitFor();
+  await page.evaluate(()=>localStorage.setItem('sentori_locale','en'));await page.setViewportSize({width:1440,height:1100});await page.goto(releaseUrl);await page.locator('.release-detail [role=tab]').nth(1).click();await page.locator('[data-job-id]').first().waitFor();
   const pending=(await call(jobsPath)).jobs.find(job=>job.state==='queued');assert.ok(pending);
   const card=page.locator(`[data-job-id="${pending.id}"]`);
   await page.route('**'+path+`/jobs/${pending.id}/cancel`,route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"injected_failure"}'}));

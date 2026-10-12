@@ -475,3 +475,15 @@ time {
 @container document (max-width: 480px) { .production-workbench .event-filters > .control-bar { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 
 .production-workbench .queue-filters-primary > .button { margin-top: 0; justify-self: start; }
+
+.production-workspace[data-scope=product] > .studio-nav { padding-top: 52px; }
+.production-workspace[data-scope=product] .studio-nav nav { margin-top: 0; }
+.instance-statusbar { display: flex; align-items: center; flex-shrink: 0; gap: 12px; min-height: 26px; padding: 0 10px; border-top: 1px solid var(--ui-line); background: var(--ui-chrome); color: var(--ui-secondary); font-size: 11px; }
+.instance-statusbar button { display: flex; align-items: center; gap: 8px; min-height: 25px; min-width: 0; }
+.instance-status-identity > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.instance-statusbar button:hover { color: var(--ui-ink); }
+.instance-status-version { margin-left: auto; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.instance-status-details { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 12px 20px; font-size: 13px; }
+.instance-status-details dt { color: var(--ui-muted); }
+.instance-status-details dd { overflow-wrap: anywhere; }
+@media (max-width: 639px) { .production-workspace .sentori-topbar-identity { display: flex; width: 88px; } .instance-status-version > span:last-child { display: none; } }

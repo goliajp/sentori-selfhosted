@@ -94,6 +94,55 @@ export async function checkWorkbenchDocuments({page,origin,engine,out,project,ot
   const longProject=await call('/admin/api/projects',{name:longName});await page.reload();
   await selectWorkbenchProject(page,longProject.id);assert.equal(await page.locator('.workbench-project-picker input').inputValue(),longName);
   for(const width of [320,768,1024,1440,1920]){await page.setViewportSize({width,height:1000});await page.waitForTimeout(60);const geometry=await page.evaluate(()=>({page:document.documentElement.scrollWidth<=innerWidth+1,main:document.querySelector('#workspace').scrollWidth<=document.querySelector('#workspace').clientWidth+1,picker:document.querySelector('.workbench-project-picker').getBoundingClientRect().right<=innerWidth,document:document.querySelector('.workbench-document[data-active=true] .production-page').scrollWidth<=document.querySelector('.workbench-document[data-active=true] .production-page').clientWidth+1}));assert.deepEqual(geometry,{page:true,main:true,picker:true,document:true});if(width===320||width===1440)await page.screenshot({path:out+`${engine}-ide-${width}.png`});}
+  // Context-menu actions operate on the clicked tab, including background tabs.
+  await page.setViewportSize({width:1440,height:1000});
+  const tabList=page.locator('.workbench-tabs'), tabButtons=tabList.getByRole('tab');
+  const seedTabs=async()=>{
+    await page.waitForLoadState('networkidle');await page.goto(origin+`/issues?project=${project.id}`);
+    await active.locator('[data-issue-id]').first().waitFor();
+    for(const path of ['releases','status','instruments']) {
+      await page.locator(`.studio-nav a[href^="/${path}?"]`).click();
+      await page.waitForURL(url=>url.pathname===`/${path}`);
+      await page.waitForFunction(path=>document.querySelector('.workbench-document[data-active=true]')?.id.includes(`:/${path}:`),path);
+      await active.getByRole('heading',{level:1}).waitFor();await page.waitForLoadState('networkidle');
+    }
+    assert.equal(await tabButtons.count(),4);
+  };
+  await seedTabs();
+  const original=await page.locator('.workbench-tab').evaluateAll(nodes=>nodes.map(node=>node.dataset.key));
+  await tabButtons.nth(1).click({button:'right'});
+  await page.getByRole('menuitem',{name:'Close tabs to the right',exact:true}).click();
+  assert.deepEqual(await page.locator('.workbench-tab').evaluateAll(nodes=>nodes.map(node=>node.dataset.key)),original.slice(0,2));
+  await page.waitForFunction(()=>document.querySelectorAll('.workbench-tabs [role=tab]')[1]?.getAttribute('aria-selected')==='true');
+  assert.equal(await tabButtons.nth(1).getAttribute('aria-selected'),'true');
+  await tabButtons.nth(1).focus();await page.keyboard.press('Shift+F10');
+  assert.equal(await page.getByRole('menuitem',{name:'Close tabs to the right',exact:true}).isDisabled(),true);
+  await page.screenshot({path:out+`${engine}-tab-menu.png`});
+  const menuBounds=await page.getByRole('menu',{name:'Tab actions'}).boundingBox();assert.ok(menuBounds.x>=0&&menuBounds.x+menuBounds.width<=1440);
+  await page.keyboard.press('Escape');await page.waitForFunction(()=>document.querySelectorAll('.workbench-tabs [role=tab]')[1]===document.activeElement);assert.equal(await tabButtons.nth(1).evaluate(el=>el===document.activeElement),true);
+  await seedTabs();
+  await tabButtons.nth(1).click({button:'right'});await page.getByRole('menuitem',{name:'Close tabs to the left',exact:true}).click();
+  assert.equal(await tabButtons.count(),3);assert.equal(new URL(page.url()).pathname,'/instruments');
+  await tabButtons.first().click({button:'right'});await page.getByRole('menuitem',{name:'Close other tabs',exact:true}).click();
+  await page.waitForURL(url=>url.pathname==='/releases');await active.getByRole('heading',{name:'Releases',exact:true}).waitFor();
+  assert.equal(await tabButtons.count(),1);assert.equal(new URL(page.url()).pathname,'/releases');
+  await tabButtons.first().click({button:'right'});await page.getByRole('menuitem',{name:'Close all tabs',exact:true}).click();
+  await page.getByRole('heading',{name:'No open tabs',exact:true}).waitFor();assert.equal(await tabButtons.count(),0);
+  await page.getByRole('button',{name:'Reopen last page',exact:true}).click();await active.getByRole('heading',{name:'Releases',exact:true}).waitFor();
+  await tabButtons.first().click({button:'middle'});await page.getByRole('heading',{name:'No open tabs',exact:true}).waitFor();
+  await page.locator('.studio-nav a[href^="/releases?"]').click();await active.getByRole('heading',{name:'Releases',exact:true}).waitFor();
+  assert.equal(await tabButtons.count(),1,'the same route can reopen after closing its final tab');
+  assert.equal(await page.locator('.sentori-topbar-identity img:visible').count(),1);
+  assert.equal(await page.locator('.sentori-rail-mark').count(),0,'the navigation rail must not repeat the product mark');
+  await page.locator('.instance-status-identity').click();
+  const instanceDialog=page.getByRole('dialog',{name:'Instance and versions',exact:true});await instanceDialog.waitFor();
+  await instanceDialog.getByText('Self-hosted instance',{exact:true}).waitFor();
+  await instanceDialog.getByText('Management console version',{exact:true}).waitFor();
+  await instanceDialog.getByText('Data service version',{exact:true}).waitFor();
+  const system=await call('/admin/api/system');
+  if(system.operatorName){await instanceDialog.getByText(system.operatorName,{exact:true}).waitFor();assert.ok((await page.locator('.instance-status-identity').innerText()).includes(system.operatorName));}
+  await page.keyboard.press('Escape');
+  console.log('PASS',engine,'tab context actions, background selection, keyboard menu, close-all empty state, middle close, single brand and deployment identity');
   await page.setViewportSize({width:1440,height:1100});await page.goto(origin+`/issues?project=${project.id}`);await active.locator('[data-issue-id]').first().waitFor();
   console.log('PASS',engine,'shared IDE panes, resize persistence, retained drafts/scroll, project isolation, paused shortcuts, inspector updates, keyboard tab reorder and mobile overlays');
 }

@@ -24,7 +24,10 @@ import { useT } from './i18n';
 import { api, type Me, type Project } from './lib/api';
 import { formatApiError, useAsyncData } from './lib/useAsyncData';
 
-import { SentoriMark, SentoriIdentity } from './components/brand';
+import { Dialog } from '../shared/design/Dialog';
+import { Button } from '../shared/design/controls';
+import type { SystemInfo } from './lib/system-contract';
+import { SentoriIdentity } from './components/brand';
 const Welcome = lazy(() => import('./pages/Welcome'));
 
 export { useShell } from './lib/shell-context';
@@ -175,7 +178,7 @@ export function App() {
           <nav aria-label={t('shell.navigation')} className="flex flex-col gap-0.5">
             <NavLink to={scopedLink("/projects")}  className={navCls} aria-label={t('nav.projects')} title={t('nav.projects')}>
               <FolderKanban className={navIcon} aria-hidden />
-              {t('nav.projects')}
+              <span className="control-label-text">{t('nav.projects')}</span>
             </NavLink>
             {projectsError && (
               /* Without this the rail simply loses its project links and
@@ -199,38 +202,38 @@ export function App() {
                 </div>
                 <NavLink to={scopedLink(location.pathname === "/" ? "/" : "/issues")} className={navCls} aria-label={t('nav.inbox')} title={t('nav.inbox')}>
                   <Inbox className={navIcon} aria-hidden />
-                  {t('nav.inbox')}
+                  <span className="control-label-text">{t('nav.inbox')}</span>
                 </NavLink>
-                <NavLink to={scopedLink("/tasks")} className={navCls} aria-label={t('team.title')} title={t('team.title')}><ListTodo className={navIcon} aria-hidden/>{t('team.title')}</NavLink>
-                <NavLink to={scopedLink("/status")} className={navCls} aria-label={t('monitor.title')} title={t('monitor.title')}><Activity className={navIcon} aria-hidden/>{t('monitor.title')}</NavLink>
-                <NavLink to={scopedLink("/integrations")} className={navCls} aria-label={t('integration.title')} title={t('integration.title')}><Plug className={navIcon} aria-hidden/>{t('integration.title')}</NavLink>
+                <NavLink to={scopedLink("/tasks")} className={navCls} aria-label={t('team.title')} title={t('team.title')}><ListTodo className={navIcon} aria-hidden/><span className="control-label-text">{t('team.title')}</span></NavLink>
+                <NavLink to={scopedLink("/status")} className={navCls} aria-label={t('monitor.title')} title={t('monitor.title')}><Activity className={navIcon} aria-hidden/><span className="control-label-text">{t('monitor.title')}</span></NavLink>
+                <NavLink to={scopedLink("/integrations")} className={navCls} aria-label={t('integration.title')} title={t('integration.title')}><Plug className={navIcon} aria-hidden/><span className="control-label-text">{t('integration.title')}</span></NavLink>
                 <NavLink to={scopedLink("/instruments")}  className={navCls} aria-label={t('nav.instruments')} title={t('nav.instruments')}>
                   <Activity className={navIcon} aria-hidden />
-                  {t('nav.instruments')}
+                  <span className="control-label-text">{t('nav.instruments')}</span>
                 </NavLink>
                 <NavLink to={scopedLink("/releases")}  className={navCls} aria-label={t('nav.releases')} title={t('nav.releases')}>
                   <Package className={navIcon} aria-hidden />
-                  {t('nav.releases')}
+                  <span className="control-label-text">{t('nav.releases')}</span>
                 </NavLink>
                 <NavLink to={scopedLink("/setup")}  className={navCls} aria-label={t('nav.setup')} title={t('nav.setup')}>
                   <Plug className={navIcon} aria-hidden />
-                  {t('nav.setup')}
+                  <span className="control-label-text">{t('nav.setup')}</span>
                 </NavLink>
                 {/* Its own entry, not a settings tab. Whether last
                     night's alert reached anyone is not the same
                     question as what your password is. */}
                 <NavLink to={scopedLink("/push")}  className={navCls} aria-label={t('nav.push')} title={t('nav.push')}>
                   <Send className={navIcon} aria-hidden />
-                  {t('nav.push')}
+                  <span className="control-label-text">{t('nav.push')}</span>
                 </NavLink>
               </>
             )}
             <div className="mt-3" />
-            <NavLink to="/inbox" className={navCls} aria-label={t('team.inbox')} title={t('team.inbox')}><Bell className={navIcon} aria-hidden/>{t('team.inbox')}</NavLink>
-            {system.data && <NavLink to={system.data.deployment === 'cloud' ? '/settings/instance' : '/self-hosted'} className={navCls} aria-label={t(system.data.deployment === 'cloud' ? 'cloud.workspace' : 'lifecycle.title')} title={t(system.data.deployment === 'cloud' ? 'cloud.workspace' : 'lifecycle.title')}><Server className={navIcon} aria-hidden/>{t(system.data.deployment === 'cloud' ? 'cloud.workspace' : 'lifecycle.title')}</NavLink>}
+            <NavLink to="/inbox" className={navCls} aria-label={t('team.inbox')} title={t('team.inbox')}><Bell className={navIcon} aria-hidden/><span className="control-label-text">{t('team.inbox')}</span></NavLink>
+            {system.data && <NavLink to={system.data.deployment === 'cloud' ? '/settings/instance' : '/self-hosted'} className={navCls} aria-label={t(system.data.deployment === 'cloud' ? 'cloud.workspace' : 'lifecycle.title')} title={t(system.data.deployment === 'cloud' ? 'cloud.workspace' : 'lifecycle.title')}><Server className={navIcon} aria-hidden/><span className="control-label-text">{t(system.data.deployment === 'cloud' ? 'cloud.workspace' : 'lifecycle.title')}</span></NavLink>}
             <NavLink to={scopedLink("/settings")}  className={navCls} aria-label={t('nav.settings')} title={t('nav.settings')}>
               <Settings className={navIcon} aria-hidden />
-              {t('nav.settings')}
+              <span className="control-label-text">{t('nav.settings')}</span>
             </NavLink>
           </nav>
           <div className="mt-auto px-1 pb-1">
@@ -263,7 +266,7 @@ export function App() {
           </div>
         </dialog>
 
-        <WorkspaceLayout scope="product" workbench className="production-workspace" sidebar={<><Link to="/welcome" aria-label="Sentori" className="sentori-rail-mark"><SentoriMark className="h-8 w-8" /></Link><div className="production-rail-links">{navigation}</div></>} toolbar={<>
+        <WorkspaceLayout scope="product" workbench className="production-workspace" sidebar={<><div className="production-rail-links">{navigation}</div></>} toolbar={<>
             <Link to="/welcome" aria-label="Sentori" className="sentori-identity sentori-topbar-identity"><SentoriIdentity /></Link>
             <button type="button" onClick={() => drawer.current?.showModal()} aria-label={t('shell.openNavigation')} className="grid h-10 w-10 shrink-0 place-items-center rounded-md hover:bg-raised workspace-mobile-toggle">
               <Menu className="h-5 w-5" aria-hidden />
@@ -293,32 +296,43 @@ export function App() {
             {projectsError?<div className="p-6"><ErrorBanner reason={projectsError}>{t('shell.projectsFailed')}</ErrorBanner><button type="button" className="button" onClick={reloadProjects}>{t('common.retry')}</button></div>:!projectsLoaded?<p role="status" className="p-6 muted">{t('shell.loading')}</p>:<Workbench>{outlet}</Workbench>}
           </main>
         </WorkspaceLayout>
-      <StatusBar />
+      <StatusBar system={system.data} systemError={system.error} retry={system.reload}/>
       <CommandPalette />
       </div>
     </ShellContext.Provider>
   );
 }
 
-/// The frame's ground line: who made this, which build is talking.
-/// The webapp version is compiled in from package.json; the server
-/// version comes from the instance actually answering.
-function StatusBar() {
-  const [server, setServer] = useState<string | null>(null);
-  useEffect(() => {
-    fetch('/healthz')
-      .then((r) => r.json())
-      .then((j: { version?: string }) => setServer(j.version ?? null))
-      .catch(() => undefined);
-  }, []);
-  return (
-    <footer className="flex h-6 shrink-0 items-center gap-2 overflow-hidden whitespace-nowrap border-t border-border bg-bg px-3 font-mono text-xs text-fg-subtle">
-      <SentoriMark className="h-3 w-3 opacity-80" />
-      <span><span className="hidden sm:inline">GOLIA · </span>sentori</span>
-      <span className="ml-auto flex items-center gap-3 tabular-nums">
-        <span>webapp v{__APP_VERSION__}</span>
-        {server && <span>server v{server}</span>}
-      </span>
+/** Deployment identity comes from this instance, independently of the signed-in user. */
+function StatusBar({ system, systemError, retry }: { system:SystemInfo|null; systemError:string|null; retry:()=>void }) {
+  const t=useT(), [open,setOpen]=useState(false);
+  const instance=useAsyncData(()=>api.instanceInfo(),[]);
+  const reloadInstance=instance.reload;
+  useEffect(()=>api.onChange(path=>{if(path.startsWith('/admin/api/instance'))reloadInstance();}),[reloadInstance]);
+  const operator=system?.operatorName;
+  const identity=system ? system.deployment==='cloud'
+    ? operator ? t('shell.saasBy',{name:operator}) : t('shell.saas')
+    : operator ? t('shell.selfHostedBy',{operator,name:instance.data?.name || window.location.host}) : t('shell.selfHostedInstance',{name:instance.data?.name || window.location.host}) : t('shell.instanceUnknown');
+  return <>
+    <footer className="instance-statusbar">
+      <button type="button" className="instance-status-identity" onClick={()=>setOpen(true)} title={t('shell.instanceDetails')}><Server size={12} aria-hidden/><span className="control-label-text">{identity}</span></button>
+      <button type="button" className="instance-status-version" onClick={()=>setOpen(true)} aria-label={t('shell.instanceDetails')}>
+        <span>{t('shell.interfaceVersion',{version:__APP_VERSION__})}</span>
+        {system&&<span>{t('shell.serviceVersion',{version:system.serverVersion})}</span>}
+      </button>
     </footer>
-  );
+    <Dialog open={open} title={t('shell.instanceDetails')} closeLabel={t('common.close')} onClose={()=>setOpen(false)}>
+      <dl className="instance-status-details">
+        <dt>{t('shell.deploymentMode')}</dt><dd>{system?t(system.deployment==='cloud'?'shell.saas':'shell.selfHosted'):t('shell.instanceUnknown')}</dd>
+        <dt>{t('shell.operator')}</dt><dd>{operator||t('shell.operatorUnknown')}</dd>
+        <dt>{t('instance.name')}</dt><dd>{instance.data?.name||'—'}</dd>
+        <dt>{t('instance.origin')}</dt><dd>{instance.data?.origin||window.location.origin}</dd>
+        <dt>{t('instance.id')}</dt><dd>{instance.data?.id||'—'}</dd>
+        <dt>{t('shell.interface')}</dt><dd>{__APP_VERSION__}</dd>
+        <dt>{t('shell.service')}</dt><dd>{system?.serverVersion||'—'}</dd>
+      </dl>
+      {(systemError||instance.error)&&<div role="alert"><p>{systemError||instance.error}</p><Button onClick={()=>{retry();instance.reload();}}>{t('common.retry')}</Button></div>}
+      <p className="muted text-sm mt-4">{t('shell.productCredit')}</p>
+    </Dialog>
+  </>;
 }
