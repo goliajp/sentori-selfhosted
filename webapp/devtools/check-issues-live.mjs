@@ -21,7 +21,7 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
   const member=await call('/admin/api/users',{email:`issues-member-${engine}@example.test`,password});
   await call(`/admin/api/users/${member.id}/projects/${project.id}`,{},'PUT');
   // Real attachment upload. Two rotations and a malformed tail exercise decoding.
-  await page.goto(origin+`/issues?project=${project.id}`);await page.locator('[data-issue-id]').first().waitFor();
+  await page.goto(origin+`/issues?project=${project.id}`);await page.locator('.workbench-document[data-active=true] [data-issue-id]').first().waitFor();
   const png=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=1000;canvas.height=500;const ctx=canvas.getContext('2d');ctx.fillStyle='#6a8bef';ctx.fillRect(0,0,1000,500);ctx.fillStyle='#fff';ctx.fillRect(100,100,200,200);return canvas.toDataURL('image/png').split(',')[1];});
   const attachment=await context.request.post(origin+`/v1/events/${target.eventId}/attachments/screens`,{headers:{Authorization:`Bearer ${key.token}`},multipart:{source:'js',file:{name:'screens.ndjson',mimeType:'application/x-ndjson',buffer:Buffer.from([{t:-9,mediaType:'image/png',base64:png,w:500,h:1000},{t:-6,mediaType:'image/png',base64:png,w:1000,h:500}].map(JSON.stringify).join('\n')+'\n{"t":')}}});
   assert.equal(attachment.status(),202,await attachment.text());
@@ -37,7 +37,7 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
       const badges=[...root.querySelectorAll('.page-heading > div:last-child > span')];
       const actions=[...root.querySelectorAll('.issue-actions button')];
       const toolbar=root.querySelector('.issue-event-toolbar'),select=toolbar.querySelector('select'),raw=toolbar.querySelector('button');
-      const code=root.querySelector('[data-evidence-code]'),grid=root.querySelector('.issue-evidence-grid'),timeline=root.querySelector('#issue-timeline');
+      const code=root.querySelector('[data-evidence-code]'),grid=root.querySelector('.issue-evidence-grid'),timeline=root.querySelector('[data-issue-timeline]');
       const left=rect(root).left;
       return {badges:badges.map(e=>({offset:textOffset(e),height:rect(e).height,font:type(e)})),
         actions:actions.map(e=>({offset:textOffset(e),height:rect(e).height,font:type(e)})),
@@ -101,18 +101,18 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
     }
   }
   await page.evaluate(()=>localStorage.setItem('sentori_locale','en'));await page.setViewportSize({width:1440,height:1100});
-  await page.goto(queue);await page.locator('[data-issue-id]').first().waitFor();
-  assert.equal(await page.locator('[data-issue-id]').count(),50);
-  const firstIds=await page.locator('[data-issue-id]').evaluateAll(elements=>elements.map(el=>el.dataset.issueId));
-  await page.getByRole('button',{name:'Next',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('[data-issue-id]').length===5);
-  const lastIds=await page.locator('[data-issue-id]').evaluateAll(elements=>elements.map(el=>el.dataset.issueId));assert.equal(new Set([...firstIds,...lastIds]).size,55);
-  await page.getByRole('button',{name:'Previous',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('[data-issue-id]').length===50);
-  await page.getByLabel('Search issues',{exact:true}).fill('Checkout failed');await page.waitForFunction(()=>document.querySelectorAll('[data-issue-id]').length===1);
-  assert.ok(new URL(page.url()).searchParams.get('q'));await page.locator('[data-issue-id]').click();await page.locator('[data-event-id]').waitFor();
-  await page.getByRole('link',{name:'Back to issues'}).click();await page.locator('[data-issue-id]').waitFor();assert.equal(await page.getByLabel('Search issues',{exact:true}).inputValue(),'Checkout failed');
+  await page.goto(queue);await page.locator('.workbench-document[data-active=true] [data-issue-id]').first().waitFor();
+  assert.equal(await page.locator('.workbench-document[data-active=true] [data-issue-id]').count(),50);
+  const firstIds=await page.locator('.workbench-document[data-active=true] [data-issue-id]').evaluateAll(elements=>elements.map(el=>el.dataset.issueId));
+  await page.getByRole('button',{name:'Next',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.workbench-document[data-active=true] [data-issue-id]').length===5);
+  const lastIds=await page.locator('.workbench-document[data-active=true] [data-issue-id]').evaluateAll(elements=>elements.map(el=>el.dataset.issueId));assert.equal(new Set([...firstIds,...lastIds]).size,55);
+  await page.getByRole('button',{name:'Previous',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.workbench-document[data-active=true] [data-issue-id]').length===50);
+  await page.getByLabel('Search issues',{exact:true}).fill('Checkout failed');await page.waitForFunction(()=>document.querySelectorAll('.workbench-document[data-active=true] [data-issue-id]').length===1);
+  assert.ok(new URL(page.url()).searchParams.get('q'));await page.locator('.workbench-document[data-active=true] [data-issue-id]').click();await page.locator('[data-event-id]').waitFor();
+  await page.getByRole('link',{name:'Back to issues'}).click();await page.locator('.workbench-document[data-active=true] [data-issue-id]').waitFor();assert.equal(await page.getByLabel('Search issues',{exact:true}).inputValue(),'Checkout failed');
   // A partial mutation preserves the failed selection and says what happened.
-  await page.goto(queue);await page.locator('[data-issue-id]').first().waitFor();
-  const chosen=await page.locator('[data-issue-id]').evaluateAll(elements=>elements.slice(0,2).map(el=>el.dataset.issueId));
+  await page.goto(queue);await page.locator('.workbench-document[data-active=true] [data-issue-id]').first().waitFor();
+  const chosen=await page.locator('.workbench-document[data-active=true] [data-issue-id]').evaluateAll(elements=>elements.slice(0,2).map(el=>el.dataset.issueId));
   await page.route(`**/admin/api/issues/${chosen[1]}/resolve`,route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"injected_failure"}'}));
   await page.locator('tbody input[type=checkbox]').nth(0).check();await page.locator('tbody input[type=checkbox]').nth(1).check();
   await page.getByRole('button',{name:'Resolve',exact:true}).click();await page.getByRole('alert').filter({hasText:'1 of 2'}).waitFor();
@@ -121,12 +121,12 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
   // Project switches hide old rows before the delayed new response arrives.
   await page.route(`**/admin/api/issues?*`,async route=>{const parsed=new URL(route.request().url());if(parsed.searchParams.get('project_id')===second.id)await new Promise(resolve=>setTimeout(resolve,500));await route.continue();});
   await page.evaluate(next=>{history.pushState({},'',next);dispatchEvent(new PopStateEvent('popstate'));},`/issues?project=${second.id}`);
-  await page.waitForTimeout(100);assert.equal(await page.locator('[data-issue-id]').count(),0);await page.locator('[data-issue-id]').waitFor();assert.equal(await page.locator('[data-issue-id]').count(),1);
+  await page.waitForTimeout(100);assert.equal(await page.locator('.workbench-document[data-active=true] [data-issue-id]').count(),0);await page.locator('.workbench-document[data-active=true] [data-issue-id]').waitFor();assert.equal(await page.locator('.workbench-document[data-active=true] [data-issue-id]').count(),1);
   await page.unroute(`**/admin/api/issues?*`);
   await page.goto(detail);await page.locator('[data-event-id]').waitFor();
   await page.getByLabel('Assignee',{exact:true}).selectOption(member.id);await page.waitForFunction(()=>![...document.querySelectorAll('select')].find(el=>el.closest('.field')?.textContent.includes('Assignee'))?.disabled);
   await page.waitForTimeout(150);assert.equal((await call('/admin/api/issues/'+issueId)).assigneeUserId,member.id);
-  await page.getByRole('tab',{name:'Activity',exact:true}).click();await page.getByRole('textbox',{name:'Note',exact:true}).fill('Investigating the checkout');await page.getByRole('button',{name:'Save note'}).click();await page.getByText('Investigating the checkout',{exact:true}).waitFor();
+  await page.locator('.issue-detail').getByRole('tab',{name:'Activity',exact:true}).click();await page.getByRole('textbox',{name:'Note',exact:true}).fill('Investigating the checkout');await page.getByRole('button',{name:'Save note'}).click();await page.getByText('Investigating the checkout',{exact:true}).waitFor();
   await page.getByRole('tab',{name:'Evidence',exact:true}).click();await page.getByRole('group',{name:'Session replay',exact:true}).waitFor();
   const replay=page.getByRole('group',{name:'Session replay',exact:true});await replay.getByRole('button',{name:'Previous frame'}).click();await page.waitForTimeout(100);
   let dims=await replay.locator('.replay-frame').evaluate(el=>({width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height}));assert.ok(Math.abs(dims.width/dims.height-.5)<.01);

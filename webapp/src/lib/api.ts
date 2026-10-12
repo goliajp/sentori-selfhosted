@@ -457,6 +457,11 @@ class ApiError extends Error {
 
 class Api {
   base = DEFAULT_BASE;
+  private changes = new Set<(path: string) => void>();
+  onChange(listener: (path: string) => void): () => void {
+    this.changes.add(listener);
+    return () => { this.changes.delete(listener); };
+  }
 
   private async send<T>(method: string, path: string, body?: unknown, redirectOnUnauthorized = true, signal?: AbortSignal): Promise<T> {
     const resp = await fetch(`${this.base}${path}`, {
@@ -497,7 +502,11 @@ class Api {
       err.field = field;
       throw err;
     }
-    return (await resp.json()) as T;
+    const result = (await resp.json()) as T;
+    if (method !== 'GET' && path.startsWith('/admin/api/')) {
+      for (const listener of this.changes) listener(path);
+    }
+    return result;
   }
 
   private get<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -790,7 +799,7 @@ class Api {
     contextKey?: string;
     contextValue?: string;
     release?: string;
-  }) {
+  }, signal?: AbortSignal) {
     const usp = eventFilterParams(q);
     if (q.status) usp.set('status', q.status);
     if (q.kind) usp.set('kind', q.kind);
@@ -807,7 +816,7 @@ class Api {
     }
     if (q.release) usp.set('release', q.release);
     const qs = usp.toString();
-    return this.get<{ issues: IssueSummary[]; total: number; limit: number; offset: number; nextOffset: number | null; summary: { events: number; open: number; regressed: number; releases: number } }>(`/admin/api/issues${qs ? `?${qs}` : ''}`);
+    return this.get<{ issues: IssueSummary[]; total: number; limit: number; offset: number; nextOffset: number | null; summary: { events: number; open: number; regressed: number; releases: number } }>(`/admin/api/issues${qs ? `?${qs}` : ''}`, signal);
   }
   projectEnvironments(projectId: string, filters: EventFilters = {}) {
     return this.get<{ environments: string[] }>(`/admin/api/projects/${projectId}/environments?${eventFilterParams(filters)}`);
@@ -820,8 +829,8 @@ class Api {
     const params = eventFilterParams(filters); params.set('source', source); params.set('key', key);
     return this.get<{ values: string[] }>(`/admin/api/projects/${projectId}/context-values?${params}`);
   }
-  getIssue(id: string) {
-    return this.get<IssueDetail>(`/admin/api/issues/${id}`);
+  getIssue(id: string, signal?: AbortSignal) {
+    return this.get<IssueDetail>(`/admin/api/issues/${id}`, signal);
   }
   resolveIssue(id: string, release?: string, note?: string) {
     return this.post<{ ok: boolean }>(`/admin/api/issues/${id}/resolve`, {

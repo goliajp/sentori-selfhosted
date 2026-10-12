@@ -1,6 +1,6 @@
 {
   "name": "@sentori/webapp",
-  "version": "5.1.5",
+  "version": "5.1.6",
   "private": true,
   "description": "Sentori dashboard, public product pages and SDK documentation.",
   "type": "module",

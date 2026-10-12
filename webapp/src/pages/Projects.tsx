@@ -1,7 +1,7 @@
-import { currentSearchParams } from '../lib/search-params';
+import { useDocumentSearchParams } from '../lib/search-params';
 import { ArrowUpRight, Plus } from 'lucide-react';
-import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useId, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Heading, Surface } from '../../shared/design/Surface';
 import { Button, Badge, Field, Input } from '../../shared/design/controls';
 import { Dialog } from '../../shared/design/Dialog';
@@ -15,7 +15,8 @@ import { formatApiError, useAsyncData } from '../lib/useAsyncData';
 
 type Row = Project & { health: ProjectHealth | null; failure: string | null };
 export default function ProjectsPage() {
-  const t = useT(), navigate = useNavigate();
+  const currentSearchParams=useDocumentSearchParams();
+  const t = useT(), projectForm=useId();
   const { me, projects, activeProject, setActiveProjectId, reloadProjects } = useShell();
   const owner = me.role === 'superadmin';
   const [params, setParams] = useSearchParams();
@@ -36,7 +37,7 @@ export default function ProjectsPage() {
   const visible = rows.filter(row => row.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()) && (!platformFilter || row.health?.apps?.some(app => app.platform === platformFilter)));
   function filter(key: string, value: string) { const next = currentSearchParams(); if (value) next.set(key, value); else next.delete(key); setParams(next, { replace: true }); }
   function edit(project: Project | 'new') { setEditing(project); setName(project === 'new' ? '' : project.name); setFailure(null); setConflict(false); }
-  function open(project: Project, page: string) { setActiveProjectId(project.id); navigate({pathname: '/' + page, search: new URLSearchParams({project: project.id}).toString()}); }
+  function open(project: Project, page: string) { setActiveProjectId(project.id,{pathname:'/'+page}); }
   async function save(event: React.FormEvent) {
     event.preventDefault(); if (!owner || !editing || busy || !name.trim()) return;
     setBusy(true); setFailure(null);
@@ -79,14 +80,14 @@ export default function ProjectsPage() {
     </div>
     <div className="grid gap-5 xl:grid-cols-2" aria-busy={loading}>
       {visible.map(row => <Surface key={row.id} title={row.name} className="project-card" action={owner && <div className="flex flex-wrap gap-2"><Button small variant="ghost" onClick={() => edit(row)}>{t('projects.edit')}</Button><Button small variant="ghost" onClick={() => { setDeleting(row); setConfirmation(''); setFailure(null); setConflict(false); }}>{t('common.delete')}</Button></div>} footer={<><Button disabled={!row.health && !row.failure} onClick={() => open(row, row.health && !row.health.lastEventAt ? 'setup' : 'issues')}>{t(row.health && !row.health.lastEventAt ? 'setup.title' : 'projects.open')}<ArrowUpRight size={15}/></Button><Button variant="ghost" onClick={() => open(row, 'releases')}>{t('nav.releases')}</Button></>}>
-        <PlatformConnections health={row.health} onSetup={platform => {setActiveProjectId(row.id); navigate({pathname:'/setup',search:new URLSearchParams({project:row.id,platform}).toString()});}}/>
+        <PlatformConnections health={row.health} onSetup={platform => setActiveProjectId(row.id,{pathname:'/setup',params:{platform}})}/>
         <div className="grid grid-cols-2 gap-6 mt-5"><div><p className="text-xs subtle">{t('projects.errors24h')}</p><p className="text-3xl tabular mt-2">{row.health?.counts24h.error ?? '—'}</p></div><div><p className="text-xs subtle">{t('apps.title')}</p><p className="text-3xl tabular mt-2" data-app-count>{row.health?.apps?.filter(isIdentifiedApp).length ?? '—'}</p></div></div>
         <div className="flex flex-wrap gap-x-6 gap-y-3 mt-5 text-sm tabular muted"><span>{t('projects.warnings24h')} · {row.health?.counts24h.warn ?? '—'}</span><span title={t('health.usersTitle')}>{t('projects.users24h')} · {row.health?.users24h ?? '—'}</span>{row.health && row.health.replay24h.eligible > 0 && <span>{t('health.replay')} · {row.health.replay24h.withScreens}/{row.health.replay24h.eligible}</span>}</div>
         {row.health?.backend && <div className="flex flex-wrap items-center gap-3 mt-4 text-sm muted" title={row.health.backend.url}><span className="h-2 w-2 rounded-full" aria-hidden style={{background: row.health.backend.lastOk === null ? 'var(--ui-muted)' : row.health.backend.lastOk ? 'var(--ui-success)' : 'var(--ui-danger)'}}/><span>{t('health.backend')}</span>{row.health.backend.checks24h > 0 && <span>{((row.health.backend.ok24h / row.health.backend.checks24h) * 100).toFixed(1)}%</span>}{row.health.backend.lastLatencyMs !== null && <span>{row.health.backend.lastLatencyMs}ms</span>}</div>}
         <div className="project-app-list">{row.health?.apps?.filter(isIdentifiedApp).map(app => <div key={app.id} className="project-app" data-app-id={app.id}>
           <div className="flex flex-wrap items-center justify-between gap-3"><strong className="break-all">{appDisplayName(app,t)}</strong><div className="project-app-actions"><Badge>{platformLabel(app.platform,t)}</Badge><Badge tone={app.lastEventAt || app.lastSessionAt ? 'success' : 'neutral'}>{t(app.lastEventAt || app.lastSessionAt ? 'projects.connected' : 'apps.filesOnly')}</Badge>{owner && <Button small variant="ghost" onClick={() => setEditingApp(app)}>{t('apps.edit')}</Button>}</div></div>
           {app.identitySource==='release' && <p className="text-xs subtle">{t('apps.inferredName')}</p>}
-          <p className="text-sm muted">{t('projects.latestRelease')} · {app.latestRelease ? <button className="text-link" onClick={() => {setActiveProjectId(row.id); navigate({pathname:'/releases',search:new URLSearchParams({project:row.id,app:app.id}).toString()});}}>{formatRelease(app.latestRelease.name)}</button> : '—'}</p>
+          <p className="text-sm muted">{t('projects.latestRelease')} · {app.latestRelease ? <button className="text-link" onClick={() => setActiveProjectId(row.id,{pathname:'/releases',params:{app:app.id}})}>{formatRelease(app.latestRelease.name)}</button> : '—'}</p>
           {app.repositoryUrl && <a className="text-link text-sm break-all" href={app.repositoryUrl} target="_blank" rel="noreferrer">{app.repositoryUrl}<ArrowUpRight size={14}/></a>}
         </div>)}</div>
         {!!row.health?.apps?.some(app=>!isIdentifiedApp(app)) && <details className="unidentified-apps">
@@ -101,8 +102,8 @@ export default function ProjectsPage() {
       </Surface>)}
     </div>
     {!visible.length && <Surface><p>{t(projects.length ? 'projects.noMatches' : 'projects.emptyTitle')}</p><p className="muted mt-3">{projects.length ? t('projects.filterHint') : t(owner ? 'projects.emptyHint' : 'setup.askOwner')}</p>{projects.length > 0 && <Button className="mt-5" onClick={() => { const next = currentSearchParams(); next.delete('q'); next.delete('platform'); setParams(next, {replace: true}); }}>{t('projects.clearFilters')}</Button>}</Surface>}
-    <Dialog open={!!editing} onClose={() => { if (!busy) setEditing(null); }} closeLabel={t('common.close')} title={t(editing === 'new' ? 'settings.createProject' : 'projects.edit')} footer={<Button type="submit" form="project-edit" variant="primary" busy={busy}>{t('settings.save')}</Button>}>
-      <form id="project-edit" className="form-stack" onSubmit={save}>
+    <Dialog open={!!editing} onClose={() => { if (!busy) setEditing(null); }} closeLabel={t('common.close')} title={t(editing === 'new' ? 'settings.createProject' : 'projects.edit')} footer={<Button type="submit" form={projectForm} variant="primary" busy={busy}>{t('settings.save')}</Button>}>
+      <form id={projectForm} className="form-stack" onSubmit={save}>
         <Field label={t('settings.projectName')}><Input required pattern={String.raw`.*\S.*`} maxLength={200} value={name} onChange={e => setName(e.target.value)} data-autofocus disabled={busy}/></Field>
         {problem}
       </form>
@@ -130,7 +131,7 @@ function PlatformConnections({health,onSetup}:{health:ProjectHealth|null;onSetup
 }
 
 function EditApp({app,onClose,onSaved}:{app:ProjectApp;onClose:()=>void;onSaved:()=>void}) {
-  const t=useT();
+  const t=useT(), appForm=useId();
   const [name,setName]=useState(app.name??''),[repositoryUrl,setRepositoryUrl]=useState(app.repositoryUrl??'');
   const [busy,setBusy]=useState(false),[failure,setFailure]=useState<string|null>(null);
   async function save(event:React.FormEvent) {
@@ -139,8 +140,8 @@ function EditApp({app,onClose,onSaved}:{app:ProjectApp;onClose:()=>void;onSaved:
     catch(error){setFailure(error instanceof ApiError && error.status===409?t('apps.conflict'):formatApiError(error));}
     finally{setBusy(false);}
   }
-  return <Dialog open onClose={()=>{if(!busy)onClose();}} title={t('apps.edit')} closeLabel={t('common.close')} footer={<Button type="submit" form="app-edit" variant="primary" busy={busy}>{t('settings.save')}</Button>}>
-    <form id="app-edit" className="form-stack" onSubmit={save}>
+  return <Dialog open onClose={()=>{if(!busy)onClose();}} title={t('apps.edit')} closeLabel={t('common.close')} footer={<Button type="submit" form={appForm} variant="primary" busy={busy}>{t('settings.save')}</Button>}>
+    <form id={appForm} className="form-stack" onSubmit={save}>
       <Badge>{platformLabel(app.platform,t)}</Badge>
       <Field label={t('apps.name')}><Input maxLength={200} value={name} onChange={event=>setName(event.target.value)} disabled={busy} data-autofocus/></Field>
       <dl className="app-identity">

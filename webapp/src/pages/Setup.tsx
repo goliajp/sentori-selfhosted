@@ -20,7 +20,7 @@ type SetupProject = Pick<Project, 'id' | 'name'>;
 export default function Setup() {
   const t = useT();
   const { activeProject, projects, setActiveProjectId, reloadProjects, me } = useShell();
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
   const [created, setCreated] = useState<SetupProject | null>(null);
   const project = params.has('new') ? null : activeProject ?? (created?.id === params.get('project') ? created : null);
   return (
@@ -31,7 +31,7 @@ export default function Setup() {
             <Select
               aria-label={t('settings.fieldProject')}
               value={project?.id ?? ''}
-              onChange={(e) => { setCreated(null); setActiveProjectId(e.target.value); setParams({project:e.target.value}); }}
+              onChange={(e) => { setCreated(null); setActiveProjectId(e.target.value,{pathname:'/setup'}); }}
             >
               {!project && <option value="" disabled>{t('setup.chooseProject')}</option>}
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -41,7 +41,7 @@ export default function Setup() {
         </div>
         {!project ? (
           me.role === 'superadmin' && (params.has('new') || projects.length === 0) ? <CreateProject onCreated={(p) => {
-            setCreated(p); setActiveProjectId(p.id); void reloadProjects(); setParams({project:p.id});
+            setCreated(p); setActiveProjectId(p.id,{pathname:'/setup'}); void reloadProjects();
           }} /> : <p className="rounded-xl border border-border bg-surface p-6 text-sm text-fg-muted">{t('setup.askOwner')}</p>
         ) : <ProjectSetup key={`${project.id}:${params.get('platform') ?? ''}`} project={project} initialPlatform={params.get('platform')} />}
     </div>

@@ -82,7 +82,7 @@ export const CONTROL_H = { sm: 'h-[var(--control-height-small)]', md: 'h-[var(--
  *  people are on all day. Taking the appearance away means drawing
  *  the chevron ourselves, hence the token and the right padding. */
 export const SELECT_CLASS =
-  'appearance-none rounded border border-border bg-surface bg-[image:var(--sn-select-chevron)] ' +
+  'min-w-0 max-w-full w-full appearance-none rounded border border-border bg-surface bg-[image:var(--sn-select-chevron)] ' +
   'bg-[length:12px_12px] bg-[right_0.5rem_center] bg-no-repeat text-fg ' +
   'focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 ' +
   'focus-visible:outline-accent';

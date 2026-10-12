@@ -1,6 +1,6 @@
 // Browser-only fixture adapter. Production is forbidden to import devtools.
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer, preview } from 'vite';
@@ -59,7 +59,20 @@ export async function withLiveBrowsers(name, run) {
           assert.equal(response.status(), status, `${method} ${path}: ${await response.text()}`);
           return response.json();
         };
-        await run({engine, browser, context, page, origin, out, password, call});
+        try {
+          await run({engine, browser, context, page, origin, out, password, call});
+        } catch (error) {
+          const diagnostic = await page.evaluate(() => ({
+            url: location.href,
+            documents: [...document.querySelectorAll('.workbench-document')].map(el => ({ id: el.id, active: el.dataset.active, hidden: el.hidden })),
+            headings: [...document.querySelectorAll('h1')].map(el => el.textContent),
+            alerts: [...document.querySelectorAll('[role=alert]')].map(el => el.textContent),
+            activeText: document.querySelector('.workbench-document[data-active=true]')?.textContent,
+          })).catch(() => ({ url: page.url() }));
+          writeFileSync(out + `${engine}-failure.json`, JSON.stringify({ ...diagnostic, errors }, null, 2));
+          await page.screenshot({path:out + `${engine}-failure.png`}).catch(() => {});
+          throw error;
+        }
         assert.deepEqual(errors, []);
         await context.close();
       } finally {

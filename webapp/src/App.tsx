@@ -15,11 +15,11 @@ import {
   Server,
   X,
 } from 'lucide-react';
-import { createContext, lazy, useContext, useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useMatch, useNavigate, useSearchParams } from 'react-router-dom';
+import { lazy, useEffect, useRef, useState } from 'react';
+import { Link, NavLink, useOutlet, useLocation, useMatch, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { CommandPalette, openPalette } from './components/CommandPalette';
-import { Kbd, ThemeSwitch, ErrorBanner, Select } from './components/ui';
+import { Kbd, ThemeSwitch, ErrorBanner } from './components/ui';
 import { useT } from './i18n';
 import { api, type Me, type Project } from './lib/api';
 import { formatApiError, useAsyncData } from './lib/useAsyncData';
@@ -27,24 +27,9 @@ import { formatApiError, useAsyncData } from './lib/useAsyncData';
 import { SentoriMark, SentoriIdentity } from './components/brand';
 const Welcome = lazy(() => import('./pages/Welcome'));
 
-/// Shell context: who is logged in + which projects are visible.
-/// Pages read the project scope from here instead of re-fetching.
-export type Shell = {
-  me: Me;
-  projects: Project[];
-  reloadProjects: () => Promise<void>;
-  /** The project the whole app is scoped to. */
-  activeProject: Project | null;
-  setActiveProjectId: (id: string) => void;
-};
-
-const ShellContext = createContext<Shell | null>(null);
-
-export function useShell(): Shell {
-  const s = useContext(ShellContext);
-  if (!s) throw new Error('useShell outside <App>');
-  return s;
-}
+export { useShell } from './lib/shell-context';
+import { ShellContext, type ProjectDestination } from './lib/shell-context';
+import { Workbench } from './components/Workbench';
 
 /// App frame — this is an application, not a document: a fixed
 /// viewport split into a nav rail, a slim topbar (search, theme,
@@ -52,6 +37,7 @@ export function useShell(): Shell {
 /// page never scrolls as a whole.
 export function App() {
   const t = useT();
+  const outlet = useOutlet();
   const location=useLocation(),navigate=useNavigate();
   const isPublicHome = location.pathname === '/';
   const issueId = useMatch('/issues/:issueId')?.params.issueId;
@@ -129,12 +115,16 @@ export function App() {
     next.set('project', activeProject.id);
     setScopeParams(next, { replace: true });
   }, [activeProject, scopeParams, setScopeParams]);
-  const setActiveProjectId = (id: string) => {
+  const setActiveProjectId = (id: string, destination?: ProjectDestination) => {
     setProjectId(id);
-    const next = currentSearchParams();
-    for(const key of ['app','platform','appType','env','rel','release','ck','cv','dimension','context','tags','q','offset','occurrence','occurrenceOffset','detail','id','new','issue','job','transfer'])next.delete(key);
+    const next = destination ? new URLSearchParams() : currentSearchParams();
+    if(!destination)for(const key of ['app','platform','appType','env','rel','release','ck','cv','dimension','context','tags','q','offset','occurrence','occurrenceOffset','detail','id','new','issue','job','transfer'])next.delete(key);
     if(id)next.set('project',id);else next.delete('project');
-    if(issueId){next.delete('tab');navigate({pathname:'/issues',search:next.toString()});}
+    for(const [name,value] of Object.entries(destination?.params??{}))next.set(name,value);
+    // Project selection and its destination form one navigation. A second
+    // navigation from the old document would correctly be scoped as inactive.
+    if(destination)navigate({pathname:destination.pathname,search:next.toString()});
+    else if(issueId){next.delete('tab');navigate({pathname:'/issues',search:next.toString()});}
     else setScopeParams(next, { replace: true });
     try {
       localStorage.setItem('sentori_project', id);
@@ -181,9 +171,9 @@ export function App() {
           <Link to="/welcome" aria-label="Sentori" className="sentori-identity mb-5 flex items-center px-2.5 py-2">
             <SentoriIdentity />
           </Link>
-          <label className="shell-project-picker"><span className="field-label">{t('settings.fieldProject')}</span><Select value={activeProject?.id??''} onChange={e=>{setActiveProjectId(e.target.value);drawer.current?.close();}}><option value="" disabled>{t('settings.selectProject')}</option>{projects.map(project=><option key={project.id} value={project.id}>{project.name}</option>)}</Select></label>
+
           <nav aria-label={t('shell.navigation')} className="flex flex-col gap-0.5">
-            <NavLink to={scopedLink("/projects")}  className={navCls}>
+            <NavLink to={scopedLink("/projects")}  className={navCls} aria-label={t('nav.projects')} title={t('nav.projects')}>
               <FolderKanban className={navIcon} aria-hidden />
               {t('nav.projects')}
             </NavLink>
@@ -207,38 +197,38 @@ export function App() {
                 <div className="mb-0.5 mt-3 truncate px-2.5 text-xs font-semibold text-fg-subtle">
                   {activeProject.name}
                 </div>
-                <NavLink to={scopedLink("/")}  end className={navCls}>
+                <NavLink to={scopedLink(location.pathname === "/" ? "/" : "/issues")} className={navCls} aria-label={t('nav.inbox')} title={t('nav.inbox')}>
                   <Inbox className={navIcon} aria-hidden />
                   {t('nav.inbox')}
                 </NavLink>
-                <NavLink to={scopedLink("/tasks")} className={navCls}><ListTodo className={navIcon} aria-hidden/>{t('team.title')}</NavLink>
-                <NavLink to={scopedLink("/status")} className={navCls}><Activity className={navIcon} aria-hidden/>{t('monitor.title')}</NavLink>
-                <NavLink to={scopedLink("/integrations")} className={navCls}><Plug className={navIcon} aria-hidden/>{t('integration.title')}</NavLink>
-                <NavLink to={scopedLink("/instruments")}  className={navCls}>
+                <NavLink to={scopedLink("/tasks")} className={navCls} aria-label={t('team.title')} title={t('team.title')}><ListTodo className={navIcon} aria-hidden/>{t('team.title')}</NavLink>
+                <NavLink to={scopedLink("/status")} className={navCls} aria-label={t('monitor.title')} title={t('monitor.title')}><Activity className={navIcon} aria-hidden/>{t('monitor.title')}</NavLink>
+                <NavLink to={scopedLink("/integrations")} className={navCls} aria-label={t('integration.title')} title={t('integration.title')}><Plug className={navIcon} aria-hidden/>{t('integration.title')}</NavLink>
+                <NavLink to={scopedLink("/instruments")}  className={navCls} aria-label={t('nav.instruments')} title={t('nav.instruments')}>
                   <Activity className={navIcon} aria-hidden />
                   {t('nav.instruments')}
                 </NavLink>
-                <NavLink to={scopedLink("/releases")}  className={navCls}>
+                <NavLink to={scopedLink("/releases")}  className={navCls} aria-label={t('nav.releases')} title={t('nav.releases')}>
                   <Package className={navIcon} aria-hidden />
                   {t('nav.releases')}
                 </NavLink>
-                <NavLink to={scopedLink("/setup")}  className={navCls}>
+                <NavLink to={scopedLink("/setup")}  className={navCls} aria-label={t('nav.setup')} title={t('nav.setup')}>
                   <Plug className={navIcon} aria-hidden />
                   {t('nav.setup')}
                 </NavLink>
                 {/* Its own entry, not a settings tab. Whether last
                     night's alert reached anyone is not the same
                     question as what your password is. */}
-                <NavLink to={scopedLink("/push")}  className={navCls}>
+                <NavLink to={scopedLink("/push")}  className={navCls} aria-label={t('nav.push')} title={t('nav.push')}>
                   <Send className={navIcon} aria-hidden />
                   {t('nav.push')}
                 </NavLink>
               </>
             )}
             <div className="mt-3" />
-            <NavLink to="/inbox" className={navCls}><Bell className={navIcon} aria-hidden/>{t('team.inbox')}</NavLink>
-            {system.data && <NavLink to={system.data.deployment === 'cloud' ? '/settings/instance' : '/self-hosted'} className={navCls}><Server className={navIcon} aria-hidden/>{t(system.data.deployment === 'cloud' ? 'cloud.workspace' : 'lifecycle.title')}</NavLink>}
-            <NavLink to={scopedLink("/settings")}  className={navCls}>
+            <NavLink to="/inbox" className={navCls} aria-label={t('team.inbox')} title={t('team.inbox')}><Bell className={navIcon} aria-hidden/>{t('team.inbox')}</NavLink>
+            {system.data && <NavLink to={system.data.deployment === 'cloud' ? '/settings/instance' : '/self-hosted'} className={navCls} aria-label={t(system.data.deployment === 'cloud' ? 'cloud.workspace' : 'lifecycle.title')} title={t(system.data.deployment === 'cloud' ? 'cloud.workspace' : 'lifecycle.title')}><Server className={navIcon} aria-hidden/>{t(system.data.deployment === 'cloud' ? 'cloud.workspace' : 'lifecycle.title')}</NavLink>}
+            <NavLink to={scopedLink("/settings")}  className={navCls} aria-label={t('nav.settings')} title={t('nav.settings')}>
               <Settings className={navIcon} aria-hidden />
               {t('nav.settings')}
             </NavLink>
@@ -273,7 +263,8 @@ export function App() {
           </div>
         </dialog>
 
-        <WorkspaceLayout workbench className="production-workspace" sidebar={navigation} toolbar={<>
+        <WorkspaceLayout scope="product" workbench className="production-workspace" sidebar={<><Link to="/welcome" aria-label="Sentori" className="sentori-rail-mark"><SentoriMark className="h-8 w-8" /></Link><div className="production-rail-links">{navigation}</div></>} toolbar={<>
+            <Link to="/welcome" aria-label="Sentori" className="sentori-identity sentori-topbar-identity"><SentoriIdentity /></Link>
             <button type="button" onClick={() => drawer.current?.showModal()} aria-label={t('shell.openNavigation')} className="grid h-10 w-10 shrink-0 place-items-center rounded-md hover:bg-raised workspace-mobile-toggle">
               <Menu className="h-5 w-5" aria-hidden />
             </button>
@@ -289,6 +280,7 @@ export function App() {
               <Kbd>⌘K</Kbd>
             </button>
             <div className="ml-auto hidden items-center gap-3 sm:flex">
+              <div className="w-24 shrink-0"><ThemeSwitch /></div>
               <span className="text-xs text-fg-subtle">
                 {me.email}
                 <span className="ml-1.5 text-fg-subtle/70">
@@ -297,8 +289,8 @@ export function App() {
               </span>
             </div>
           </>}>
-          <main id="workspace" tabIndex={-1} className="min-h-0 flex-1 overflow-hidden outline-none">
-            {projectsError?<div className="p-6"><ErrorBanner reason={projectsError}>{t('shell.projectsFailed')}</ErrorBanner><button type="button" className="button" onClick={reloadProjects}>{t('common.retry')}</button></div>:!projectsLoaded?<p role="status" className="p-6 muted">{t('shell.loading')}</p>:<Outlet />}
+          <main id="workspace" tabIndex={-1} className="flex min-h-0 flex-1 overflow-hidden outline-none">
+            {projectsError?<div className="p-6"><ErrorBanner reason={projectsError}>{t('shell.projectsFailed')}</ErrorBanner><button type="button" className="button" onClick={reloadProjects}>{t('common.retry')}</button></div>:!projectsLoaded?<p role="status" className="p-6 muted">{t('shell.loading')}</p>:<Workbench>{outlet}</Workbench>}
           </main>
         </WorkspaceLayout>
       <StatusBar />
