@@ -1,4 +1,4 @@
-import { currentSearchParams } from '../lib/search-params';
+import { useDocumentSearchParams } from '../lib/search-params';
 import { useRef, useState } from 'react';
 import { ReleaseJobs } from '../components/ReleaseJobs';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -26,6 +26,7 @@ export default function ReleasesPage(){
   return activeProject?<Releases key={activeProject.id} projectId={activeProject.id}/>:<div className="production-page"><Heading title={t('nav.releases')}/><Surface><p>{t('inbox.emptyNoProject')}</p><Link className="text-link" to="/projects">{t('nav.projects')}</Link></Surface></div>;
 }
 function Releases({projectId}:{projectId:string}){
+  const currentSearchParams=useDocumentSearchParams();
   const t=useT();const [params,setParams]=useSearchParams();
   const query=params.get('q')??'',selected=params.get('detail'),appId=params.get('app')??'';
   const apps=useScopedAsyncData(projectId,()=>api.listApps(projectId));

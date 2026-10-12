@@ -3,11 +3,13 @@ import { writeFileSync } from 'node:fs';
 import { withLiveBrowsers } from './live-browser.mjs';
 const results = [];
 await withLiveBrowsers('projects', async ({engine, browser, context, page, origin, out, password, call}) => {
+  page.on('pageerror',error=>console.error('PAGE ERROR',engine,page.url(),error.message));
   await call('/auth/login', {email: 'owner@example.test', password});
   const aName = `Editable ${engine}`, bName = `Visible ${engine}`;
   const a = await call('/admin/api/projects', {name: aName, platform: 'web'});
   const b = await call('/admin/api/projects', {name: bName});
-  const card = name => page.locator('.project-card').filter({has: page.getByRole('heading', {name, exact: true})});
+  const activeDocument = page.locator('.workbench-document[data-active=true]');
+  const card = name => activeDocument.locator('.project-card').filter({has: page.getByRole('heading', {name, exact: true})});
   for (const locale of (process.env.PROJECT_LOCALES?.split(',') ?? ['zh','ja','en'])) for (const theme of ['light','dark']) {
     await page.goto(origin + '/login');
     await page.evaluate(({locale,theme}) => {localStorage.setItem('sentori_locale',locale);localStorage.setItem('sentori-theme',theme);}, {locale,theme});
@@ -29,6 +31,14 @@ await withLiveBrowsers('projects', async ({engine, browser, context, page, origi
   await page.evaluate(() => localStorage.setItem('sentori_locale','en')); await page.goto(origin + '/projects'); await card(aName).waitFor();
   await card(aName).getByRole('button',{name:'Edit project',exact:true}).click();
   const dialog = page.locator('dialog[open]');
+  try { await dialog.waitFor(); } catch(error) {
+    console.error('PROJECT EDIT',engine,page.url(),await page.evaluate(()=>({
+      active:[...document.querySelectorAll('.workbench-document')].map(el=>({id:el.id,active:el.dataset.active,hidden:el.hidden})),
+      dialogs:[...document.querySelectorAll('dialog')].map(el=>({open:el.open,title:el.querySelector('h2')?.textContent})),
+      focused:document.activeElement?.outerHTML,
+    })));
+    await page.screenshot({path:out+`${engine}-edit-failure.png`});throw error;
+  }
   await dialog.locator('input').fill('My unsaved edit');
   await call('/admin/api/projects/' + a.id, {name:`Other editor ${engine}`, expectedVersion:1}, 'PATCH');
   await dialog.getByRole('button',{name:'Save',exact:true}).click(); await dialog.getByRole('button',{name:'Reload project'}).waitFor();
@@ -41,17 +51,17 @@ await withLiveBrowsers('projects', async ({engine, browser, context, page, origi
   assert.equal(await dialog.getByRole('button',{name:'Delete',exact:true}).isDisabled(),true);
   await dialog.locator('input').fill(edited); await dialog.getByRole('button',{name:'Delete',exact:true}).click(); await dialog.waitFor({state:'hidden'}); await card(edited).waitFor({state:'hidden'});
   await call('/admin/api/projects/' + a.id, undefined, 'GET',404);
-  await page.locator('.page-heading button').click(); await dialog.waitFor();
+  await activeDocument.locator('.page-heading button').click(); await dialog.waitFor();
   const createdName = `Created through UI ${engine}`;
   await dialog.locator('input').fill(createdName); assert.equal(await dialog.locator('select').count(),0); await dialog.getByRole('button',{name:'Save',exact:true}).click(); await dialog.waitFor({state:'hidden'}); await card(createdName).waitFor();
   const created = (await call('/admin/api/projects')).projects.find(p => p.name === createdName); assert.ok(created && created.platform === null);
   assert.deepEqual((await call(`/admin/api/projects/${created.id}/apps`)).apps,[]);
   await card(createdName).getByRole('button',{name:/^iOS/}).click(); await page.waitForURL('**/setup?project='+created.id+'&platform=ios');
-  await page.locator('.flow-frame').waitFor();
-  assert.equal(await page.locator('select').filter({has:page.locator('option[value=ios]')}).inputValue(),'ios');
+  await activeDocument.locator('.flow-frame').waitFor();
+  assert.equal(await activeDocument.locator('select').filter({has:page.locator('option[value=ios]')}).inputValue(),'ios');
   await page.goto(origin+'/projects'); await card(createdName).waitFor();
-  await page.locator('input[type=search]').fill(createdName); await page.waitForFunction(() => document.querySelectorAll('.project-card').length === 1); assert.equal(await page.locator('.project-card').count(),1);
-  await card(createdName).locator('.surface-foot button').first().click(); await page.waitForURL('**/setup?project=' + created.id); await page.locator('main h1').waitFor();
+  await activeDocument.locator('input[type=search]').fill(createdName); await page.waitForFunction(() => document.querySelectorAll('.workbench-document[data-active=true] .project-card').length === 1); assert.equal(await activeDocument.locator('.project-card').count(),1);
+  await card(createdName).locator('.surface-foot button').first().click(); await page.waitForURL('**/setup?project=' + created.id); await activeDocument.locator('h1').waitFor();
 
   const email = `browser-member-${engine}@example.test`;
   const member = await call('/admin/api/users',{email,password});

@@ -1,4 +1,4 @@
-import { currentSearchParams } from '../lib/search-params';
+import { useDocumentSearchParams } from '../lib/search-params';
 import { ArrowLeft, Keyboard } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -37,6 +37,7 @@ export default function TriageView() {
 }
 
 function IssueQueue({projectId}: {projectId: string}) {
+  const currentSearchParams=useDocumentSearchParams();
   const t = useT(), locale = useLocale(), navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '', status = params.get('status') ?? 'all';
@@ -76,7 +77,7 @@ function IssueQueue({projectId}: {projectId: string}) {
   useEffect(()=>{
     function handle(event:KeyboardEvent) {
       if(event.ctrlKey||event.metaKey||event.altKey||(event.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],dialog[open]'))return;
-      const buttons=Array.from(document.querySelectorAll<HTMLButtonElement>('[data-issue-id]'));
+      const buttons=Array.from(document.querySelectorAll<HTMLButtonElement>('.workbench-document[data-active="true"] [data-issue-id]'));
       if(!buttons.length)return;
       const index=buttons.indexOf(document.activeElement as HTMLButtonElement), key=event.key.toLowerCase();
       if(key==='j'||key==='k') {event.preventDefault(); const next=index<0?(key==='j'?0:buttons.length-1):Math.max(0,Math.min(buttons.length-1,index+(key==='j'?1:-1)));buttons[next].focus();buttons[next].scrollIntoView({block:'nearest'});}
@@ -96,16 +97,15 @@ function IssueQueue({projectId}: {projectId: string}) {
     </div>
     <Tabs label={t('queue.title')} value={group} onChange={value=>filter({group:value})} items={[["all",t('queue.all')],["open",t('inbox.group.open')],["regressed",t('inbox.groupRegressed')],["fresh",t('inbox.groupNew')]]}>
       <div className="surface result-filters">
-        <div className="control-bar">
+        <div className="control-bar queue-filters-primary">
           <Field label={t('queue.search')}><Input type="search" maxLength={200} value={q} onChange={event=>filter({q:event.target.value})}/></Field>
           <Field label={t('queue.status')}><Select value={status} onChange={event=>filter({status:event.target.value})}><option value="all">{t('queue.all')}</option>{(['open','resolved','ignored'] as const).map(value=><option key={value} value={value}>{t(`inbox.group.${value}`)}</option>)}</Select></Field>
           <Field label={t('queue.kind')}><Select value={kind} onChange={event=>filter({kind:event.target.value})}><option value="">{t('queue.all')}</option>{KINDS.map(value=><option key={value} value={value}>{value}</option>)}</Select></Field>
+          <Field label={t('queue.sort')}><Select value={sort} onChange={event=>filter({sort:event.target.value})}><option value="impact">{t('queue.impact')}</option><option value="newest">{t('queue.newest')}</option></Select></Field>
+          <Button small onClick={clear}>{t('projects.clearFilters')}</Button>
         </div>
         <EventFilters projectId={projectId} value={eventFilters} onChange={filter}/>
-        <div className="control-bar filter-footer">
-          <Field label={t('queue.sort')}><Select value={sort} onChange={event=>filter({sort:event.target.value})}><option value="impact">{t('queue.impact')}</option><option value="newest">{t('queue.newest')}</option></Select></Field>
-          <Button onClick={clear}>{t('projects.clearFilters')}</Button>
-        </div>
+
       </div>
       {failure&&<ErrorBanner reason={failure}>{t('queue.actionFailed')}</ErrorBanner>}
       {error&&<div><ErrorBanner reason={error}>{t('inbox.loadFailed')}</ErrorBanner><Button onClick={reload}>{t('common.retry')}</Button></div>}

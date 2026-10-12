@@ -1,3 +1,5 @@
+@import "../../shared/design/workbench.css";
+@import "../../shared/design/selection.css";
 @import "../../shared/design/self-hosted.css";
 @import "../../shared/design/team.css";
 @import "../../shared/design/files.css";
@@ -422,7 +424,7 @@ time {
 .chart-data-table th,.chart-data-table td { padding: 10px 12px; border-bottom: 1px solid var(--ui-line); text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .chart-data-table tr > :first-child { text-align: left; }
 .workbench-section { margin-top: var(--space-6); }
-.workbench-toolbar { padding: var(--space-4); margin-bottom: var(--space-5); }
+.production-page .workbench-toolbar { padding: var(--space-4); margin-bottom: var(--space-5); }
 .workbench-toolbar .team-toolbar { margin: 0; }
 .task-results > .team-task-list,.task-results > .team-task-board { padding: var(--space-4); }
 .task-results .team-task-board { grid-template-columns: repeat(7,minmax(210px,1fr)); }
@@ -435,3 +437,41 @@ time {
 .palette-results { display: grid; gap: 2px; max-height: min(400px,55dvh); overflow: auto; margin-top: var(--space-3); }
 .palette-result { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3); border-radius: 4px; text-align: left; font-size: 13px; overflow-wrap: anywhere; }
 .palette-result[aria-selected=true] { background: var(--ui-tint); color: var(--ui-action); }
+
+.production-workbench > .workbench-toolbar { padding: 2px 10px; margin: 0; }
+.production-workbench .workbench-document { padding: 0; overflow: hidden; scrollbar-gutter: auto; }
+.production-workbench .production-page { padding: 16px; }
+.production-workbench .production-page > .page-heading h1 { font-size: 22px; line-height: 30px; }
+.production-workbench .production-page > .page-heading p { font-size: 12px; }
+.production-workbench .workbench-documents { container: document / inline-size; }
+.production-workspace .sentori-topbar-identity { width: 104px; flex-shrink: 0; }
+.production-workspace > .studio-nav > .sentori-identity { width: 40px; overflow: hidden; }
+.production-workspace > .studio-nav > .sentori-identity svg { width: 135px; max-width: none; flex-shrink: 0; }
+.production-workspace > .studio-nav .shell-project-picker { display: none; }
+@container document (max-width: 760px) {
+  .issue-actions,.issue-event-toolbar,.tag-filter-form,.telemetry-grid { grid-template-columns: minmax(0,1fr); }
+  .tag-filter-form > .button { margin-top: 0; justify-self: start; }
+  .issue-evidence-grid { grid-template-columns: minmax(0,1fr); }
+  .production-page .control-bar { flex-wrap: wrap; }
+  .production-page .control-bar > * { min-width: 0; max-width: 100%; }
+}
+@media (max-width: 639px) { .production-workspace .sentori-topbar-identity { display: none; } }
+
+.production-workspace[data-scope="product"] > .studio-nav > .production-rail-links { display: contents; }
+.production-workspace > .studio-nav .sentori-identity { display: none; }
+.production-workspace > .studio-nav .production-rail-links > div { display: none; }
+.production-workspace > .studio-nav nav > div { display: none; }
+.production-workspace .sentori-rail-mark { display: grid; place-items: center; }
+
+.advanced-filters > summary { cursor: pointer; font-size: 12px; color: var(--ui-secondary); padding-block: 4px; }
+.advanced-filters > summary span { margin-inline-start: 8px; font-variant-numeric: tabular-nums; }
+.advanced-filters-content { display: grid; gap: 12px; padding-top: 12px; }
+.production-workbench .queue-filters-primary { display: grid; grid-template-columns: minmax(140px,2fr) repeat(3,minmax(100px,1fr)) auto; align-items: end; }
+.production-workbench .queue-filters-primary > .button { min-height: var(--control-height); }
+.production-workbench .event-filters { gap: 8px; padding-top: 12px; }
+.production-workbench .event-filters > .control-bar { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); }
+.production-workbench .event-filters .control-bar { margin: 0; }
+@container document (max-width: 760px) { .production-workbench .queue-filters-primary { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@container document (max-width: 480px) { .production-workbench .event-filters > .control-bar { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+.production-workbench .queue-filters-primary > .button { margin-top: 0; justify-self: start; }

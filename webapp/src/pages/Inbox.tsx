@@ -1,4 +1,4 @@
-import { currentSearchParams } from '../lib/search-params';
+import { useDocumentSearchParams } from '../lib/search-params';
 import { WorkbenchEmpty } from '../components/WorkbenchEmpty';
 import { useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -15,6 +15,7 @@ import { useScopedAsyncData } from '../lib/useScopedAsyncData';
 import type { InboxPreferences } from '../lib/team-contract';
 
 export default function InboxPage() {
+  const currentSearchParams=useDocumentSearchParams();
   const t = useT(), [params, setParams] = useSearchParams();
   const requested = params.get('filter') ?? 'unread', filter = ['unread','all','archived'].includes(requested) ? requested : 'unread';
   const rawOffset = Number(params.get('offset') ?? 0), offset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;

@@ -1,3 +1,4 @@
+import {checkWorkbenchDocuments,selectWorkbenchProject} from './workbench-contract.mjs';
 import assert from 'node:assert/strict';
 import {writeFileSync} from 'node:fs';
 import {withLiveBrowsers} from './live-browser.mjs';
@@ -11,6 +12,7 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
   await call('/auth/login',{email:'owner@example.test',password});
   const projects=(await call('/admin/api/projects')).projects;
   const project=projects.find(p=>p.name==='Workbench audit'),other=projects.find(p=>p.name==='Other workbench');assert.ok(project&&other);
+  await checkWorkbenchDocuments({page,origin,engine,out,project,other,call});
   const apps=(await call(`/admin/api/projects/${project.id}/apps`)).apps;
   const app=apps.find(a=>a.identifier==='client-a');assert.ok(app);
   await visit(origin+`/issues?project=${project.id}`);await page.locator('[data-issue-id]').first().waitFor();
@@ -25,6 +27,7 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
   let filters=new URL(page.url()).searchParams;assert.equal(filters.get('env'),'production',page.url());assert.equal(filters.get('rel'),'2.0',page.url());
   await page.waitForFunction(()=>document.querySelector('input[list$="-releases"]')?.value==='2.0');
   await page.getByLabel('Release',{exact:true}).fill('');
+  await page.locator('.advanced-filters summary').click();
   await page.getByLabel('Tag source',{exact:true}).selectOption('tags');await page.getByLabel('Tag key',{exact:true}).fill('region');await page.getByLabel('Tag value',{exact:true}).fill('jp');
   await page.getByRole('button',{name:'Add condition',exact:true}).waitFor();
   await page.evaluate(appType=>{
@@ -43,7 +46,7 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
   // Switching projects on a detail page really leaves the old issue and its scope.
   const issue=(await call(`/admin/api/issues?project_id=${project.id}&q=Shared`)).issues[0];
   await visit(origin+`/issues/${issue.id}?project=${project.id}&app=${app.id}&env=production`);await page.locator('[data-event-id]').waitFor();
-  await page.locator('aside select').first().selectOption(other.id);await page.waitForURL(url=>url.pathname==='/issues'&&url.searchParams.get('project')===other.id);assert.equal(new URL(page.url()).searchParams.has('app'),false);assert.equal(new URL(page.url()).searchParams.has('env'),false);await page.locator('[data-issue-id]').filter({hasText:'Secret failure'}).waitFor();
+  await selectWorkbenchProject(page,other.id);await page.waitForURL(url=>url.pathname==='/issues'&&url.searchParams.get('project')===other.id);assert.equal(new URL(page.url()).searchParams.has('app'),false);assert.equal(new URL(page.url()).searchParams.has('env'),false);await page.locator('[data-issue-id]').filter({hasText:'Secret failure'}).waitFor();
   // Real plots, accessible values, CSV download, legend, tabs and persisted filters.
   const instruments=origin+`/instruments?project=${project.id}`;
   await visit(instruments);await page.locator('.telemetry-plot svg').first().waitFor();
@@ -61,15 +64,20 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
   await page.unroute('**/admin/api/projects/*/instruments?*');await page.getByRole('button',{name:'Refresh',exact:true}).click();await page.locator('.telemetry-plot svg').first().waitFor();
   // A direct detail remains reachable outside the visible list page.
   const release=(await call(`/admin/api/projects/${project.id}/releases?q=deep-link`)).releases[0];
-  await visit(origin+`/releases?project=${project.id}&offset=50&detail=${release.id}`);await page.getByRole('dialog',{name:'deep-link@1',exact:true}).waitFor();await page.keyboard.press('Escape');
+  await visit(origin+`/releases?project=${project.id}&offset=50&detail=${release.id}`);await page.getByRole('dialog',{name:'deep-link@1',exact:true}).waitFor();
+  // Closing a detail opens the list document and starts its own reads. Await
+  // those reads before a full navigation instead of an already-fired idle event.
+  const listReads=[`/admin/api/projects/${project.id}/apps`,`/admin/api/projects/${project.id}/releases?offset=50&limit=50`,`/admin/api/sessions/crash-free?projectId=${project.id}&hours=720`]
+    .map(path=>page.waitForResponse(response=>response.url()===origin+path&&response.status()===200).then(response=>response.finished()));
+  await page.keyboard.press('Escape');await page.waitForURL(url=>!url.searchParams.has('detail'));await Promise.all(listReads);
   await visit(instruments);await page.locator('.telemetry-plot svg').first().waitFor();
   // Command search is server-backed, keeps project identity and supports Escape.
   await page.keyboard.press('Control+k');await page.getByRole('dialog').getByRole('combobox').fill('Shared failure');await page.getByRole('option').filter({hasText:'Shared failure'}).waitFor();await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});
   // Notification drafts stay in their project; failed writes are visible and roll back.
   await visit(origin+`/settings/notifications?project=${project.id}`);const webhook=page.getByRole('textbox',{name:'Webhook',exact:true});
-  await webhook.waitFor();await page.waitForFunction(()=>!document.querySelector('input[type=url]')?.disabled);await webhook.fill('https://example.test/unsaved');
-  await page.locator('aside select').first().selectOption(other.id);await page.waitForFunction(()=>document.querySelector('input[type=url]')?.value==='');
-  const pref=page.locator('input[type=checkbox]').first();await pref.waitFor();const was=await pref.isChecked();
+  await webhook.waitFor();await page.waitForFunction(()=>!document.querySelector('.workbench-document[data-active=true] input[type=url]')?.disabled);await webhook.fill('https://example.test/unsaved');
+  await selectWorkbenchProject(page,other.id);await page.waitForFunction(()=>document.querySelector('.workbench-document[data-active=true] input[type=url]')?.value==='');
+  const pref=page.locator('.workbench-document[data-active=true] input[type=checkbox]').first();await pref.waitFor();const was=await pref.isChecked();
   await page.route('**/admin/api/notification-prefs',route=>route.request().method()==='PUT'?route.fulfill({status:503,contentType:'application/json',body:'{"error":"fixture_failure"}'}):route.continue());
   await pref.click();await page.getByRole('alert').filter({hasText:'Could not save notification preferences'}).waitFor();assert.equal(await pref.isChecked(),was);await page.unroute('**/admin/api/notification-prefs');
   // Production geometry, with populated instruments and truly empty task/monitor states.
@@ -78,7 +86,7 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
     for(const [name,url,ready] of [['instruments',instruments,'.telemetry-plot svg'],['tasks',origin+`/tasks?project=${project.id}`,'.task-results .workbench-empty'],['monitors',origin+`/status?project=${project.id}`,'.workbench-empty']]){
       await visit(url);await page.locator(ready).first().waitFor();
       const geometry=await page.evaluate(()=>({overflow:document.documentElement.scrollWidth>innerWidth+1,heading:parseFloat(getComputedStyle(document.querySelector('.production-page h1')).fontSize),workspace:document.querySelector('#workspace').scrollWidth>document.querySelector('#workspace').clientWidth+1}));
-      assert.equal(geometry.overflow,false,JSON.stringify({engine,name,locale,theme,width,geometry}));assert.equal(geometry.workspace,false);assert.ok(geometry.heading>=24);
+      assert.equal(geometry.overflow,false,JSON.stringify({engine,name,locale,theme,width,geometry}));assert.equal(geometry.workspace,false);assert.equal(geometry.heading,22);
       if(locale==='zh')await page.screenshot({path:out+`${engine}-${name}-${theme}-${width}.png`});
       results.push({engine,name,locale,theme,width,geometry});writeFileSync(out+'results.json',JSON.stringify({results},null,2));
     }

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Surface } from '../../shared/design/Surface';
 import { Button, Field, Input } from '../../shared/design/controls';
 import { useShell } from '../App';
@@ -13,6 +13,8 @@ export function TaskIntegration({ project }: { project: string }) {
   const t = useT(), { me } = useShell();
   const state = useScopedAsyncData(project, () => api.taskIntegration(project));
   const [draft, setDraft] = useState<Config | null>(null), [rotate, setRotate] = useState(false), [secret, setSecret] = useState<string | null>(null), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  const visible = useRef(true);
+  useEffect(() => { visible.current=true; return () => { visible.current=false; setSecret(null); }; }, []);
   const lock = useRef(false), current = draft ?? state.data?.configuration ?? { repository: '', environment: 'production', enabled: true, version: 0 };
   const patch = (values: Partial<Config>) => setDraft({ ...current, ...values });
   async function save() {
@@ -20,7 +22,7 @@ export function TaskIntegration({ project }: { project: string }) {
     lock.current = true; setBusy(true); setError(null); setSecret(null);
     try {
       const result = await api.configureTaskIntegration(project, { repository: current.repository, environment: current.environment, enabled: current.enabled, expectedVersion: current.version, rotateSecret: rotate });
-      setSecret(result.secret); setDraft({ ...current, version: result.version }); setRotate(false); state.reload();
+      setSecret(visible.current ? result.secret : null); setDraft({ ...current, version: result.version }); setRotate(false); state.reload();
     } catch (failure) { setError(formatApiError(failure)); }
     finally { lock.current = false; setBusy(false); }
   }

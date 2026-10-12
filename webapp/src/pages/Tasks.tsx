@@ -1,9 +1,9 @@
-import { currentSearchParams } from '../lib/search-params';
+import { useDocumentSearchParams } from '../lib/search-params';
 import { Metric } from '../../shared/design/Metric';
 import { WorkbenchEmpty } from '../components/WorkbenchEmpty';
 import { ExternalTask } from '../components/IntegrationDelivery';
 import { TaskIntegration } from '../components/TaskIntegration';
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, ArrowLeft } from 'lucide-react';
 import { Heading, Surface } from '../../shared/design/Surface';
@@ -43,6 +43,7 @@ export default function TasksPage() {
   return activeProject ? <Tasks key={activeProject.id} project={activeProject.id}/> : <div className="production-page"><Heading title={t('team.title')}/><Surface><WorkbenchEmpty title={t('team.chooseProject')} action={<Link className="text-link" to="/projects">{t('nav.projects')}</Link>}/></Surface></div>;
 }
 function Tasks({ project }: { project: string }) {
+  const currentSearchParams=useDocumentSearchParams();
   const t = useT(), labels = useLabels();
   const [params, setParams] = useSearchParams(), [editingTask, setEditingTask] = useState<Task | null>(null);
   const editor = params.has('new') ? 'new' : editingTask;
@@ -88,7 +89,7 @@ function Tasks({ project }: { project: string }) {
 function TaskEditor({ project, task, issue, members, onSaved, onClose }: { project: string; task: Task | null; issue: string | null; members: { id: string; name: string }[]; onSaved: (task: Task) => void; onClose: () => void }) {
   const t = useT();
   const [draft, setDraft] = useState<TaskFields>(() => task ? { title: task.title, description: task.description, kind: task.kind, priority: task.priority, assignee: task.assignee, due: task.due, reproduction: task.reproduction, rootCause: task.rootCause } : { title: '', description: '', kind: issue ? 'bug' : 'task', priority: 'normal', assignee: null, due: null, reproduction: '', rootCause: '' });
-  const command = useCommand(project, onSaved), form = 'task-editor';
+  const command = useCommand(project, onSaved), form = useId();
   function field<K extends keyof TaskFields>(key: K, value: TaskFields[K]) { setDraft(d => ({ ...d, [key]: value })); }
   return <Dialog open onClose={() => { if (!command.busy && !command.uncertain) onClose(); }} title={task ? t('team.edit') : t('team.create')} closeLabel={t('common.close')} footer={<><Button disabled={command.busy || command.uncertain} onClick={onClose}>{t('team.cancel')}</Button><Button type="submit" form={form} variant="primary" busy={command.busy}>{command.uncertain ? t('common.retry') : t('team.save')}</Button></>}>
     <form id={form} className="form-stack" onSubmit={e => { e.preventDefault(); void command.run(task ? { action: 'edit', commandId: commandId(), taskId: task.id, expectedVersion: task.version, fields: draft } : { action: 'create', commandId: commandId(), issueId: issue, fields: draft }); }}>

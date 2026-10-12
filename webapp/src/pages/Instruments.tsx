@@ -1,4 +1,4 @@
-import { currentSearchParams } from '../lib/search-params';
+import { useDocumentSearchParams } from '../lib/search-params';
 import { useId } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { RefreshCw } from 'lucide-react';
@@ -24,6 +24,7 @@ export default function InstrumentsPage() {
 }
 
 function Instruments({projectId}:{projectId:string}) {
+  const currentSearchParams=useDocumentSearchParams();
   const t=useT(),id=useId(),[params,setParams]=useSearchParams();
   const tab=tabs.find(tab=>tab===params.get('tab'))??'overview';
   const query=params.get('q')??'',release=params.get('rel')??params.get('release')??'';

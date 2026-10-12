@@ -1,7 +1,7 @@
 import { Code } from '../../shared/documents/Code';
 import { Dialog } from '../../shared/design/Dialog';
 import { useSharedT } from '../i18n/shared';
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useId, useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Heading, Surface } from '../../shared/design/Surface';
 import { Metric } from '../../shared/design/Metric';
@@ -44,6 +44,7 @@ export function IssueDetailPane({
   onChanged?: () => void;
 }) {
   const t = useT();
+  const timelineId=useId();
   const locale = useLocale();
   const sharedT = useSharedT();
   const [rawOpen,setRawOpen] = useState(false);
@@ -337,10 +338,10 @@ export function IssueDetailPane({
         </div>
 
       {/* ── the minute itself: the case's narrative spine ── */}
-      <button type="button" aria-expanded={timelineOpen} aria-controls="issue-timeline" onClick={() => setTimelineOpen(!timelineOpen)} className="min-h-10 shrink-0 border-t border-border px-4 text-left text-xs text-fg-muted sm:hidden">
+      <button type="button" aria-expanded={timelineOpen} aria-controls={timelineId} onClick={() => setTimelineOpen(!timelineOpen)} className="min-h-10 shrink-0 border-t border-border px-4 text-left text-xs text-fg-muted sm:hidden">
         {t(timelineOpen ? 'triage.hideTimeline' : 'triage.showTimeline')}
       </button>
-      <div id="issue-timeline" className={clsx('shrink-0', timelineOpen ? 'block' : 'hidden sm:block')}>
+      <div id={timelineId} data-issue-timeline className={clsx('shrink-0', timelineOpen ? 'block' : 'hidden sm:block')}>
       <TimelineStrip
         signals={signals as StripSignal[]}
         frameTimes={frameTimes}

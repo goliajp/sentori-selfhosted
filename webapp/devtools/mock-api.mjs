@@ -976,6 +976,7 @@ const SUFFIX = [
   [
     /\/releases$/,
     () => ({
+      total: 2, nextOffset: null,
       releases: [
         {
           id: 'rl1',
@@ -1070,7 +1071,7 @@ const SUFFIX = [
       return { ...found, activity, releases: issueReleases };
     },
   ],
-  [/\/issues$/, () => ({ issues })],
+  [/\/issues$/, () => ({ issues, total: issues.length, limit: 50, offset: 0, nextOffset: null, summary: {events: issues.reduce((n,item)=>n+item.eventCount,0), open: issues.filter(item=>item.status==='open').length, regressed: 0, releases: 2} })],
   [/\/events\/[^/]+\/context$/, () => ({ events: contextEvents })],
   [/\/events\/[^/]+$/, () => eventDetail],
   [

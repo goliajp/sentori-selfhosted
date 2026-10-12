@@ -35,6 +35,11 @@ export function Dialog({
       controlledCloses.current += 1;
       el.close();
     }
+    return () => {
+      // Hidden React Activities pause effects but retain DOM. Leave the top
+      // layer while hidden; reopening the document restores its dialog draft.
+      if (el.open) { controlledCloses.current += 1; el.close(); }
+    };
   }, [open, active]);
   return (
     <dialog
