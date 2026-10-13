@@ -19,6 +19,9 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
   const app=apps.find(a=>a.identifier==='client-a');assert.ok(app);
   await visit(origin+`/issues?project=${project.id}`);await page.locator('[data-issue-id]').first().waitFor();
   await page.getByLabel('Apps',{exact:true}).selectOption(app.id);
+  // Settle the App navigation before starting the separate environment/release race.
+  await page.waitForURL(url=>url.searchParams.get('app')===app.id);
+  await page.waitForLoadState('networkidle');
   // Two edits in one browser turn exercise the race between committed history
   // and React Router's pending render. Neither condition may replace the other.
   await page.getByRole('combobox',{name:'Release',exact:true}).fill('2.0');

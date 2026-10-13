@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {writeFileSync} from 'node:fs';
+import {checkResourceAlignment} from './resource-alignment.mjs';
 
 export async function checkControlSystem({page,origin,project,engine,out}) {
  const results=[];
@@ -14,13 +15,18 @@ export async function checkControlSystem({page,origin,project,engine,out}) {
    const rail=document.querySelector('.studio-nav'),style=getComputedStyle(rail);
    return {rail:[style.paddingTop,style.paddingLeft,style.paddingRight],
     choices:[...document.querySelectorAll('.workbench-document[data-active=true] .choice-control')].map(el=>{const input=el.querySelector('input'),label=el.querySelector('.choice-label');return {offset:center(input)-textCenter(label),width:input.getBoundingClientRect().width,appearance:getComputedStyle(input).appearance};}),
-    statuses:[...document.querySelectorAll('.workbench-tree .status-label')].map(el=>({offset:center(el.querySelector('.status-label-marker'))-textCenter(el.querySelector('.status-label-text')),text:el.textContent})),
     overflow:document.documentElement.scrollWidth>innerWidth+1};
   });
   assert.equal(new Set(geometry.rail).size,1,JSON.stringify(geometry));assert.equal(geometry.rail[0],'6px');
-  assert.ok(geometry.choices.length>0);if(width===1440)assert.ok(geometry.statuses.length>0);
+  geometry.resources=await checkResourceAlignment(page,{engine,locale,theme,width});
+  if(locale==='en'&&theme==='light'&&width===1440) {
+   const regression=await page.addStyleTag({content:'.resource-text-line { top:4px!important; }'});
+   try { await assert.rejects(checkResourceAlignment(page,{engine,regression:'shifted resource glyphs'})); }
+   finally { await regression.evaluate(el=>el.remove()); }
+   geometry.rejectsShiftedGlyphs=true;
+  }
+  assert.ok(geometry.choices.length>0);if(width===1440)assert.ok(geometry.resources.length>0);
   for(const choice of geometry.choices){assert.equal(choice.width,18);assert.equal(choice.appearance,'none');assert.ok(Math.abs(choice.offset)<.75,JSON.stringify({engine,locale,theme,choice}));}
-  for(const status of geometry.statuses)assert.ok(Math.abs(status.offset)<.75,JSON.stringify({engine,locale,theme,status}));
   assert.equal(geometry.overflow,false);
   if(width===1440) {
   const links=page.locator('.studio-nav nav a');

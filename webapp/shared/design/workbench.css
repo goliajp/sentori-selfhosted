@@ -44,6 +44,14 @@
 .workbench-tree a:hover { background: var(--ui-hover); }
 .workbench-tree a[aria-current="page"] { background: var(--ui-selected); color: var(--ui-selected-ink); }
 .workbench-tree small { font-size: var(--bench-chrome-size); color: var(--ui-muted); }
+.resource-label { display: flex; align-items: center; flex: 1; gap: 6px; min-width: 0; width: 100%; line-height: 18px; }
+.resource-label-marker { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.resource-label-marker > .workbench-kind { margin: 0; }
+.resource-text, .resource-text-line { display: block; min-width: 0; }
+.resource-text-line { position: relative; top: var(--resource-text-offset, 0px); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; text-box-trim: none; }
+.resource-text-baseline { display: inline-block; width: 0; height: 0; vertical-align: baseline; }
+.resource-label-name { flex: 1; }
+.resource-label-meta { flex-shrink: 0; margin-inline-start: 2px; font-size: var(--bench-chrome-size); color: var(--ui-muted); }
 .workbench-kind { display: inline-block; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: var(--ui-info); margin-right: 4px; }
 .workbench-kind.kind-error, .workbench-kind.kind-assert { background: var(--ui-danger); }
 .workbench-kind.kind-warn { background: var(--ui-warning); }
