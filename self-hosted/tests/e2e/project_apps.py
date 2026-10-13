@@ -3,6 +3,7 @@ import concurrent.futures
 import datetime
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -92,6 +93,20 @@ def run(*, base, owner, sql, password, client, request):
     app_path = path + '/apps/' + ios['id']
     call(app_path, 'PATCH', {'expectedVersion': 1, 'name': 'Mobile iOS', 'repositoryUrl': 'https://github.com/example/mobile'})
     call(app_path, 'PATCH', {'expectedVersion': 1, 'name': 'Stale'}, 409)
+    # Human-name search and exact historical-key lookup share app/project isolation.
+    def by_names(names, suffix=''):
+        return call(path + '/releases?names=' + urllib.parse.quote(json.dumps(names)) + suffix)
+    assert {r['name'] for r in call(path + '/releases?q=Mobile%20iOS')['releases']} == {'mobile@1.0', 'mobile@1.1'}
+    assert [r['name'] for r in call(path + '/releases?q=Mobile%201.0')['releases']] == ['mobile@1.0']
+    assert call(path + '/releases?q=Mobile%20iOS&appId=' + android['id'])['total'] == 0
+    assert [r['name'] for r in by_names(['mobile@1.0', 'missing@1'])['releases']] == ['mobile@1.0']
+    assert by_names([])['total'] == 0
+    assert by_names(['mobile@1.1'], '&appId=' + android['id'])['total'] == 0
+    assert by_names(['mobile@1.0'], '&q=storefront')['total'] == 0
+    assert {a['id'] for a in by_names(['mobile@1.0'])['releases'][0]['apps']} == {ios['id'], android['id']}
+    for invalid in ['not-json', '{}', '[1]', json.dumps(['']), json.dumps(['x' * 201]), json.dumps(['x'] * 101)]:
+        call(path + '/releases?names=' + urllib.parse.quote(invalid), status=400)
+
     for url in ['javascript:alert(1)', 'https://user:secret@example.test/repo', 'https://example.test/repo?token=secret']:
         call(app_path, 'PATCH', {'expectedVersion': 2, 'repositoryUrl': url}, 400)
     def edit(name):
@@ -116,6 +131,7 @@ def run(*, base, owner, sql, password, client, request):
     other = call('/admin/api/projects', 'POST', {'name': 'Foreign project'}, 201)['id']
     call('/admin/api/projects/' + other + '/apps/' + ios['id'], 'PATCH', {'expectedVersion': 3, 'name': 'Cross project'}, 404)
     assert call('/admin/api/projects/' + other + '/releases?appId=' + ios['id'])['total'] == 0
+    assert call('/admin/api/projects/' + other + '/releases?names=' + urllib.parse.quote(json.dumps(['mobile@1.0'])))['total'] == 0
     member = call('/admin/api/users', 'POST', {'email': 'app-member@example.test', 'password': password}, 201)
     http = client()
     call('/auth/login', 'POST', {'email': 'app-member@example.test', 'password': password}, http=http)

@@ -19,6 +19,7 @@ import { useScopedAsyncData } from '../lib/useScopedAsyncData';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { platformLabel } from '../lib/platform-label';
 import { appDisplayName } from '../lib/app-name';
+import { releaseDisplayName } from '../lib/release-name';
 import { formatCrashFree } from '../lib/crash-free';
 import { lightColour, lightState, type LightState } from '../lib/release-lights';
 
@@ -67,11 +68,11 @@ function Releases({projectId}:{projectId:string}){
       const index=buttons.indexOf(document.activeElement as HTMLButtonElement);if(index<0)return;
       event.preventDefault();const next=buttons[event.key==='Home'?0:event.key==='End'?buttons.length-1:Math.max(0,Math.min(buttons.length-1,index+(event.key==='ArrowDown'?1:-1)))];next.focus();next.click();
     }}>
-      {needsDetail&&release&&<><p className="workbench-message">{t('releaseView.outsideList')}</p><button type="button" aria-current="true" onClick={()=>update({detail:release.id})}><strong>{release.name}</strong><Coverage release={release}/></button></>}
-      {(pendingQuery?[]:state.data?.rows??[]).map(row=><button type="button" key={row.id} aria-current={row.id===selected?'true':undefined} onClick={()=>update({detail:row.id})}><strong>{row.name}</strong><Coverage release={row}/><small><TimeAgo iso={(row.createdAt??row.created_at)!}/></small></button>)}
+      {needsDetail&&release&&<><p className="workbench-message">{t('releaseView.outsideList')}</p><button type="button" aria-current="true" onClick={()=>update({detail:release.id})}><strong>{releaseDisplayName(release,t,{appId})}</strong><Coverage release={release}/></button></>}
+      {(pendingQuery?[]:state.data?.rows??[]).map(row=><button type="button" key={row.id} aria-current={row.id===selected?'true':undefined} onClick={()=>update({detail:row.id})}><strong>{releaseDisplayName(row,t,{appId})}</strong><Coverage release={row}/><small><TimeAgo iso={(row.createdAt??row.created_at)!}/></small></button>)}
       {!state.loading&&!state.data?.rows.length&&<p className="workbench-message">{t('releases.emptyTitle')}</p>}
     </div>:<DataTable<Row> appearance="design" rowKey={row=>row.id} rows={pendingQuery?[]:state.data?.rows??[]} empty={t(state.loading||pendingQuery?'projects.loading':state.error?'releases.loadFailed':'releases.emptyTitle')} columns={[
-      {key:'name',label:t('inbox.releaseFilter'),render:row=><button className="text-link font-semibold" onClick={()=>update({detail:row.id})}>{row.name}</button>},
+      {key:'name',label:t('inbox.releaseFilter'),render:row=><button className="text-link font-semibold" onClick={()=>update({detail:row.id})}>{releaseDisplayName(row,t,{appId})}</button>},
       {key:'apps',label:t('apps.title'),render:row=>row.apps?.map(app=>`${appDisplayName(app,t)} · ${platformLabel(app.platform,t)}`).join(', ')||'—'},
       {key:'sessions',label:t('releaseView.sessions'),align:'right',render:row=>byRelease.get(row.name)?.sessions.toLocaleString()??'—'},
       {key:'crashFree',label:t('releases.crashFree'),align:'right',render:row=><CrashFreeCell health={byRelease.get(row.name)??null}/>},
@@ -80,7 +81,7 @@ function Releases({projectId}:{projectId:string}){
     ]}/>}<div className="table-pagination"><span>{state.data?t('queue.pageCount',{first:String(state.data.rows.length?offset+1:0),last:String(state.data.rows.length?offset+state.data.rows.length:0),total:String(state.data.total)}):'—'}</span><div className="flex gap-2"><Button small disabled={state.loading||pendingQuery||offset===0} onClick={()=>update({offset:String(Math.max(0,offset-50)),detail:''})}>{t('queue.previous')}</Button><Button small disabled={state.loading||pendingQuery||state.data?.nextOffset==null} onClick={()=>update({offset:String(state.data!.nextOffset),detail:''})}>{t('queue.next')}</Button></div></div></div>
     </div>
     {selected&&!release&&<Surface><p role="status">{t(state.loading||selectedState.loading?'shell.loading':'releaseView.notFound')}</p>{selectedState.error&&<><ErrorBanner reason={selectedState.error}>{t('releases.loadFailed')}</ErrorBanner><Button onClick={selectedState.reload}>{t('common.retry')}</Button></>}<Button onClick={()=>update({detail:''})}>{t('common.close')}</Button></Surface>}
-    {release&&<ReleaseDetails key={release.id} projectId={projectId} release={release} health={byRelease.get(release.name)??null} onClose={()=>update({detail:''})} onChange={state.reload}/>}
+    {release&&<ReleaseDetails key={release.id} appId={appId} projectId={projectId} release={release} health={byRelease.get(release.name)??null} onClose={()=>update({detail:''})} onChange={state.reload}/>}
     </div>
   </div>;
 }
@@ -95,7 +96,7 @@ function Coverage({release}:{release:Row}){
     return <Light key={kind} on={on} warn={artifacts?.some(row=>row.usable===false)??summary?.broken} label={['JavaScript','iOS','Android','Source'][index]} used={kind==='sourcemap'||kind==='dsym'&&!!release.platforms?.includes('ios')||kind==='proguard'&&!!release.platforms?.includes('android')}/>;
   })}</div>;
 }
-function ReleaseDetails({projectId,release,health,onClose,onChange}:{projectId:string;release:Row;health:{sessions:number;crashed:number}|null;onClose:()=>void;onChange:()=>void}){
+function ReleaseDetails({projectId,appId,release,health,onClose,onChange}:{projectId:string;appId:string;release:Row;health:{sessions:number;crashed:number}|null;onClose:()=>void;onChange:()=>void}){
   const t=useT(), sharedT=useSharedT(), locale=useLocale();const [fileEpoch,setFileEpoch]=useState(0);const [kind,setKind]=useState('sourcemap'),[file,setFile]=useState<File|null>(null);
   const [busy,setBusy]=useState(false),[failure,setFailure]=useState<string|null>(null),[receipt,setReceipt]=useState<boolean|null>(null);
   const [jobRevision,setJobRevision]=useState(0);
@@ -110,10 +111,11 @@ function ReleaseDetails({projectId,release,health,onClose,onChange}:{projectId:s
     try{await api.deleteRelease(release.id);setDeleting(false);onClose();onChange();}catch(error){setFailure(formatApiError(error));}finally{setBusy(false);busyRef.current=false;}
   }
   return <>
-    <section className="release-detail" aria-label={release.name}>
-      <header className="release-detail-header"><div><span className="eyebrow">{t('releaseView.selected')}</span><h2>{release.name}</h2></div><Button small disabled={busy} onClick={onClose}>{t('releaseView.backToList')}</Button></header>
+    <section className="release-detail" aria-label={releaseDisplayName(release,t,{appId})}>
+      <header className="release-detail-header"><div><span className="eyebrow">{t('releaseView.selected')}</span><h2>{releaseDisplayName(release,t,{appId})}</h2></div><Button small disabled={busy} onClick={onClose}>{t('releaseView.backToList')}</Button></header>
       <div className="release-detail-body">
       <div className="section-stack">
+        <details className="release-identifier text-xs break-all"><summary>{t('releaseView.identifier')}</summary><code>{release.name}</code></details>
         <div className="metrics-grid"><Metric label={t('releaseView.sessions')} value={health?.sessions.toLocaleString()??'—'} note={t('releaseView.window')}/><Metric label={t('releases.crashFree')} value={<CrashFreeCell health={health}/>}/></div>
         <Coverage release={{...release,artifacts:artifactState.data?.artifacts}}/>
         <Tabs variant="line" label={t('releaseView.sections')} value={section} onChange={setSection} items={[["files",t('releaseView.artifacts')],["jobs",t('jobs.title')]]}>
@@ -134,7 +136,7 @@ function ReleaseDetails({projectId,release,health,onClose,onChange}:{projectId:s
       </div>
       <footer className="release-detail-footer"><Button small variant="danger" disabled={busy} onClick={()=>{setFailure(null);setDeleting(true);}}>{t('releases.delete')}</Button></footer>
     </section>
-    <Dialog open={deleting} title={t('releases.deleteConfirm',{name:release.name})} closeLabel={t('common.close')} onClose={()=>{if(!busy)setDeleting(false);}} footer={<Button variant="danger" busy={busy} onClick={remove}>{t('releases.delete')}</Button>}><p>{t('releaseView.deleteHint')}</p>{failure&&<ErrorBanner reason={failure}>{t('releases.deleteFailed')}</ErrorBanner>}</Dialog>
+    <Dialog open={deleting} title={t('releases.deleteConfirm',{name:releaseDisplayName(release,t,{appId})})} closeLabel={t('common.close')} onClose={()=>{if(!busy)setDeleting(false);}} footer={<Button variant="danger" busy={busy} onClick={remove}>{t('releases.delete')}</Button>}><p>{t('releaseView.deleteHint')}</p>{failure&&<ErrorBanner reason={failure}>{t('releases.deleteFailed')}</ErrorBanner>}</Dialog>
   </>;
 }
 function CrashFreeCell({ health }: { health: null | { sessions: number; crashed: number } }) {

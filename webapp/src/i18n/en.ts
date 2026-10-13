@@ -1170,6 +1170,7 @@ export const en = {
   'settings.usersLoadFailed': 'Could not load admins.',
   'strip.inspectHint': "Hover or focus a marker to inspect it",
   'stack.sourceCount': "Source linked for {n} of {total} frames",
+  'releaseView.identifier': 'Release identifier',
   'stack.debugFiles': "Check release debug files",
   'stack.nativeSourceMissing': "Source locations require debug files matching this build’s binary UUID. A source bundle supplies the code preview.",
   'stack.sourceMissing': "No source preview is available for this frame. Check the source map or source bundle for this release.",

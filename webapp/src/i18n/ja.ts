@@ -1164,6 +1164,7 @@ export const ja: Messages = {
   'settings.usersLoadFailed': '管理者一覧を読み込めませんでした',
   'strip.inspectHint': "マーカーにカーソルを合わせるかフォーカスして詳細を表示",
   'stack.sourceCount': "{total} フレーム中 {n} フレームにソースあり",
+  'releaseView.identifier': '元のリリース識別子',
   'stack.debugFiles': "このリリースのデバッグファイルを確認",
   'stack.nativeSourceMissing': "ソースの特定には、このビルドの UUID に一致するデバッグファイルが必要です。コードの表示にはソースバンドルも必要です",
   'stack.sourceMissing': "このフレームのソースは未取得です。このリリースの source map またはソースバンドルを確認してください",

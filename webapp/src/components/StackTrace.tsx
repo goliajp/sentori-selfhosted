@@ -71,7 +71,7 @@ function looksMinified(f: StackFrame): boolean {
   return /^https?:\/\//.test(file) || /\.(bundle|jsbundle)/.test(file);
 }
 
-export function StackTrace({ frames, projectId, release, selected, onSelect }: { frames: StackFrame[]; projectId?: string; release?: string; selected?: number; onSelect?: (index:number)=>void }) {
+export function StackTrace({ frames, projectId, release, releaseId, selected, onSelect }: { frames: StackFrame[]; projectId?: string; release?: string; releaseId?: string; selected?: number; onSelect?: (index:number)=>void }) {
   const t = useT();
   const shown = frames.slice(0, MAX_FRAMES).map(frame=>({
     ...frame,
@@ -101,7 +101,7 @@ export function StackTrace({ frames, projectId, release, selected, onSelect }: {
     <div className="stack-trace">
       <div className="stack-source-summary">
         <span>{t('stack.sourceCount', {n: String(sourceFrames), total: String(shown.length)})}</span>
-        {projectId && release && <Link className="text-link" to={`/releases?project=${encodeURIComponent(projectId)}&q=${encodeURIComponent(release)}`}>{t('stack.debugFiles')}</Link>}
+        {projectId && release && <Link className="text-link" to={`/releases?project=${encodeURIComponent(projectId)}&${releaseId?'detail='+encodeURIComponent(releaseId):'q='+encodeURIComponent(release)}`}>{t('stack.debugFiles')}</Link>}
         {sourceFrames === 0 && <p>{shown.some(f => f.imageUuid) ? t('stack.nativeSourceMissing') : t('stack.sourceMissing')}</p>}
       </div>
       {groups.map((g, gi) =>

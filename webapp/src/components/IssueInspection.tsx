@@ -1,3 +1,4 @@
+import { releaseVersion } from '../lib/release-name';
 import { useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
@@ -8,8 +9,8 @@ import { useI18n } from '../i18n';
 import type { StackFrame } from './StackTrace';
 
 /** Portals retain the owning document's route and event, including across tabs. */
-export function IssueInspection({event,frame,frameIndex,stack,onReset,onRaw,loading,error}: {
-  event: EventDetail|null; frame?: StackFrame; frameIndex?: number; stack: StackFrame[];
+export function IssueInspection({event,releaseName,releaseId,frame,frameIndex,stack,onReset,onRaw,loading,error}: {
+  releaseName?:string; releaseId?:string; event: EventDetail|null; frame?: StackFrame; frameIndex?: number; stack: StackFrame[];
   onReset:()=>void; onRaw:()=>void; loading:boolean; error:string|null;
 }) {
   const host=useContext(DocumentInspectionContext),{t,locale}=useI18n();
@@ -20,7 +21,7 @@ export function IssueInspection({event,frame,frameIndex,stack,onReset,onRaw,load
   const hasSource=typeof frame?.contextLine==='string';
   const hasLocation=typeof frame?.line==='number'&&Number.isInteger(frame.line)&&frame.line>0;
   const sourceCount=stack.filter(item=>typeof item.contextLine==='string').length;
-  const debugHref=event?`/releases?project=${encodeURIComponent(event.projectId)}&q=${encodeURIComponent(event.release)}`:'';
+  const debugHref=event?`/releases?project=${encodeURIComponent(event.projectId)}&${releaseId?'detail='+encodeURIComponent(releaseId):'q='+encodeURIComponent(event.release)}`:'';
   const hex=(value:unknown)=>typeof value==='number'&&Number.isSafeInteger(value)?`0x${value.toString(16)}`:null;
   return createPortal(<div className="workbench-inspector-body" data-inspected-event={event?.id}>
     <span className="eyebrow">{t(frame?'inspect.frame':'inspect.event')}</span>
@@ -38,7 +39,7 @@ export function IssueInspection({event,frame,frameIndex,stack,onReset,onRaw,load
       </>}
       <h3>{t('inspect.eventContext')}</h3>
       <dl>
-        <div><dt>{t('bench.release')}</dt><dd className="inspection-code">{event.release||t('bench.unknown')}</dd></div>
+        <div><dt>{t('bench.release')}</dt><dd className="inspection-code">{releaseName||releaseVersion(event.release)||t('bench.unknown')}</dd></div>
         <div><dt>{t('bench.environment')}</dt><dd>{event.environment||t('bench.unknown')}</dd></div>
         <div><dt>{t('issue.deviceClock')}</dt><dd>{new Date(event.occurredAt).toLocaleString(locale)}</dd></div>
       </dl>
@@ -49,6 +50,7 @@ export function IssueInspection({event,frame,frameIndex,stack,onReset,onRaw,load
       </div>
       {functionName&&<details><summary>{t('inspect.function')}</summary><p className="inspection-code">{functionName}</p></details>}
       <details><summary>{t('inspect.identifiers')}</summary><dl>
+        <div><dt>{t('releaseView.identifier')}</dt><dd className="inspection-code">{event.release}</dd></div>
         <div><dt>{t('detail.event')}</dt><dd className="inspection-code">{event.id}</dd></div>
         <div><dt>{t('detail.lastReceived')}</dt><dd>{new Date(event.receivedAt).toLocaleString(locale)}</dd></div>
         {imageUuid&&<div><dt>{t('stack.binaryUuid')}</dt><dd className="inspection-code">{imageUuid}</dd></div>}

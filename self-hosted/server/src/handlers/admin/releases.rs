@@ -34,6 +34,8 @@ pub struct ListQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub q: Option<String>,
+    /// JSON array of exact release keys for bounded display-name resolution.
+    pub names: Option<String>,
 }
 
 pub async fn list(
@@ -43,10 +45,27 @@ pub async fn list(
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     ensure_project_access(&state, &ctx, project_id).await?;
+    let names: Option<Vec<String>> = q
+        .names
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error":"invalid_query"})),
+            )
+        })?;
     let limit = q.limit.unwrap_or(200).min(500);
     let offset = q.offset.unwrap_or(0);
     if limit < 0
         || offset < 0
+        || names.as_ref().is_some_and(|items| {
+            items.len() > 100
+                || items
+                    .iter()
+                    .any(|item| item.is_empty() || item.chars().count() > 200)
+        })
         || q.q
             .as_ref()
             .is_some_and(|value| value.chars().count() > 200)
@@ -63,9 +82,21 @@ pub async fn list(
     // real gap into noise — insight-mobile shipped a release with no
     // dSYM while 100% of its traffic was iOS, and the android light
     // beside it was just as red (2026-08-10).
+    let terms: Vec<String> =
+        q.q.as_deref()
+            .unwrap_or_default()
+            .split_whitespace()
+            .map(|term| term.trim_matches(['(', ')']).to_lowercase())
+            .filter(|term| !term.is_empty())
+            .collect();
     let rows = sqlx::query(
         "WITH filtered AS MATERIALIZED (
-           SELECT * FROM releases WHERE project_id = $1 AND ($6::uuid IS NULL OR id=$6) AND ($2::text IS NULL OR strpos(lower(name),lower($2))>0)
+           SELECT * FROM releases WHERE project_id = $1 AND ($6::uuid IS NULL OR id=$6)
+             AND ($7::text[] IS NULL OR name=ANY($7))
+             AND NOT EXISTS(SELECT 1 FROM unnest($2::text[]) term WHERE strpos(lower(name),term)=0 AND NOT EXISTS(
+               SELECT 1 FROM app_releases ar JOIN apps a ON a.id=ar.app_id
+               WHERE ar.release_id=releases.id AND ar.project_id=$1 AND ($5::uuid IS NULL OR a.id=$5)
+                 AND strpos(lower(concat_ws(' ',a.name,a.identifier)),term)>0))
              AND ($5::uuid IS NULL OR EXISTS(SELECT 1 FROM app_releases ar WHERE ar.release_id=releases.id AND ar.app_id=$5 AND ar.project_id=$1))
          ) SELECT page.*, totals.total,
            ARRAY(SELECT DISTINCT a.platform FROM app_releases ar JOIN apps a ON a.id=ar.app_id
@@ -81,7 +112,7 @@ pub async fn list(
          FROM (SELECT count(*) AS total FROM filtered) totals
          LEFT JOIN LATERAL (SELECT * FROM filtered ORDER BY created_at DESC,id DESC LIMIT $3 OFFSET $4) page ON true
          ORDER BY page.created_at DESC,page.id DESC",
-    ).bind(project_id).bind(q.q.as_deref()).bind(limit).bind(offset).bind(q.app_id).bind(q.id)
+    ).bind(project_id).bind(&terms).bind(limit).bind(offset).bind(q.app_id).bind(q.id).bind(names.as_deref())
     .fetch_all(&state.pool)
     .await
     // Was `unwrap_or_default()`, which reports a broken query as a

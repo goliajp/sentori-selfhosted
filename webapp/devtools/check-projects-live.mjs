@@ -118,15 +118,21 @@ await withLiveBrowsers('projects', async ({engine, browser, context, page, origi
     await card(multiName).scrollIntoViewIfNeeded();
     await page.screenshot({path:out+`${engine}-apps-${theme}-${width}.png`});
   }
-  await iosRow.getByRole('button',{name:'mobile@1.0',exact:true}).click();
+  await iosRow.getByRole('button',{name:'Mobile 1.0',exact:true}).click();
   await page.waitForURL('**/releases?project='+multi.id+'&app='+ios.id);
   await page.getByRole('heading',{name:'Releases',exact:true}).waitFor();
-  await page.getByRole('button',{name:'mobile@1.0',exact:true}).waitFor();
-  assert.equal(await page.getByRole('button',{name:'mobile@2.0',exact:true}).count(),0);
-  assert.equal(await page.getByRole('button',{name:'storefront@3.0',exact:true}).count(),0);
+  await page.getByRole('button',{name:'Mobile 1.0',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Mobile 1.0',exact:true}).click();
+  await page.getByRole('region',{name:'Mobile 1.0',exact:true}).waitFor();
+  const raw=page.locator('.release-identifier');assert.equal(await raw.getAttribute('open'),null);
+  await raw.locator('summary').click();await raw.getByText('mobile@1.0',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Back to list',exact:true}).click();
+
+  assert.equal(await page.getByRole('button',{name:'mobile 2.0',exact:true}).count(),0);
+  assert.equal(await page.getByRole('button',{name:'storefront 3.0',exact:true}).count(),0);
   await page.getByRole('combobox',{name:'Apps',exact:true}).selectOption(apps.find(app=>app.platform==='android').id);
-  await page.getByRole('button',{name:'mobile@2.0',exact:true}).waitFor();
-  assert.equal(await page.getByRole('button',{name:'mobile@1.0',exact:true}).count(),0);
+  await page.getByRole('button',{name:'mobile 2.0',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Mobile 1.0',exact:true}).count(),0);
   writeFileSync(out+'results.json',JSON.stringify({results},null,2));
   console.log('PASS',engine,'project CRUD, stale editor recovery, typed delete, nullable platform, project scopes, member UI and password change');
 });

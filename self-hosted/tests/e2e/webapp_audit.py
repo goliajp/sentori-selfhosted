@@ -27,6 +27,12 @@ def run(*, base, owner, sql, password, client, request):
         body=json.dumps(payload).replace("'","''")
         sql(f"""INSERT INTO events(id,project_id,issue_id,app_id,kind,platform,occurred_at,received_at,environment,release,payload,user_key)
           VALUES ('{eid}','{p}','{i}','{a}','error','android',now(),now(),'{env}','{release}','{body}','{user}');""")
+    # Match ingest's app/release relations so human-name pickers exercise real metadata.
+    for p, release in {(row[0], row[4]) for row in observations}:
+        rid=str(uuid.uuid4())
+        sql(f"INSERT INTO releases(id,project_id,name) VALUES ('{rid}','{p}','{release}');")
+        for app in {row[2] for row in observations if row[0]==p and row[4]==release}:
+            sql(f"INSERT INTO app_releases(project_id,app_id,release_id,last_seen_at) VALUES ('{p}','{app}','{rid}',now());")
     def listing(**filters):
         return call('/admin/api/issues?'+urlencode({'project_id':project,'status':'all',**filters}))
     def tags(*items):

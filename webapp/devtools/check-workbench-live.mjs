@@ -19,14 +19,16 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
   await page.getByLabel('Apps',{exact:true}).selectOption(app.id);
   // Two edits in one browser turn exercise the race between committed history
   // and React Router's pending render. Neither condition may replace the other.
-  await page.evaluate(({environment,release})=>{
+  await page.getByRole('combobox',{name:'Release',exact:true}).fill('2.0');
+  await page.getByRole('option').filter({hasText:'client-a 2.0'}).waitFor();
+  await page.evaluate(({environment,option})=>{
     const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
     set.call(environment,'production');environment.dispatchEvent(new Event('input',{bubbles:true}));
-    set.call(release,'2.0');release.dispatchEvent(new Event('input',{bubbles:true}));
-  },{environment:await page.getByLabel('Environment',{exact:true}).elementHandle(),release:await page.getByLabel('Release',{exact:true}).elementHandle()});
+    option.click();
+  },{environment:await page.getByLabel('Environment',{exact:true}).elementHandle(),option:await page.getByRole('option').filter({hasText:'client-a 2.0'}).elementHandle()});
   let filters=new URL(page.url()).searchParams;assert.equal(filters.get('env'),'production',page.url());assert.equal(filters.get('rel'),'2.0',page.url());
-  await page.waitForFunction(()=>document.querySelector('input[list$="-releases"]')?.value==='2.0');
-  await page.getByLabel('Release',{exact:true}).fill('');
+  await page.waitForFunction(()=>document.querySelector('[role=combobox][aria-label=Release]')?.value==='client-a 2.0');
+  await page.getByRole('button',{name:'Clear Release',exact:true}).click();
   await page.locator('.advanced-filters summary').click();
   await page.getByLabel('Tag source',{exact:true}).selectOption('tags');await page.getByLabel('Tag key',{exact:true}).fill('region');await page.getByLabel('Tag value',{exact:true}).fill('jp');
   await page.getByRole('button',{name:'Add condition',exact:true}).waitFor();
@@ -42,7 +44,7 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
   await page.locator('[data-issue-id]').click();await page.locator('[data-event-id]').waitFor();
   await page.getByRole('link',{name:'Back to issues'}).click();await page.locator('[data-issue-id]').waitFor();
   await page.getByRole('button',{name:'Remove appType filter',exact:true}).click();
-  await page.getByLabel('Release',{exact:true}).fill('2.0');await page.locator('.queue-empty').waitFor();
+  await page.getByRole('combobox',{name:'Release',exact:true}).fill('2.0');await page.getByRole('option').filter({hasText:'client-a 2.0'}).click();await page.locator('.queue-empty').waitFor();
   // Switching projects on a detail page really leaves the old issue and its scope.
   const issue=(await call(`/admin/api/issues?project_id=${project.id}&q=Shared`)).issues[0];
   await visit(origin+`/issues/${issue.id}?project=${project.id}&app=${app.id}&env=production`);await page.locator('[data-event-id]').waitFor();
@@ -57,14 +59,15 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
   const legend=chart.locator('.chart-legend button').first();await legend.click();assert.equal(await legend.getAttribute('aria-pressed'),'false');await legend.click();
   for(const tab of ['Launch','Assertions','Probes','Trace points','Overview']){await page.getByRole('tab',{name:tab,exact:true}).click();await page.getByRole('tab',{name:tab,exact:true,selected:true}).waitFor();}
   const windowResponse=page.waitForResponse(r=>r.url().includes('/instruments?hours=168')&&r.status()===200);await page.getByLabel('Observation window',{exact:true}).selectOption('168');await (await windowResponse).json();await page.locator('.telemetry-plot svg').first().waitFor();await reload();assert.equal(await page.getByLabel('Observation window',{exact:true}).inputValue(),'168');
-  await page.getByLabel('Release',{exact:true}).fill('does-not-exist');await page.locator('.workbench-empty').first().waitFor();
+  await page.getByRole('combobox',{name:'Release',exact:true}).fill('does-not-exist');await page.getByText('No matching options. Try another query',{exact:true}).waitFor();await page.keyboard.press('Escape');
+  await visit(instruments+'&release=does-not-exist');await page.locator('.workbench-empty').first().waitFor();
   // Failed reads display an error; retry recovers the actual plot.
   await page.route('**/admin/api/projects/*/instruments?*',route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"fixture_failure"}'}));
   await visit(instruments);await page.getByRole('alert').waitFor();assert.equal(await page.locator('.telemetry-plot').count(),0);
   await page.unroute('**/admin/api/projects/*/instruments?*');await page.getByRole('button',{name:'Refresh',exact:true}).click();await page.locator('.telemetry-plot svg').first().waitFor();
   // A direct detail remains reachable outside the visible list page.
   const release=(await call(`/admin/api/projects/${project.id}/releases?q=deep-link`)).releases[0];
-  await visit(origin+`/releases?project=${project.id}&offset=50&detail=${release.id}`);await page.getByRole('region',{name:'deep-link@1',exact:true}).waitFor();
+  await visit(origin+`/releases?project=${project.id}&offset=50&detail=${release.id}`);await page.getByRole('region',{name:'1',exact:true}).waitFor();
   assert.equal(await page.locator('dialog[open]').count(),0);
   await page.locator('.release-item-list [aria-current=true]').waitFor();
   assert.equal(await page.locator('.workbench-tab').count(),1);

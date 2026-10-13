@@ -717,33 +717,6 @@ export function formatRelative(
     .format(-value, unit);
 }
 
-/**
- * A release for human eyes: `app@5.4.26073101+381` carries a build
- * suffix that only Android understands — on an issue page it reads
- * as noise (and confuses iOS rows). Display drops it; the full
- * string stays in the tooltip and everywhere identity matters
- * (Releases page, upload commands, resolve anchoring).
- */
-export function formatRelease(release: string): string {
-  return release.replace(/\+\d+$/, '');
-}
-
-/**
- * The same, for a list. Dropping the build suffix is right until two
- * rows differ only by it — then it is not noise, it is the entire
- * distinction, and the list renders as the same release twice.
- *
- * An issue's release breakdown showed `reg@1.0.0` on two rows with
- * different event counts, one of them marked fixed. They were
- * `reg@1.0.0+1` and `reg@1.0.0+2`, which is precisely the question
- * that panel exists to answer: which build.
- */
-export function formatReleaseIn(release: string, all: string[]): string {
-  const short = formatRelease(release);
-  const collides = all.some((r) => r !== release && formatRelease(r) === short);
-  return collides ? release : short;
-}
-
 export function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;

@@ -879,10 +879,11 @@ class Api {
   }
 
   // ── releases ──
-  listReleases(projectId: string, query: {id?:string;appId?:string;q?:string;offset?:number;limit?:number} = {}, signal?: AbortSignal) {
+  listReleases(projectId: string, query: {id?:string;appId?:string;q?:string;names?:string[];offset?:number;limit?:number} = {}, signal?: AbortSignal) {
     const params = new URLSearchParams();
     if(query.id)params.set('id',query.id);
     if(query.q)params.set('q',query.q);
+    if(query.names)params.set('names',JSON.stringify(query.names));
     if(query.appId)params.set('appId',query.appId);
     if(query.offset!==undefined)params.set('offset',String(query.offset));
     if(query.limit!==undefined)params.set('limit',String(query.limit));

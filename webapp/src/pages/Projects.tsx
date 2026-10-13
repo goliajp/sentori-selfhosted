@@ -6,10 +6,11 @@ import { Heading, Surface } from '../../shared/design/Surface';
 import { Button, Badge, Field, Input } from '../../shared/design/controls';
 import { Dialog } from '../../shared/design/Dialog';
 import { useShell } from '../App';
-import { ErrorBanner, Select, TimeAgo, formatRelease } from '../components/ui';
+import { ErrorBanner, Select, TimeAgo } from '../components/ui';
 import { useT } from '../i18n';
 import { api, ApiError, type Project, type ProjectApp, type ProjectHealth } from '../lib/api';
 import { platformLabel } from '../lib/platform-label';
+import { releaseDisplayName } from '../lib/release-name';
 import { appDisplayName, isIdentifiedApp } from '../lib/app-name';
 import { formatApiError, useAsyncData } from '../lib/useAsyncData';
 
@@ -87,7 +88,7 @@ export default function ProjectsPage() {
         <div className="project-app-list">{row.health?.apps?.filter(isIdentifiedApp).map(app => <div key={app.id} className="project-app" data-app-id={app.id}>
           <div className="flex flex-wrap items-center justify-between gap-3"><strong className="break-all">{appDisplayName(app,t)}</strong><div className="project-app-actions"><Badge>{platformLabel(app.platform,t)}</Badge><Badge tone={app.lastEventAt || app.lastSessionAt ? 'success' : 'neutral'}>{t(app.lastEventAt || app.lastSessionAt ? 'projects.connected' : 'apps.filesOnly')}</Badge>{owner && <Button small variant="ghost" onClick={() => setEditingApp(app)}>{t('apps.edit')}</Button>}</div></div>
           {app.identitySource==='release' && <p className="text-xs subtle">{t('apps.inferredName')}</p>}
-          <p className="text-sm muted">{t('projects.latestRelease')} · {app.latestRelease ? <button className="text-link" onClick={() => setActiveProjectId(row.id,{pathname:'/releases',params:{app:app.id}})}>{formatRelease(app.latestRelease.name)}</button> : '—'}</p>
+          <p className="text-sm muted">{t('projects.latestRelease')} · {app.latestRelease ? <button className="text-link" onClick={() => setActiveProjectId(row.id,{pathname:'/releases',params:{app:app.id}})}>{releaseDisplayName({name:app.latestRelease.name,apps:[app]},t)}</button> : '—'}</p>
           {app.repositoryUrl && <a className="text-link text-sm break-all" href={app.repositoryUrl} target="_blank" rel="noreferrer">{app.repositoryUrl}<ArrowUpRight size={14}/></a>}
         </div>)}</div>
         {!!row.health?.apps?.some(app=>!isIdentifiedApp(app)) && <details className="unidentified-apps">

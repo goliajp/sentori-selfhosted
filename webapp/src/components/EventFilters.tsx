@@ -1,3 +1,4 @@
+import { ReleasePicker } from './ReleasePicker';
 import { useDocumentSearchParams } from '../lib/search-params';
 import { useId, useState } from 'react';
 import { Plus, X } from 'lucide-react';
@@ -19,8 +20,7 @@ export function EventFilters({projectId, value, onChange}: {projectId:string; va
   const appScope = {appId:value.appId,platform:value.platform};
   const scope = JSON.stringify([projectId,appScope]);
   const facets = useScopedAsyncData(scope, async () => {
-    const [environments,releases] = await Promise.all([api.projectEnvironments(projectId,appScope),api.listReleases(projectId,{appId:value.appId,limit:500})]);
-    return {environments:environments.environments,releases:releases.releases.map(r=>r.name)};
+    return api.projectEnvironments(projectId,appScope);
   });
   const tagScope = {...appScope,environment:value.environment,release:value.release};
   const keys = useScopedAsyncData(JSON.stringify([projectId,tagScope,source]), () => api.projectContextKeys(projectId,tagScope,source));
@@ -49,7 +49,7 @@ export function EventFilters({projectId, value, onChange}: {projectId:string; va
         <option value="">{t('queue.all')}</option>{['ios','android','web','weapp','javascript','unknown'].map(platform=><option key={platform} value={platform}>{platformLabel(platform,t)}</option>)}
       </Select></Field>
       <Field label={t('inbox.envFilter')}><Input list={id+'-env'} value={value.environment??''} placeholder={t('queue.all')} maxLength={200} onChange={e=>onChange({env:e.target.value})}/></Field><datalist id={id+'-env'}>{facets.data?.environments.map(env=><option key={env} value={env}/>)}</datalist>
-      <Field label={t('inbox.releaseFilter')}><Input list={id+'-releases'} value={value.release??''} placeholder={t('queue.all')} maxLength={200} onChange={e=>onChange({rel:e.target.value,release:''})}/></Field><datalist id={id+'-releases'}>{facets.data?.releases.map(release=><option key={release} value={release}/>)}</datalist>
+      <Field label={t('inbox.releaseFilter')}><ReleasePicker projectId={projectId} appId={value.appId} value={value.release??''} onChange={release=>onChange({rel:release,release:''})}/></Field>
     </div>
     <details className="advanced-filters"><summary>{t('filters.advanced')}{tags.length>0 && <span>{tags.length}</span>}</summary><div className="advanced-filters-content"><div className="control-bar"><Field label={t('filters.appType')}><Input list={id+'-appTypes'} value={appType} placeholder={t('queue.all')} maxLength={1000} disabled={!tags.some(tag=>tag.source==='context'&&tag.key==='appType')&&tags.length>=12} onChange={e=>{const value=e.target.value;updateTags(current=>{const next=current.filter(tag=>tag.source!=='context'||tag.key!=='appType');if(value)next.push({source:'context',key:'appType',value});return next;});}}/></Field><datalist id={id+'-appTypes'}>{appTypes.data?.values.map(type=><option key={type} value={type}/>)}</datalist></div>
     <form className="tag-filter-form" onSubmit={e=>{e.preventDefault();if(!key||tags.length>=12)return;const tag={source,key,value:tagValue};updateTags(current=>current.some(old=>sameTag(old,tag))?current:[...current,tag]);setKey('');setTagValue('');}}>

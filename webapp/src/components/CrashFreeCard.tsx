@@ -1,3 +1,4 @@
+import { useReleaseNames } from '../lib/useReleaseNames';
 import { ErrorBanner } from './ui';
 import { Button } from '../../shared/design/controls';
 import { platformLabel } from '../lib/platform-label';
@@ -81,6 +82,7 @@ function CrashFreeTrend({ points, hours }: { points: TrendPoint[]; hours: number
 export function CrashFreeCard({ projectId, appId, environment }: { projectId: string; appId?: string; environment?: string }) {
   const t = useT();
   const { data, error, reload } = useScopedAsyncData(JSON.stringify([projectId,appId,environment]), () => api.crashFree({ projectId, appId, environment, hours: 24 }));
+  const releaseNames=useReleaseNames(projectId,(data?.releases??[]).map(row=>row.release));
   if (error) return <div className="surface"><ErrorBanner reason={error}>{t('inbox.loadFailed')}</ErrorBanner><Button onClick={reload}>{t('common.retry')}</Button></div>;
   if (!data) return null;
 
@@ -167,7 +169,7 @@ export function CrashFreeCard({ projectId, appId, environment }: { projectId: st
                   className="flex items-baseline gap-3 text-xs"
                 >
                   <span className="min-w-0 flex-1 truncate font-mono text-fg-muted">
-                    {r.release}
+                    {releaseNames.label(r.release,{appId,platform:r.platform})}
                   </span>
                   <span className="shrink-0 text-fg-subtle">{platformLabel(r.platform, t)}</span>
                   <span className="w-16 shrink-0 text-right tabular-nums text-fg">

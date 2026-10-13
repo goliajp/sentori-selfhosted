@@ -1,3 +1,5 @@
+import { useReleaseNames } from '../lib/useReleaseNames';
+import type { ReleaseScope } from '../lib/release-name';
 import { Code } from '../../shared/documents/Code';
 import { Dialog } from '../../shared/design/Dialog';
 import { useSharedT } from '../i18n/shared';
@@ -10,7 +12,7 @@ import { Button, Input, Field, Badge, ControlRow } from '../../shared/design/con
 
 import { KindBadge, RegressedBadge } from '../components/kind';
 import { UserChip } from '../components/identity';
-import { PanelEmpty, Select, ErrorBanner, TimeAgo, clsx, formatRelative, formatRelease, formatReleaseIn } from '../components/ui';
+import { PanelEmpty, Select, ErrorBanner, TimeAgo, clsx, formatRelative } from '../components/ui';
 import { useLocale, useT } from '../i18n';
 import { platformLabel } from '../lib/platform-label';
 import {
@@ -76,6 +78,7 @@ export function IssueDetailPane({
   const current = event.data?.issueId === issueId ? event.data : null;
   const context = useScopedAsyncData(current?.id ?? '', () => current ? api.eventContext(current.id) : Promise.resolve({events:[]}));
   const ctx = context.data;
+  const releaseNames=useReleaseNames(issue?.projectId??'', [issue?.lastRelease,issue?.resolvedInRelease,issue?.regressedInRelease,current?.release,...(issue?.releases??[]).map(row=>row.release),...(occ?.events??[]).map(row=>row.release)]);
 
   const [replaySeek, setReplaySeek] = useState<{ id: string; t: number; n: number } | null>(null);
   // Frame moments arrive from whichever player loaded; tagged with
@@ -201,18 +204,18 @@ export function IssueDetailPane({
 
   return (
     <div className="issue-detail flex min-h-0 min-w-0 flex-1 flex-col">
-      <IssueInspection event={current} frame={selectedFrame?.eventId===current?.id?stack[selectedFrame?.index ?? -1]:undefined} frameIndex={selectedFrame?.eventId===current?.id?selectedFrame?.index:undefined} stack={stack} onReset={()=>setSelectedFrame(null)} onRaw={()=>setRawOpen(true)} loading={event.loading} error={event.error} />
+      <IssueInspection releaseName={releaseNames.label(current?.release,{platform:current?.platform})} releaseId={current?releaseNames.get(current.release)?.id:undefined} event={current} frame={selectedFrame?.eventId===current?.id?stack[selectedFrame?.index ?? -1]:undefined} frameIndex={selectedFrame?.eventId===current?.id?selectedFrame?.index:undefined} stack={stack} onReset={()=>setSelectedFrame(null)} onRaw={()=>setRawOpen(true)} loading={event.loading} error={event.error} />
       <Link className="text-link text-sm" to={`/tasks?project=${issue.projectId}&issue=${issue.id}`}>{t('team.issueTask')}</Link>
       <Heading title={headline} description={issue.id} action={<div className="flex flex-wrap items-center gap-2"><KindBadge kind={issue.kind}/><Badge tone={issue.status==='resolved'?'success':'neutral'}>{t(`inbox.group.${issue.status}`)}</Badge>{issue.regressedAt&&issue.status==='open'&&<RegressedBadge/>}</div>}/>
       {subline&&<p className="muted mb-5 break-words">{subline}</p>}
       <div className="control-bar issue-actions">
         <Field label={t('detail.assignee')}><Select disabled={busy||loading} value={issue.assigneeUserId ?? ''} onChange={e=>void act(()=>api.assignIssue(issue.id,e.target.value||null))}><option value="">{t('detail.unassigned')}</option>{issue.assigneeUserId&&!issue.assignees.some(user=>user.id===issue.assigneeUserId)&&<option value={issue.assigneeUserId}>{t('detail.previousAssignee',{id:issue.assigneeUserId})}</option>}{issue.assignees.map(user=><option key={user.id} value={user.id}>{user.displayName||user.email}</option>)}</Select></Field>
-        <Field label={t('issue.resolveInRelease')}><Input disabled={busy} value={resolveRelease} onChange={e=>setResolveRelease(e.target.value)} placeholder={issue.lastRelease ? formatRelease(issue.lastRelease) : undefined}/></Field>
+        <Field label={t('issue.resolveInRelease')}><Input disabled={busy} value={resolveRelease} onChange={e=>setResolveRelease(e.target.value)} placeholder={issue.lastRelease ? releaseNames.label(issue.lastRelease,{platform:issue.platform}) : undefined}/></Field>
         <ControlRow>{issue.status==='open'?<><Button variant="primary" disabled={busy||loading} onClick={()=>void act(()=>api.resolveIssue(issue.id,resolveRelease||undefined))}>{t('issue.resolve')}</Button><Button disabled={busy||loading} onClick={()=>void act(()=>api.ignoreIssue(issue.id))}>{t('issue.ignore')}</Button></>:<Button disabled={busy||loading} onClick={()=>void act(()=>api.reopenIssue(issue.id))}>{t('issue.reopen')}</Button>}</ControlRow>
         {issue.usersCount>0&&<Link className="text-link" to={`/push?project=${issue.projectId}&tab=audience&issue=${issue.id}`}>{t('issue.notifyAffected')}</Link>}
       </div>
       {failure&&<ErrorBanner reason={failure}>{t('queue.actionFailed')}</ErrorBanner>}
-      {issue.status==='resolved'&&<Surface className="mb-6"><p>{issue.resolvedInRelease?t('issue.guardAnchored',{release:issue.resolvedInRelease}):t('issue.guardUnanchored')}</p><p className="muted mt-2">{t('issue.guardProbeHint')}</p></Surface>}
+      {issue.status==='resolved'&&<Surface className="mb-6"><p>{issue.resolvedInRelease?t('issue.guardAnchored',{release:releaseNames.label(issue.resolvedInRelease,{platform:issue.platform})}):t('issue.guardUnanchored')}</p><p className="muted mt-2">{t('issue.guardProbeHint')}</p></Surface>}
       <div className="metrics-grid mb-6">
         <Metric label={t('queue.events')} value={issue.eventCount.toLocaleString()}/>
         <Metric label={t('queue.users')} value={issue.usersCount?issue.usersCount.toLocaleString():'—'} note={issue.usersCount?undefined:t('queue.usersUnknown')}/>
@@ -231,7 +234,7 @@ export function IssueDetailPane({
         {current&&<div className="issue-event-meta flex flex-wrap gap-x-6 gap-y-2 text-xs muted" data-event-id={current.id}>
           <span>{t('detail.lastReceived')}: <TimeAgo iso={current.receivedAt}/></span>
           <span>{t('issue.deviceClock')}: <TimeAgo iso={current.occurredAt}/></span>
-          <span>{formatRelease(current.release)} · {current.environment} · {platformLabel(current.platform,t)}</span>
+          <span>{releaseNames.label(current.release,{platform:current.platform})} · {current.environment} · {platformLabel(current.platform,t)}</span>
           <span>{[device?.model,device?.os,device?.osVersion,surface.screen,surface.element].filter(Boolean).map(String).join(' · ')}</span>
         </div>}
         {event.loading&&currentId&&<p role="status">{t('projects.loading')}</p>}
@@ -243,7 +246,7 @@ export function IssueDetailPane({
           <section data-evidence-code className="min-w-0">
             <Panel title={t('issue.code')}>
               {hasStack ? (
-                <StackTrace key={current.id} frames={stack} projectId={issue.projectId} release={current.release} selected={selectedFrame?.eventId===current.id?selectedFrame.index:undefined} onSelect={index=>setSelectedFrame({eventId:current.id,index})} />
+                <StackTrace key={current.id} frames={stack} projectId={issue.projectId} release={current.release} releaseId={releaseNames.get(current.release)?.id} selected={selectedFrame?.eventId===current.id?selectedFrame.index:undefined} onSelect={index=>setSelectedFrame({eventId:current.id,index})} />
               ) : (
                 <PanelEmpty>{t('issue.codeNone')}</PanelEmpty>
               )}
@@ -332,6 +335,7 @@ export function IssueDetailPane({
               <Panel title={`${t('issue.releasesTitle')} (${issue.releases.length})`}>
                 <ReleaseSpread
                   rows={issue.releases}
+                  label={raw=>releaseNames.label(raw,{platform:issue.platform})}
                   resolvedIn={issue.resolvedInRelease}
                   regressedIn={issue.regressedInRelease}
                 />
@@ -359,7 +363,7 @@ export function IssueDetailPane({
       </>}
       {tab==='occurrences'&&<Surface body={false}>
         {occurrences.error&&<ErrorBanner reason={occurrences.error}>{t('detail.eventsFailed')}</ErrorBanner>}
-        {occurrences.loading?<p className="p-6" role="status">{t('projects.loading')}</p>:occ?.events.length?<OccurrenceList rows={occ.events} currentId={currentId??null} onPick={id=>updateParams({occurrence:id,tab:'evidence'})}/>:<p className="p-6">{t('detail.noEvents')}</p>}
+        {occurrences.loading?<p className="p-6" role="status">{t('projects.loading')}</p>:occ?.events.length?<OccurrenceList label={releaseNames.label} rows={occ.events} currentId={currentId??null} onPick={id=>updateParams({occurrence:id,tab:'evidence'})}/>:<p className="p-6">{t('detail.noEvents')}</p>}
         <div className="table-pagination"><span>{occ?t('queue.pageCount',{first:String(occ.events.length?occurrenceOffset+1:0),last:String(occ.events.length?occurrenceOffset+occ.events.length:0),total:String(occ.total)}):'—'}</span><div className="flex gap-2"><Button small disabled={occurrences.loading||occurrenceOffset===0} onClick={()=>updateParams({occurrenceOffset:String(Math.max(0,occurrenceOffset-50))})}>{t('queue.previous')}</Button><Button small disabled={occurrences.loading||occ?.nextOffset==null} onClick={()=>updateParams({occurrenceOffset:String(occ!.nextOffset)})}>{t('queue.next')}</Button></div></div>
       </Surface>}
       {tab==='activity'&&<div className="section-stack"><Surface title={t('detail.addNote')}><form className="form-stack" onSubmit={async e=>{e.preventDefault();if(await act(()=>api.addNote(issue.id,note)))setNote('');}}><Field label={t('detail.note')}><textarea className="input" required maxLength={10000} value={note} disabled={busy} onChange={e=>setNote(e.target.value)}/></Field><Button type="submit" variant="primary" disabled={busy||!note.trim()}>{t('detail.saveNote')}</Button></form></Surface><Surface title={t('detail.activity')}><p className="subtle text-xs mb-4">{t('detail.activityLimit')}</p>{issue.activity.length?<ol className="space-y-5">{issue.activity.map(item=><li key={item.id}><div className="flex flex-wrap items-center gap-3 text-sm"><Badge>{t(`detail.activity.${item.kind}`)}</Badge><span>{item.actorEmail??t('detail.system')}</span><TimeAgo iso={item.at}/></div><p className="mt-2 whitespace-pre-wrap break-words text-sm">{item.kind==='note'?String(item.body.text??''):item.kind==='assign'?(issue.assignees.find(user=>user.id===item.body.assignee)?.displayName||issue.assignees.find(user=>user.id===item.body.assignee)?.email||String(item.body.assignee??t('detail.unassigned'))):JSON.stringify(item.body)}</p></li>)}</ol>:<p>{t('detail.noActivity')}</p>}</Surface></div>}
@@ -449,10 +453,12 @@ function SignalList({
  *  the issue. The resolve anchor and the regression release carry
  *  their own markers. */
 function ReleaseSpread({
+  label,
   rows,
   resolvedIn,
   regressedIn,
 }: {
+  label: (raw:string)=>string;
   rows: IssueReleaseRow[];
   resolvedIn: null | string;
   regressedIn: null | string;
@@ -465,12 +471,9 @@ function ReleaseSpread({
         <div key={r.release} className="flex flex-wrap items-center gap-3 px-3.5 py-1.5 text-xs">
           <span
             className="w-28 sm:w-56 shrink-0 truncate font-mono text-fg"
-            title={r.release}
+            title={label(r.release)}
           >
-            {formatReleaseIn(
-              r.release,
-              rows.map((x) => x.release),
-            )}
+            {label(r.release)}
           </span>
           {/* volume bar: share of this issue's events in that release */}
           <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-sm bg-raised">
@@ -511,10 +514,12 @@ function ReleaseSpread({
  *  the whole case view; fields identical across every occurrence
  *  render dimmed so the differences carry the row (A6). */
 function OccurrenceList({
+  label,
   rows,
   currentId,
   onPick,
 }: {
+  label: (raw:string,scope?:ReleaseScope)=>string;
   rows: OccurrenceRow[];
   currentId: null | string;
   onPick: (id: string) => void;
@@ -570,12 +575,9 @@ function OccurrenceList({
           <span className={dim(varies.platform)}>{platformLabel(r.platform, t)}</span>
           <span
             className={clsx('min-w-0 truncate font-mono text-xs', dim(varies.release))}
-            title={r.release}
+            title={label(r.release)}
           >
-            {formatReleaseIn(
-              r.release,
-              rows.map((x) => x.release),
-            )}
+            {label(r.release,{platform:r.platform})}
           </span>
           <span className={dim(varies.environment)}>{r.environment}</span>
           <span className="ml-auto shrink-0">

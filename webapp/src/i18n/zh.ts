@@ -1157,6 +1157,7 @@ export const zh: Messages = {
   'settings.usersLoadFailed': '管理员列表加载失败',
   'strip.inspectHint': "悬停或聚焦标记以查看详情",
   'stack.sourceCount': "{total} 帧中有 {n} 帧已关联源码",
+  'releaseView.identifier': '原始版本标识',
   'stack.debugFiles': "检查此版本的调试文件",
   'stack.nativeSourceMissing': "定位源码需要与本次构建 UUID 匹配的调试文件，代码预览还需要该版本的源码包",
   'stack.sourceMissing': "此帧尚无源码预览，请检查该版本的 source map 或源码包",
