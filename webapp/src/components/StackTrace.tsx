@@ -13,7 +13,8 @@
 // a UI bug, not a data property.
 
 import { ChevronRight } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { useT } from '../i18n';
 import { languageForPath } from '../lib/highlight';
@@ -30,6 +31,9 @@ export type StackFrame = {
   preContext?: string[];
   contextLine?: string;
   postContext?: string[];
+  addr?: number;
+  imageBase?: number;
+  imageUuid?: string;
 };
 
 const MAX_FRAMES = 40;
@@ -67,20 +71,21 @@ function looksMinified(f: StackFrame): boolean {
   return /^https?:\/\//.test(file) || /\.(bundle|jsbundle)/.test(file);
 }
 
-export function StackTrace({ frames }: { frames: StackFrame[] }) {
+export function StackTrace({ frames, projectId, release, selected, onSelect }: { frames: StackFrame[]; projectId?: string; release?: string; selected?: number; onSelect?: (index:number)=>void }) {
   const t = useT();
   const shown = frames.slice(0, MAX_FRAMES).map(frame=>({
     ...frame,
     file: typeof frame.file==='string'?frame.file:undefined,
     function: typeof frame.function==='string'?frame.function:undefined,
-    line: typeof frame.line==='number'&&Number.isFinite(frame.line)?frame.line:undefined,
-    column: typeof frame.column==='number'&&Number.isFinite(frame.column)?frame.column:undefined,
+    line: typeof frame.line==='number'&&Number.isInteger(frame.line)&&frame.line>0?frame.line:undefined,
+    column: typeof frame.column==='number'&&Number.isInteger(frame.column)&&frame.column>0?frame.column:undefined,
     contextLine: typeof frame.contextLine==='string'?frame.contextLine:undefined,
     preContext: Array.isArray(frame.preContext)?frame.preContext.filter(line=>typeof line==='string'):[],
     postContext: Array.isArray(frame.postContext)?frame.postContext.filter(line=>typeof line==='string'):[],
   }));
   const anyInApp = shown.some((f) => f.inApp === true);
   const strip = commonPrefix(shown.map((f) => f.file ?? ''));
+  const sourceFrames = shown.filter(f => typeof f.contextLine === 'string').length;
 
   // Group runs of library frames so they collapse to one row each —
   // but only when there are in-app frames to anchor the reading.
@@ -93,14 +98,19 @@ export function StackTrace({ frames }: { frames: StackFrame[] }) {
   });
 
   return (
-    <div className="overflow-hidden">
+    <div className="stack-trace">
+      <div className="stack-source-summary">
+        <span>{t('stack.sourceCount', {n: String(sourceFrames), total: String(shown.length)})}</span>
+        {projectId && release && <Link className="text-link" to={`/releases?project=${encodeURIComponent(projectId)}&q=${encodeURIComponent(release)}`}>{t('stack.debugFiles')}</Link>}
+        {sourceFrames === 0 && <p>{shown.some(f => f.imageUuid) ? t('stack.nativeSourceMissing') : t('stack.sourceMissing')}</p>}
+      </div>
       {groups.map((g, gi) =>
         g.inApp ? (
           g.frames.map(({ f, i }) => (
-            <AppFrame key={i} frame={f} defaultOpen={i < 3} strip={strip} />
+            <AppFrame key={i} frame={f} index={i} defaultOpen={i < 3} strip={strip} selected={selected===i} onSelect={onSelect} />
           ))
         ) : (
-          <LibraryRun key={`lib-${gi}`} frames={g.frames} strip={strip} />
+          <LibraryRun key={`lib-${gi}`} frames={g.frames} strip={strip} selected={selected} onSelect={onSelect} />
         ),
       )}
       {frames.length > MAX_FRAMES && (
@@ -118,12 +128,19 @@ function AppFrame({
   frame,
   defaultOpen,
   strip,
+  index,
+  selected,
+  onSelect,
 }: {
   frame: StackFrame;
   defaultOpen: boolean;
   strip: string;
+  index: number;
+  selected?: boolean;
+  onSelect?: (index:number)=>void;
 }) {
   const t = useT();
+  const detailsId = useId();
   const hasContext = typeof frame.contextLine === 'string';
   const [open, setOpen] = useState(defaultOpen && hasContext);
   const shownFile = frame.file?.startsWith(strip)
@@ -131,53 +148,36 @@ function AppFrame({
     : frame.file;
 
   return (
-    <div className="border-b border-border last:border-b-0">
+    <div className="stack-frame" data-open={open} data-selected={selected||undefined}>
       <button
         type="button"
-        disabled={!hasContext}
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={hasContext ? open : undefined}
-        className={`flex w-full items-baseline gap-2 px-3.5 py-2 text-left font-mono text-sm ${
-          hasContext ? 'cursor-pointer hover:bg-raised' : 'cursor-default'
-        }`}
+        onClick={() => { setOpen((o) => !o); onSelect?.(index); }}
+        aria-expanded={open}
+        aria-controls={detailsId}
+        className="stack-frame-heading"
       >
+        <span className="stack-frame-number">{index + 1}</span>
+        <span className="stack-frame-description">
+          <span className="stack-frame-function" title={frame.function}>{frame.function ?? '?'}</span>
+          <span className="stack-frame-location" title={frame.file}>
+            {shownFile ?? '?'}{frame.line !== undefined ? `:${frame.line}` : ''}{frame.line !== undefined && frame.column !== undefined ? `:${frame.column}` : ''}
+          </span>
+        </span>
+        <span className="stack-frame-state">{hasContext ? t('stack.sourceReady') : looksMinified(frame) ? t('stack.minified') : frame.line !== undefined ? t('stack.sourceUnavailable') : t('stack.locationUnresolved')}</span>
         <ChevronRight
           aria-hidden
-          className={`h-3.5 w-3.5 shrink-0 transition-transform ${
-            hasContext ? 'text-fg-subtle' : 'opacity-0'
-          } ${open ? 'rotate-90' : ''}`}
+          className={`stack-frame-chevron ${open ? 'rotate-90' : ''}`}
         />
-        {/* fixed-width function column: locations start on one
-            vertical line, so the eye can scan either column — free
-            widths interleaved names and paths into an unreadable
-            zigzag.
-
-            Wider once there is room. A fully qualified Java name
-            (`com.example.feature.SearchPresenter.query`) was cut at
-            256px with most of the row empty to its right, and the
-            part that gets cut is the end, which is the part that
-            says which method. */}
-        <span
-          className="min-w-0 w-1/3 shrink-0 truncate font-medium text-fg"
-          title={frame.function}
-        >
-          {frame.function ?? '?'}
-        </span>
-        <span
-          className="min-w-0 flex-1 truncate text-fg-subtle"
-          title={frame.file}
-        >
-          {shownFile ?? '?'}
-          {frame.line !== undefined ? `:${frame.line}` : ''}
-          {frame.column !== undefined ? `:${frame.column}` : ''}
-        </span>
-        {looksMinified(frame) && (
-          <span className="shrink-0 rounded border border-border-strong px-1 text-xs uppercase tracking-wide text-fg-subtle">
-            {t('stack.minified')}
-          </span>
-        )}
       </button>
-      {open && hasContext && <SourceWindow frame={frame} />}
+      {open && <div id={detailsId} className="stack-frame-details">
+        {hasContext ? <SourceWindow frame={frame} /> : <div className="stack-frame-unavailable">
+          <p>{frame.line !== undefined ? t('stack.sourceMissing') : frame.imageUuid ? t('stack.nativeLocationMissing') : t('stack.locationMissing')}</p>
+          {frame.imageUuid && <dl>
+            <div><dt>{t('stack.binaryUuid')}</dt><dd>{frame.imageUuid}</dd></div>
+            {typeof frame.addr === 'number' && Number.isSafeInteger(frame.addr) && <div><dt>{t('stack.address')}</dt><dd>0x{frame.addr.toString(16)}</dd></div>}
+          </dl>}
+        </div>}
+      </div>}
     </div>
   );
 }
@@ -210,7 +210,11 @@ function SourceWindow({ frame }: { frame: StackFrame }) {
 function LibraryRun({
   frames,
   strip,
+  selected,
+  onSelect,
 }: {
+  selected?: number;
+  onSelect?: (index:number)=>void;
   frames: { f: StackFrame; i: number }[];
   strip: string;
 }) {
@@ -234,21 +238,7 @@ function LibraryRun({
           : t('stack.libraryFrames', { n: String(frames.length) })}
       </button>
       {open &&
-        frames.map(({ f, i }) => (
-          <div
-            key={i}
-            className="flex items-baseline gap-2 py-0.5 pl-8 pr-3.5 font-mono text-xs text-fg-subtle"
-          >
-            {/* same two-column discipline as the app frames */}
-            <span className="min-w-0 w-1/3 shrink-0 truncate" title={f.function}>
-              {f.function ?? '?'}
-            </span>
-            <span className="min-w-0 flex-1 truncate" title={f.file}>
-              {(f.file?.startsWith(strip) ? f.file.slice(strip.length) : f.file) ?? '?'}
-              {f.line !== undefined ? `:${f.line}` : ''}
-            </span>
-          </div>
-        ))}
+        frames.map(({ f, i }) => <AppFrame key={i} frame={f} index={i} defaultOpen={false} strip={strip} selected={selected===i} onSelect={onSelect} />)}
     </div>
   );
 }

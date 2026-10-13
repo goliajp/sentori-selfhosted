@@ -137,7 +137,7 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
   let dims=await replay.locator('.replay-frame').evaluate(el=>({width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height}));assert.ok(Math.abs(dims.width/dims.height-.5)<.01);
   await replay.getByRole('button',{name:'Next frame'}).click();await page.waitForTimeout(100);dims=await replay.locator('.replay-frame').evaluate(el=>({width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height}));assert.ok(Math.abs(dims.width/dims.height-2)<.01);
   await replay.focus();await page.keyboard.press('Space');await replay.getByRole('button',{name:'Pause',exact:true}).waitFor();await page.keyboard.press('Space');
-  await page.getByRole('button',{name:'Raw event',exact:true}).click();await page.locator('dialog[open] .code-block').waitFor();await page.keyboard.press('Escape');
+  await page.locator('.workbench-document[data-active=true] .issue-event-toolbar').getByRole('button',{name:'Raw event',exact:true}).click();await page.locator('dialog[open] .code-block').waitFor();await page.keyboard.press('Escape');
   await visit(detail+'&occurrence='+foreign.eventId);await page.getByRole('alert').filter({hasText:'does not belong'}).waitFor();assert.equal(await page.locator('[data-event-id]').count(),0);
   // Real form upload, one failed attempt, then the source actually becomes readable.
   await visit(releaseUrl);await page.locator('.release-detail .file-input').waitFor();

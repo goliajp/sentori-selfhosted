@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { PanelBottom, PanelLeft, PanelRight, RotateCcw } from 'lucide-react';
+import { PanelBottom, PanelLeft, PanelRight, RotateCcw, X } from 'lucide-react';
 import { Button } from './controls';
 
 type Pane = 'explorer' | 'inspector' | 'activity';
@@ -95,7 +95,7 @@ export function WorkbenchLayout({ storageKey, routeKey, labels, toolbar, explore
         {layout.bottom && <>{separator('activity')}<section id={`${id}-activity`} className="workbench-bottom" aria-label={labels.activity}>{typeof activity === 'function' ? activity(() => setLayout(previous => ({ ...previous, bottom: false }))) : activity}</section></>}
       </div>
       {showRight && <>{separator('inspector')}<aside id={`${id}-inspector`} className="workbench-inspector" aria-label={labels.inspector} inert={overlay === 'explorer'}>
-        <header className="workbench-pane-title" tabIndex={-1}>{labels.inspector}</header>{inspector}
+        <header className="workbench-pane-title" tabIndex={-1}>{labels.inspector}<Button small variant="ghost" className="button-icon" aria-label={`${labels.close} ${labels.inspector}`} onClick={()=>{if(overlay)dismiss();else setLayout(previous=>({...previous,right:false}));}}><X size={14}/></Button></header>{inspector}
       </aside></>}
     </div>
     {status && <footer className="workbench-status">{status}</footer>}

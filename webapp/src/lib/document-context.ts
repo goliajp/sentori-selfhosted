@@ -4,3 +4,6 @@ export const DocumentRuntimeContext = createContext<null | {
   isActive: () => boolean;
   search: () => string;
 }>(null);
+
+/** A document may project its selected evidence into the shared inspector. */
+export const DocumentInspectionContext = createContext<HTMLElement | null>(null);
