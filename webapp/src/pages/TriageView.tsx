@@ -1,3 +1,5 @@
+import { Action } from '../../shared/design/controls';
+import { Checkbox, CheckboxInput } from "../../shared/design/Checkbox";
 import { useDocumentSearchParams } from '../lib/search-params';
 import { ArrowLeft, Keyboard } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -111,7 +113,7 @@ function IssueQueue({projectId}: {projectId: string}) {
       {error&&<div><ErrorBanner reason={error}>{t('inbox.loadFailed')}</ErrorBanner><Button onClick={reload}>{t('common.retry')}</Button></div>}
       <div className="surface" aria-busy={loading}>
         <div className="control-bar selection-toolbar">
-          <label className="flex items-center gap-2"><input type="checkbox" aria-label={t('queue.selectPage')} checked={!!rows.length&&checked.length===rows.length} disabled={busy||loading||!rows.length} onChange={()=>setSelection({scope,ids:checked.length===rows.length?[]:rows.map(row=>row.id)})}/><span aria-live="polite">{t('inbox.selectedCount',{n:String(checked.length)})}</span></label>
+          <Checkbox aria-label={t('queue.selectPage')} checked={checked.length&&checked.length<rows.length?'mixed':!!rows.length&&checked.length===rows.length} disabled={busy||loading||!rows.length} onChange={()=>setSelection({scope,ids:checked.length===rows.length?[]:rows.map(row=>row.id)})} label={<><span aria-live="polite">{t('inbox.selectedCount',{n:String(checked.length)})}</span></>}/>
           <Button small disabled={busy||loading||!checked.length} onClick={()=>batch('resolved')}>{t('issue.resolve')}</Button>
           <Button small disabled={busy||loading||!checked.length} onClick={()=>batch('ignored')}>{t('issue.ignore')}</Button>
           <IssueShortcuts/>
@@ -121,8 +123,8 @@ function IssueQueue({projectId}: {projectId: string}) {
           <p>{t(health.data?.lastEventAt===null?'inbox.awaitingFirstHint':'queue.noMatchesHint')}</p>
           {health.data?.lastEventAt===null?<Link className="text-link" to={'/setup?project='+projectId}>{t('setup.title')}</Link>:<Button onClick={clear}>{t('projects.clearFilters')}</Button>}
         </div>} columns={[
-          {key:'select',label:t('queue.select'),render:row=><input type="checkbox" aria-label={t('queue.selectIssue',{title:issueHeadline(row).headline})} checked={checked.includes(row.id)} disabled={busy||loading} onChange={()=>toggle(row.id)}/>},
-          {key:'title',label:t('queue.issue'),render:row=><button className="text-left issue-list-title" data-issue-id={row.id} onClick={()=>open(row.id)}><span className="text-action font-semibold">{issueHeadline(row).headline}</span><span className="block subtle text-xs mt-1">{row.id}</span></button>},
+          {key:'select',label:t('queue.select'),render:row=><CheckboxInput aria-label={t('queue.selectIssue',{title:issueHeadline(row).headline})} checked={checked.includes(row.id)} disabled={busy||loading} onChange={()=>toggle(row.id)}/>},
+          {key:'title',label:t('queue.issue'),render:row=><Action className="text-left issue-list-title" data-issue-id={row.id} onClick={()=>open(row.id)}><span className="text-action font-semibold">{issueHeadline(row).headline}</span><span className="block subtle text-xs mt-1">{row.id}</span></Action>},
           {key:'kind',label:t('queue.kind'),render:row=><KindBadge kind={row.kind}/>},
           {key:'status',label:t('queue.status'),render:row=><div className="flex flex-wrap gap-1"><Badge tone={row.status==='resolved'?'success':'neutral'}>{t(`inbox.group.${row.status}`)}</Badge>{row.status==='open'&&row.regressedAt&&<Badge tone="danger">{t('inbox.groupRegressed')}</Badge>}</div>},
           {key:'eventCount',label:t('queue.events'),align:'right',render:row=>number(row.eventCount)},

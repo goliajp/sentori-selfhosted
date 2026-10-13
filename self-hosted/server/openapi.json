@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sentori",
-    "version": "5.1.10",
+    "version": "5.1.11",
     "summary": "Self-hosted crash and error reporting for mobile apps.",
     "description": "Its own wire protocol — not Sentry-compatible, and there is no DSN. Generated from the router by scripts/gen-openapi.mjs; the path list cannot drift from the server."
   },

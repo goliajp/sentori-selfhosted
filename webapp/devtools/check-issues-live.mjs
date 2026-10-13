@@ -12,7 +12,7 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
   const key=await call(`/admin/api/projects/${project.id}/tokens`,{name:'event fixture',scope:'ingest'});
   const otherKey=await call(`/admin/api/projects/${second.id}/tokens`,{name:'other fixture',scope:'ingest'});
   const report=async(index,token=key.token)=>{
-    const response=await context.request.post(origin+'/v1/events',{headers:{Authorization:`Bearer ${token}`},data:{kind:'error',occurredAt:new Date(Date.now()-900000).toISOString(),platform:'android',release:'test@1.0.0',environment:'qa',userId:'test-user',payload:{context:{tenant:'A'},signals:[{t:-6,kind:'tap',data:{x:20,y:30}}],error:{type:'TypeError',message:index===0?'Checkout failed — '+engine:`Problem ${index} — ${engine}`,stack:[{file:index===0?'index.android.bundle':`problem-${index}.js`,line:1,column:20,function:'checkout',inApp:true}]}}}});
+    const response=await context.request.post(origin+'/v1/events',{headers:{Authorization:`Bearer ${token}`},data:{kind:'error',occurredAt:new Date(Date.now()-900000).toISOString(),platform:'android',release:'test@1.0.0',environment:'qa',userId:'test-user',payload:{device:{model:'arm64',os:'ios',osVersion:'27.0'},context:{tenant:'A'},signals:[{t:-6,kind:'tap',data:{x:20,y:30}}],error:{type:'TypeError',message:index===0?'Checkout failed — '+engine:`Problem ${index} — ${engine}`,stack:[{file:index===0?'index.android.bundle':`problem-${index}.js`,line:1,column:20,function:'checkout',inApp:true}]}}}});
     assert.equal(response.status(),202,await response.text());return response.json();
   };
   const deployed=await context.request.post(origin+'/v1/deploys',{headers:{Authorization:`Bearer ${key.token}`},data:{release:'test@1.0.0'}});assert.equal(deployed.status(),202,await deployed.text());
@@ -33,6 +33,7 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
   const release=(await call(`/admin/api/projects/${project.id}/releases`)).releases[0];assert.ok(release);
   const releaseUrl=origin+`/releases?project=${project.id}&detail=${release.id}`;
   async function checkDetail(locale,theme,width) {
+    await page.getByText('Arm64 · iOS 27.0',{exact:true}).waitFor();
     const geometry=await page.locator('.issue-detail').evaluate(root=>{
       const rect=e=>e.getBoundingClientRect(),center=r=>r.y+r.height/2;
       const type=e=>{const s=getComputedStyle(e);return [s.fontFamily,s.fontSize,s.fontWeight,s.fontStyle,s.lineHeight].join('|');};
@@ -109,6 +110,12 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
   await visit(queue);await page.locator('.workbench-document[data-active=true] [data-issue-id]').first().waitFor();
   assert.equal(await page.locator('.workbench-document[data-active=true] [data-issue-id]').count(),50);
   const firstIds=await page.locator('.workbench-document[data-active=true] [data-issue-id]').evaluateAll(elements=>elements.map(el=>el.dataset.issueId));
+  const selectPage=page.getByRole('checkbox',{name:'Select this page',exact:true});
+  const rowChoice=page.locator('.workbench-document[data-active=true] .data-table tbody input[type=checkbox]').first();
+  await rowChoice.check();assert.equal(await selectPage.evaluate(el=>el.indeterminate),true);
+  await selectPage.focus();await page.keyboard.press('Space');assert.equal(await selectPage.isChecked(),true);assert.equal(await selectPage.evaluate(el=>el.indeterminate),false);
+  await page.keyboard.press('Space');assert.equal(await rowChoice.isChecked(),false);
+
   await page.getByRole('button',{name:'Next',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.workbench-document[data-active=true] [data-issue-id]').length===5);
   const lastIds=await page.locator('.workbench-document[data-active=true] [data-issue-id]').evaluateAll(elements=>elements.map(el=>el.dataset.issueId));assert.equal(new Set([...firstIds,...lastIds]).size,55);
   await page.getByRole('button',{name:'Previous',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.workbench-document[data-active=true] [data-issue-id]').length===50);

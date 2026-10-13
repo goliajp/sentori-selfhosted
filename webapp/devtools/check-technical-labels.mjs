@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {signalKindLabel,architectureLabel,providerLabel,artifactLabel,deviceSummary,integrationLabel} from '../src/lib/technical-labels.ts';
+import {platformLabel} from '../src/lib/platform-label.ts';
+const t=key=>key;
+for(const [raw,label] of [['ios','iOS'],[' IPADOS ','iPadOS'],['macos','macOS'],['tvos','tvOS'],['watchos','watchOS'],['visionos','visionOS'],['android','Android']])assert.equal(platformLabel(raw,t),label);
+for(const [raw,label] of [['arm64','Arm64'],[' ARM64 ','Arm64'],['arm64e','Arm64 (arm64e)'],['x86_64','x86-64'],['iPhone16,2','iPhone16,2'],['Custom Model','Custom Model']])assert.equal(architectureLabel(raw),label);
+assert.equal(deviceSummary({model:'arm64',os:'ios',osVersion:'27.0'},t),'Arm64 · iOS 27.0');
+assert.equal(deviceSummary({model:'iPhone16,2',os:'iOS',osVersion:27},t),'iPhone16,2 · iOS 27');
+assert.equal(deviceSummary({model:{},os:false,osVersion:null},t),'');assert.equal(deviceSummary(null,t),'');
+assert.equal(providerLabel('apns'),'APNs');assert.equal(providerLabel('fcm'),'FCM');assert.equal(providerLabel('hcm'),'HUAWEI Push Kit');assert.equal(providerLabel('future-provider'),'future-provider');
+assert.equal(artifactLabel('dsym',t),'artifact.dsym');assert.equal(integrationLabel('github',t),'GitHub');
+assert.equal(signalKindLabel('http'),'HTTP');assert.equal(signalKindLabel('ui'),'UI');assert.equal(signalKindLabel('tap'),'tap');
+console.log('PASS presentation labels preserve wire identity, device versions and unknown model names');

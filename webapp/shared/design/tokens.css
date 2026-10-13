@@ -10,12 +10,18 @@
   --bench-chrome-size: 11px;
 
   scrollbar-gutter: stable;
-  font-family:
+  --font-ui:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",
     "Yu Gothic UI", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  font-family: var(--font-ui);
   color-scheme: light;
+  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23657087' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
   --ui-scrim: #00000066;
   --ui-shadow: #00000033;
+  --ui-shadow-soft: #00000012;
+  --ui-shadow-panel: #00000022;
+  --ui-shadow-popup: #00000055;
+  --ui-replay-placeholder: #80808073;
   --font-code: Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --ui-code-background: #f6f7f9;
   --ui-code-foreground: #303947;
@@ -97,6 +103,11 @@
   --space-group: var(--space-4);
   --space-related: var(--space-2);
   --space-note: var(--space-3);
+  --layer-tooltip: 1000;
+  --choice-size: 18px;
+  --choice-gap: 10px;
+  --rail-inset: 6px;
+  --tooltip-max-width: 280px;
   --control-height: 40px;
   --control-height-small: 32px;
   --header-height: 64px;
@@ -144,6 +155,7 @@
   --ui-code-toolbar: #20242b;
   --ui-code-selection: #303f55;
   color-scheme: dark;
+  --ui-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23a4a6ad' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
   /* Neutral surfaces and interaction states; blue is reserved for actions. */
   --ui-chrome: #17191e;
   --ui-overlay: #2c3039;

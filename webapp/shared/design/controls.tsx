@@ -1,6 +1,16 @@
-import { Children, cloneElement, isValidElement, useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes, type ReactElement, type ReactNode } from "react";
+import { Children, cloneElement, isValidElement, useId, type ButtonHTMLAttributes, type ComponentPropsWithRef, type TextareaHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { Spinner } from "./Spinner";
 import { FieldFeedback } from "./FieldFeedback";
+
+/** Shared interaction primitive for buttons, selectable rows and chart controls.
+ * Composed controls own their layout; focus, disabled and form semantics live here.
+ */
+export function Action({ onClick, className = '', ...props }: ComponentPropsWithRef<'button'>) {
+  return <button type="button" {...props} className={`control-action ${className}`} onClick={event => {
+    if (event.detail > 0) event.currentTarget.focus({ preventScroll: true });
+    onClick?.(event);
+  }} />;
+}
 
 export function Button({
   variant = "secondary",
@@ -19,15 +29,9 @@ export function Button({
   size?: 'small' | 'regular' | 'large';
 }) {
   return (
-    <button
-      type="button"
+    <Action
       {...props}
-      onClick={event => {
-        // Safari does not focus pointer-activated buttons; normalize the return
-        // target for dialogs without letting focus scroll the surrounding page.
-        if (event.detail > 0) event.currentTarget.focus({ preventScroll: true });
-        onClick?.(event);
-      }}
+      onClick={onClick}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       className={`button button-${variant} ${size === 'large' ? 'button-large' : small || size === 'small' ? 'button-small' : ''} ${className}`}
@@ -46,7 +50,7 @@ export function Button({
             : child,
         )}
       </span>
-    </button>
+    </Action>
   );
 }
 export function Field(props: {
@@ -91,7 +95,7 @@ export function Field(props: {
     </div>
   );
 }
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
+export function Input(props: ComponentPropsWithRef<'input'>) {
   return (
     <input
       {...props}
@@ -99,6 +103,10 @@ export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
       className={`control ${props.className ?? ""}`}
     />
   );
+}
+/** Native selection retains browser keyboard support within the shared control skin. */
+export function NativeSelect({ className = '', ...props }: ComponentPropsWithRef<'select'>) {
+  return <select {...props} className={`control native-select ${className}`} />;
 }
 /** Five text rows by default; a one-row textarea shares the input's text geometry. */
 export function Textarea({ rows = 5, className = '', ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {

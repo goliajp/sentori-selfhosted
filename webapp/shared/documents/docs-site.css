@@ -9,7 +9,7 @@
 .site-docs .docs-search .control { height: 34px; min-height: 34px; font-size: 12px; padding-block: 4px; padding-inline: 34px 30px; }
 .site-docs .docs-search > svg { left: 10px; }
 .site-docs .docs-search kbd { position: absolute; right: 9px; padding: 0 4px; font: 11px/18px var(--font-code); border: 1px solid var(--ui-line); border-radius: 3px; color: var(--ui-muted); pointer-events: none; }
-.site-docs .docs-search-results { position: absolute; inset: calc(100% + 6px) 0 auto; max-height: 360px; overflow: auto; background: var(--ui-overlay); border: 1px solid var(--ui-border); border-radius: 6px; box-shadow: 0 10px 28px #0002; padding: 6px; }
+.site-docs .docs-search-results { position: absolute; inset: calc(100% + 6px) 0 auto; max-height: 360px; overflow: auto; background: var(--ui-overlay); border: 1px solid var(--ui-border); border-radius: 6px; box-shadow: 0 10px 28px var(--ui-shadow-panel); padding: 6px; }
 .site-docs .docs-search-count,.site-docs .docs-search-results > p { padding: 7px 8px; font-size: 11px; color: var(--ui-secondary); }
 .site-docs .docs-search-results > a { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 4px; text-decoration: none; }
 .site-docs .docs-search-results > a:hover,.site-docs .docs-search-results > a:focus-visible { background: var(--ui-hover); }

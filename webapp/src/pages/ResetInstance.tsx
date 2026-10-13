@@ -1,3 +1,4 @@
+import { Checkbox } from "../../shared/design/Checkbox";
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, Field, Input } from '../../shared/design/controls';
@@ -48,7 +49,7 @@ export default function ResetInstance({ instance, onClose }: { instance: Instanc
         <Field label={t('reset.typeId')}><Input autoComplete="off" value={identity} onChange={event => setIdentity(event.target.value)}/></Field>
         <Field label={t('reset.typeGeneration')}><Input autoComplete="off" inputMode="numeric" value={generation} onChange={event => setGeneration(event.target.value)}/></Field>
         <Field label={t('reset.password')}><Input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)}/></Field>
-        <label className="choice-control"><input type="checkbox" checked={acknowledged} onChange={event => setAcknowledged(event.target.checked)}/><span className="choice-label">{t('reset.acknowledge')}</span></label>
+        <Checkbox checked={acknowledged} onChange={nextChecked => setAcknowledged(nextChecked)} label={t('reset.acknowledge')}/>
       </>}
       {error && <ErrorBanner reason={error}>{t('instance.actionFailed')}</ErrorBanner>}
       <Link className="text-link" to="/docs/self-hosting">{t('lifecycle.runbook')}</Link>

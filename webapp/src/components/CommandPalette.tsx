@@ -1,3 +1,4 @@
+import { Action, Input } from '../../shared/design/controls';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Dialog } from '../../shared/design/Dialog';
@@ -41,7 +42,7 @@ export function CommandPalette() {
     navigate(item.type==='nav'?{pathname:item.to,search:project?new URLSearchParams({project}).toString():''}:{pathname:'/issues/'+item.issue.id,search:new URLSearchParams({project:item.issue.projectId}).toString()});
   }
   return <Dialog open={open} title={t('palette.placeholder')} closeLabel={t('common.close')} onClose={()=>toggle(false)}>
-    <input ref={input} data-autofocus value={query} maxLength={200} onChange={e=>{setQuery(e.target.value);setCursor(0);}}
+    <Input ref={input} data-autofocus value={query} maxLength={200} onChange={e=>{setQuery(e.target.value);setCursor(0);}}
       role="combobox" aria-expanded aria-autocomplete="list" aria-label={t('palette.placeholder')} aria-controls={id} aria-activedescendant={items.length?id+'-'+selected:undefined}
       onKeyDown={event=>{
         if(event.key==='ArrowDown'){event.preventDefault();setCursor(Math.min(selected+1,Math.max(0,items.length-1)));}
@@ -52,9 +53,9 @@ export function CommandPalette() {
     {(pending||search.loading)&&query.trim()&&<p role="status" className="muted text-sm mt-3">{t('shell.loading')}</p>}
     <div id={id} role="listbox" aria-label={t('palette.placeholder')} className="palette-results">
       {!items.length&&!pending&&!search.loading&&!search.error&&<p className="muted p-4">{t('table.empty')}</p>}
-      {items.map((item,index)=><button id={id+'-'+index} key={item.type==='nav'?item.to:item.issue.id} type="button" role="option" tabIndex={-1} aria-selected={index===selected} onClick={()=>go(item)} onMouseEnter={()=>setCursor(index)} className="palette-result">
+      {items.map((item,index)=><Action id={id+'-'+index} key={item.type==='nav'?item.to:item.issue.id} type="button" role="option" tabIndex={-1} aria-selected={index===selected} onClick={()=>go(item)} onMouseEnter={()=>setCursor(index)} className="palette-result">
         {item.type==='nav'?item.label:<><KindBadge kind={item.issue.kind}/><span className="min-w-0"><strong>{item.issue.title}</strong>{item.issue.messageSample&&<span className="block text-xs subtle">{item.issue.messageSample}</span>}</span></>}
-      </button>)}
+      </Action>)}
     </div>
   </Dialog>;
 }

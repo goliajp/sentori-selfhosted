@@ -13,7 +13,7 @@
   border: 1px solid var(--ui-control);
   border-radius: var(--radius-panel);
   padding: 14px var(--space-4);
-  box-shadow: 0 6px 24px #00000022;
+  box-shadow: 0 6px 24px var(--ui-shadow-panel);
   display: flex;
   align-items: center;
   gap: var(--space-3);

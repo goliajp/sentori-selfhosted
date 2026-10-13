@@ -212,9 +212,9 @@ export function WireframePlayer({
     const oy = (canvas.height - height * scale) / 2;
 
     const css = getComputedStyle(document.documentElement);
-    const surface = css.getPropertyValue('--s-surface').trim() || '#18181b';
-    const outline = css.getPropertyValue('--s-border-strong').trim() || '#3f3f46';
-    const ink = css.getPropertyValue('--s-fg-muted').trim() || '#a1a1aa';
+    const surface = css.getPropertyValue('--ui-surface').trim();
+    const outline = css.getPropertyValue('--ui-border').trim();
+    const ink = css.getPropertyValue('--ui-muted').trim();
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = surface;
@@ -242,7 +242,7 @@ export function WireframePlayer({
         ctx.fillStyle = n.color;
         ctx.fillRect(x, y, w, h);
       } else if (n.kind === 'image') {
-        ctx.fillStyle = 'rgba(128, 128, 128, 0.45)';
+        ctx.fillStyle = css.getPropertyValue('--ui-replay-placeholder').trim();
         ctx.fillRect(x, y, w, h);
       }
       if (n.text && h > 10) {
@@ -268,7 +268,7 @@ export function WireframePlayer({
     // space as the wireframe): a ring at the touch point, visible for
     // ~1.2s of recording time around the tap and fading out.
     if (taps?.length && frames?.length) {
-      const tapInk = css.getPropertyValue('--s-kind-warn').trim() || '#ffb340';
+      const tapInk = css.getPropertyValue('--ui-warning').trim();
       const playheadTs = frames[Math.min(index, frames.length - 1)]!.ts;
       const eventTs = eventAt;
       for (const tap of taps) {
@@ -295,7 +295,12 @@ export function WireframePlayer({
     }
   }, [nodes, width, height, taps, frames, index, eventAt]);
 
-  useEffect(draw, [draw]);
+  useEffect(() => {
+    draw();
+    const observer = new MutationObserver(draw);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => observer.disconnect();
+  }, [draw]);
 
   if (failed) {
     return <div className="p-5" role="alert"><p>{t('replay.loadFailed')}</p><Button className="mt-3" onClick={()=>{setFailed(false);setFrames(null);setAttempt(n=>n+1);}}>{t('common.retry')}</Button></div>;

@@ -1,3 +1,4 @@
+import {checkControlSystem} from './control-system-contract.mjs';
 import {checkWorkbenchDocuments,selectWorkbenchProject} from './workbench-contract.mjs';
 import assert from 'node:assert/strict';
 import {writeFileSync} from 'node:fs';
@@ -13,6 +14,7 @@ await withLiveBrowsers('workbench',async({engine,page,origin,out,password,call})
   const projects=(await call('/admin/api/projects')).projects;
   const project=projects.find(p=>p.name==='Workbench audit'),other=projects.find(p=>p.name==='Other workbench');assert.ok(project&&other);
   await checkWorkbenchDocuments({page,origin,engine,out,project,other,call});
+  await checkControlSystem({page,origin,project,engine,out});
   const apps=(await call(`/admin/api/projects/${project.id}/apps`)).apps;
   const app=apps.find(a=>a.identifier==='client-a');assert.ok(app);
   await visit(origin+`/issues?project=${project.id}`);await page.locator('[data-issue-id]').first().waitFor();

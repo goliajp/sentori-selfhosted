@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import {writeFileSync} from 'node:fs';
+
+export async function checkControlSystem({page,origin,project,engine,out}) {
+ const results=[];
+ const visit=async path=>{await page.waitForLoadState('networkidle');await page.goto(origin+path);await page.waitForLoadState('networkidle');};
+ for(const locale of ['en','zh','ja'])for(const theme of ['light','dark'])for(const width of [320,768,1440]) {
+  await page.evaluate(({locale,theme})=>{localStorage.setItem('sentori_locale',locale);localStorage.setItem('sentori-theme',theme);},{locale,theme});
+  await page.setViewportSize({width,height:1000});await visit(`/settings/notifications?project=${project.id}`);
+  await page.locator('.workbench-document[data-active=true] .choice-control').first().waitFor();
+  const geometry=await page.evaluate(()=>{
+   const center=el=>{const r=el.getBoundingClientRect();return r.y+r.height/2;};
+   const textCenter=el=>{const range=document.createRange();range.selectNodeContents(el);const r=range.getBoundingClientRect();return r.y+r.height/2;};
+   const rail=document.querySelector('.studio-nav'),style=getComputedStyle(rail);
+   return {rail:[style.paddingTop,style.paddingLeft,style.paddingRight],
+    choices:[...document.querySelectorAll('.workbench-document[data-active=true] .choice-control')].map(el=>{const input=el.querySelector('input'),label=el.querySelector('.choice-label');return {offset:center(input)-textCenter(label),width:input.getBoundingClientRect().width,appearance:getComputedStyle(input).appearance};}),
+    statuses:[...document.querySelectorAll('.workbench-tree .status-label')].map(el=>({offset:center(el.querySelector('.status-label-marker'))-textCenter(el.querySelector('.status-label-text')),text:el.textContent})),
+    overflow:document.documentElement.scrollWidth>innerWidth+1};
+  });
+  assert.equal(new Set(geometry.rail).size,1,JSON.stringify(geometry));assert.equal(geometry.rail[0],'6px');
+  assert.ok(geometry.choices.length>0);if(width===1440)assert.ok(geometry.statuses.length>0);
+  for(const choice of geometry.choices){assert.equal(choice.width,18);assert.equal(choice.appearance,'none');assert.ok(Math.abs(choice.offset)<.75,JSON.stringify({engine,locale,theme,choice}));}
+  for(const status of geometry.statuses)assert.ok(Math.abs(status.offset)<.75,JSON.stringify({engine,locale,theme,status}));
+  assert.equal(geometry.overflow,false);
+  if(width===1440) {
+  const links=page.locator('.studio-nav nav a');
+  for(let i=0;i<await links.count();i++){
+   const link=links.nth(i);if(!await link.isVisible())continue;
+   await link.hover();const tip=page.getByRole('tooltip');await tip.waitFor();assert.equal(await tip.textContent(),await link.getAttribute('aria-label'));assert.equal(await link.getAttribute('title'),null);
+   const box=await tip.boundingBox();assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=1440&&box.y+box.height<=1000);
+   if(i===0){await tip.hover();await page.waitForTimeout(250);assert.equal(await tip.isVisible(),true);}
+   await page.keyboard.press('Escape');await tip.waitFor({state:'hidden'});
+  }
+  await links.first().focus();await page.getByRole('tooltip').waitFor();await page.keyboard.press('Escape');await page.getByRole('tooltip').waitFor({state:'hidden'});
+  await page.locator('h1').first().click();
+  }
+  if(width<1000)await page.locator('.workbench-document[data-active=true] .choice-control').first().scrollIntoViewIfNeeded();
+  await page.screenshot({path:out+`${engine}-controls-${locale}-${theme}-${width}.png`});
+  results.push({engine,locale,theme,width,geometry});
+ }
+ await page.evaluate(()=>{localStorage.setItem('sentori_locale','en');localStorage.setItem('sentori-theme','light');});
+ await visit(`/issues?project=${project.id}`);
+ writeFileSync(out+`${engine}-control-system.json`,JSON.stringify(results,null,2));
+}

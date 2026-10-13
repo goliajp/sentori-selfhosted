@@ -1,3 +1,4 @@
+import { Checkbox } from "../../shared/design/Checkbox";
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
 import { Database, Download, HardDrive, Server, ShieldCheck } from 'lucide-react';
@@ -88,7 +89,7 @@ function CreateBackup({ instance, onClose, onCreated }: { instance: InstanceInfo
     finally { locked.current = false; setBusy(false); }
   }
   return <Dialog open title={t('lifecycle.create')} closeLabel={t('common.close')} onClose={() => { if (!busy) onClose(); }} footer={<><Button disabled={busy} onClick={onClose}>{t('team.cancel')}</Button><Button variant="primary" busy={busy} disabled={!saved} onClick={() => void submit()}>{t(uncertain ? 'common.retry' : 'lifecycle.create')}</Button></>}>
-    <div className="host-stack"><p className="host-copy">{t('lifecycle.keyHint')}</p><Button onClick={downloadKey}><Download size={16}/>{t('lifecycle.saveKey')}</Button><label className="choice-control"><input type="checkbox" checked={saved} onChange={event => setSaved(event.target.checked)}/><span className="choice-label">{t('lifecycle.savedKey')}</span></label>{uncertain && <p role="status">{t('lifecycle.uncertain')}</p>}{error && <ErrorBanner reason={error}>{t('instance.actionFailed')}</ErrorBanner>}</div>
+    <div className="host-stack"><p className="host-copy">{t('lifecycle.keyHint')}</p><Button onClick={downloadKey}><Download size={16}/>{t('lifecycle.saveKey')}</Button><Checkbox checked={saved} onChange={nextChecked => setSaved(nextChecked)} label={t('lifecycle.savedKey')}/>{uncertain && <p role="status">{t('lifecycle.uncertain')}</p>}{error && <ErrorBanner reason={error}>{t('instance.actionFailed')}</ErrorBanner>}</div>
   </Dialog>;
 }
 

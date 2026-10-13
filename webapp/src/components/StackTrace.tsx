@@ -1,3 +1,4 @@
+import { Action } from '../../shared/design/controls';
 // The stack, read as evidence — not a wall of text.
 //
 // In-app frames carry their source window (the server resolves it
@@ -149,7 +150,7 @@ function AppFrame({
 
   return (
     <div className="stack-frame" data-open={open} data-selected={selected||undefined}>
-      <button
+      <Action
         type="button"
         onClick={() => { setOpen((o) => !o); onSelect?.(index); }}
         aria-expanded={open}
@@ -168,7 +169,7 @@ function AppFrame({
           aria-hidden
           className={`stack-frame-chevron ${open ? 'rotate-90' : ''}`}
         />
-      </button>
+      </Action>
       {open && <div id={detailsId} className="stack-frame-details">
         {hasContext ? <SourceWindow frame={frame} /> : <div className="stack-frame-unavailable">
           <p>{frame.line !== undefined ? t('stack.sourceMissing') : frame.imageUuid ? t('stack.nativeLocationMissing') : t('stack.locationMissing')}</p>
@@ -223,7 +224,7 @@ function LibraryRun({
 
   return (
     <div className="border-b border-border last:border-b-0">
-      <button
+      <Action
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -236,7 +237,7 @@ function LibraryRun({
         {open
           ? t('stack.libraryFramesOpen')
           : t('stack.libraryFrames', { n: String(frames.length) })}
-      </button>
+      </Action>
       {open &&
         frames.map(({ f, i }) => <AppFrame key={i} frame={f} index={i} defaultOpen={false} strip={strip} selected={selected===i} onSelect={onSelect} />)}
     </div>

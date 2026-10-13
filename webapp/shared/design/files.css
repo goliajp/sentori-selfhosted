@@ -1,3 +1,6 @@
+.file-field { display: grid; gap: var(--space-3); min-width: 0; }
+.file-field-heading { display: grid; gap: var(--space-1); }
+.file-field-heading > p, .file-field > .field-label { margin: 0; }
 .file-drop {
   border: 1px dashed var(--ui-control);
   padding: var(--space-6);

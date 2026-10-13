@@ -1,0 +1,61 @@
+/* Product illustrations and fixed brand paint, shared by production and preview.
+ * Theme variants are selected by site.css; component files contain no paint literals. */
+:root {
+  --site-banner-background: #e5f2fc;
+  --site-banner-background-veil: linear-gradient(90deg, #f4f9fff5 0%, #f4f9ffe8 24%, #f4f9ffa8 42%, #f4f9ff18 60%, transparent 72%);
+  --site-banner-note-border: 1px solid #ffffffb8;
+  --site-banner-note-background: #ffffffd9;
+  --site-banner-note-color: #33435a;
+  --site-banner-background-dark: #111820;
+  --site-banner-background-veil-dark: linear-gradient(90deg, #10151dfc 0%, #10151df5 22%, #10151dcc 40%, #10151d38 60%, #10151d15 100%);
+  --site-banner-note-background-dark: #191d25e6;
+  --site-banner-note-color-dark: #e2e8f3;
+  --site-banner-note-border-color-dark: #ffffff30;
+  --site-banner-background-mobile: #edf7ff;
+  --site-banner-landscape-mask-image: linear-gradient(transparent, #000 20%);
+  --product-scene-scene-tint: #dceaff;
+  --product-scene-evidence-scene-tint: #e6e2fc;
+  --product-scene-team-scene-tint: #d9eee8;
+  --product-scene-grid-background-image: linear-gradient(#8eabc328 1px,transparent 1px),linear-gradient(90deg,#8eabc328 1px,transparent 1px);
+  --product-scene-grid-mask-image: linear-gradient(transparent,#000);
+  --product-scene-orbit-border: 1px solid #ffffffb0;
+  --product-scene-orbit-box-shadow: 0 0 0 35px #ffffff20,0 0 0 70px #ffffff15;
+  --product-scene-window-border: 1px solid #ffffffc9;
+  --product-scene-window-box-shadow: 0 30px 50px -28px #1533689c,0 8px 15px -9px #254b8170,0 0 0 4px #ffffff40;
+  --scene-glass-border: 1px solid #ffffffee;
+  --scene-glass-background: linear-gradient(125deg,#ffffffed,#ffffffb0);
+  --scene-glass-color: #22324d;
+  --scene-glass-box-shadow: 0 14px 32px -18px #3157866e,inset 0 1px 0 #fff;
+  --scene-glass-title-color-caption: #586b86;
+  --scene-glass-icon-background: #e8f0ff;
+  --scene-glass-icon-color: #2464cf;
+  --scene-metrics-color: #526680;
+  --scene-metric-release-border-left: 1px solid #bfd0e7;
+  --scene-evidence-background: #859cbe;
+  --scene-avatar-background: #def2e9;
+  --scene-avatar-color: #27634d;
+  --scene-team-color: #526680;
+  --scene-team-color-2: #397b68;
+  --product-scene-background-dark: radial-gradient(ellipse at 75% 20%,#334b684a,transparent 60%),linear-gradient(140deg,#161c26,#202b3b);
+  --product-scene-border-color-dark: #354052;
+  --product-scene-evidence-background-dark: radial-gradient(ellipse at 70% 20%,#52447750,transparent 60%),linear-gradient(140deg,#1b1924,#292536);
+  --product-scene-team-background-dark: radial-gradient(ellipse at 80% 10%,#345e5550,transparent 60%),linear-gradient(140deg,#15201e,#22332f);
+  --product-scene-window-border-color-dark: #a5b7d04a;
+  --product-scene-window-box-shadow-dark: 0 30px 50px -20px #000a,0 0 0 4px #ffffff10;
+  --scene-glass-color-dark: #f0f3f8;
+  --scene-glass-background-dark: linear-gradient(125deg,#303a4bed,#1c2636d9);
+  --scene-glass-border-color-dark: #9badc24a;
+  --scene-glass-box-shadow-dark: 0 15px 30px -15px #0009,inset 0 1px 0 #ffffff20;
+  --scene-glass-color-dark-caption: #c3cee0;
+  --scene-glass-icon-background-dark: #334660;
+  --scene-glass-icon-color-dark: #a7c8ff;
+  --scene-avatar-background-dark: #36584b;
+  --scene-avatar-color-dark: #c4ebdc;
+  --scene-team-color-dark: #9ad6c1;
+  --cloud-stripe-mark-background: #635bff;
+  --cloud-stripe-mark-color: white;
+}
+.product-scene {
+  --product-scene-background: radial-gradient(ellipse at 80% 25%, #ffffffed, transparent 55%), linear-gradient(145deg,#f7faff,var(--scene-tint));
+  --product-scene-border: 1px solid color-mix(in srgb,var(--scene-tint) 65%,#becce0);
+}

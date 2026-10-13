@@ -4,6 +4,11 @@
 import type { Messages } from './en';
 
 export const ja: Messages = {
+  "artifact.sourceMap": "Source Map（ソースマップ）",
+  "artifact.dsym": "dSYM",
+  "artifact.proguard": "ProGuard マッピング",
+  "artifact.sourceBundle": "ソースバンドル",
+  "artifact.source": "ソース",
   "bench.noDocuments": "開いているタブはありません",
   "bench.openDocument": "ナビゲーションやリソース一覧からページを開いてください",
   "bench.reopenDocument": "直前のページを開く",

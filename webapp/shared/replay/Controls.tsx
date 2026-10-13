@@ -1,3 +1,4 @@
+import { NativeSelect } from "../design/controls";
 import type { ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 import { Button } from '../design/controls';
@@ -12,6 +13,6 @@ export function ReplayControls({index,last,playing,speed,time,onIndex,onToggle,o
     <Button aria-label={labels.forward} disabled={index===last} onClick={()=>onIndex(index+1)}><ChevronRight size={16}/></Button>
     <label className="flex-1 min-w-24"><span className="sr-only">{labels.seek}</span><input type="range" min={0} max={last} value={index} onChange={event=>onIndex(Number(event.target.value))}/></label>
     <span className="tabular text-xs">{time}</span>
-    <label className="field"><span className="field-label">{labels.speed}</span><select className="input" value={speed} onChange={event=>onSpeed(event.target.value)}>{['0.5','1','2','4'].map(value=><option key={value} value={value}>{value}×</option>)}</select></label>
+    <label className="field"><span className="field-label">{labels.speed}</span><NativeSelect className="input" value={speed} onChange={event=>onSpeed(event.target.value)}>{['0.5','1','2','4'].map(value=><option key={value} value={value}>{value}×</option>)}</NativeSelect></label>
   </div>;
 }

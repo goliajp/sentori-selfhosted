@@ -1,3 +1,6 @@
+import { Action } from '../../shared/design/controls';
+import { Checkbox } from "../../shared/design/Checkbox";
+import { providerLabel } from '../lib/technical-labels';
 import { WorkbenchEmpty } from '../components/WorkbenchEmpty';
 import { useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -294,7 +297,7 @@ function Delivery({
           >
             <option value="">{t('pushOps.allProviders')}</option>
             {PROVIDERS.map((p) => (
-              <option key={p}>{p}</option>
+              <option key={p} value={p}>{providerLabel(p)}</option>
             ))}
           </Select>
           <Button onClick={reload}>{t('team.refresh')}</Button>
@@ -313,18 +316,18 @@ function Delivery({
                   key: 'message',
                   label: t('push.testSubject'),
                   render: (s) => (
-                    <button
+                    <Action
                       className="text-link text-left"
                       onClick={() => setSelected(s.id)}
                     >
                       {s.payload?.title || s.id.slice(0, 8)}
-                    </button>
+                    </Action>
                   ),
                 },
                 {
                   key: 'provider',
                   label: t('pushOps.provider'),
-                  render: (s) => <code>{s.provider}</code>,
+                  render: (s) => <code>{providerLabel(s.provider)}</code>,
                 },
                 {
                   key: 'status',
@@ -464,7 +467,7 @@ function TestDialog({
         <div className="push-stack">
           <p>{t('pushOps.reviewDevice')}</p>
           <code>
-            {device?.id} · {device?.provider}
+            {device?.id} · {providerLabel(device?.provider)}
           </code>
           <strong>{title}</strong>
           <p className="whitespace-pre-wrap break-words">{body}</p>
@@ -488,7 +491,7 @@ function TestDialog({
               <option value="">{t('pushOps.chooseDevice')}</option>
               {devices.data?.devices.map((d) => (
                 <option key={d.id} value={d.id}>
-                  {d.provider} · {d.tokenTail || d.id.slice(0, 8)}
+                  {providerLabel(d.provider)} · {d.tokenTail || d.id.slice(0, 8)}
                 </option>
               ))}
             </Select>
@@ -586,7 +589,7 @@ function SendDialog({
             {t('push.device')}: <code>{s.token_id}</code>
           </p>
           <p>
-            {t('pushOps.provider')}: {s.provider}
+            {t('pushOps.provider')}: {providerLabel(s.provider)}
           </p>
           <p>
             {t('pushOps.credential')}: <code>{s.credentialId ?? '—'}</code>
@@ -616,15 +619,7 @@ function SendDialog({
           ))}
           {!detail.data!.attempts.length && <p>{t('pushOps.noAttempts')}</p>}
           {s.displayState === 'uncertain' && (
-            <label className="flex gap-3 items-start">
-              <input
-                type="checkbox"
-                checked={ack}
-                disabled={command.locked}
-                onChange={(e) => setAck(e.target.checked)}
-              />
-              {t('pushOps.duplicateAck')}
-            </label>
+            <Checkbox checked={ack} disabled={command.locked} onChange={nextChecked => setAck(nextChecked)} label={t('pushOps.duplicateAck')}/>
           )}
         </div>
       )}
@@ -707,7 +702,7 @@ function Devices({ project }: { project: string }) {
     >
       <div className="push-toolbar">
         <Input aria-label={t('pushOps.deviceSearch')} placeholder={t('pushOps.deviceSearch')} value={search} maxLength={200} onChange={e=>update('deviceQuery',e.target.value)}/>
-        <Select aria-label={t('pushOps.provider')} value={provider} onChange={e=>update('deviceProvider',e.target.value)}><option value="">{t('pushOps.allProviders')}</option>{PROVIDERS.map(p=><option key={p}>{p}</option>)}</Select>
+        <Select aria-label={t('pushOps.provider')} value={provider} onChange={e=>update('deviceProvider',e.target.value)}><option value="">{t('pushOps.allProviders')}</option>{PROVIDERS.map(p=><option key={p} value={p}>{providerLabel(p)}</option>)}</Select>
         <Select
           aria-label={t('pushOps.deviceScope')}
           value={scope}
@@ -728,15 +723,15 @@ function Devices({ project }: { project: string }) {
                 key: 'device',
                 label: t('push.device'),
                 render: (d) => (
-                  <button className="text-link" onClick={() => setSelected(d)}>
+                  <Action className="text-link" onClick={() => setSelected(d)}>
                     ···{d.tokenTail || d.id.slice(0, 8)}
-                  </button>
+                  </Action>
                 ),
               },
               {
                 key: 'provider',
                 label: t('pushOps.provider'),
-                render: (d) => d.provider,
+                render: (d) => providerLabel(d.provider),
               },
               {
                 key: 'status',
@@ -841,7 +836,7 @@ function DeviceDialog({
       <div className="push-stack">
         <code className="break-all">{d.id}</code>
         <p>
-          {d.provider} · {d.env ?? '—'}
+          {providerLabel(d.provider)} · {d.env ?? '—'}
         </p>
         <p>
           {t('pushOps.lastSeen')}: <TimeAgo iso={d.lastSeenAt} />
@@ -893,18 +888,18 @@ function Credentials({ project }: { project: string }) {
                   key: 'label',
                   label: t('push.credentialLabel'),
                   render: (c) => (
-                    <button
+                    <Action
                       className="text-link"
                       onClick={() => setSelected(c)}
                     >
-                      {c.label || c.kind}
-                    </button>
+                      {c.label || providerLabel(c.kind)}
+                    </Action>
                   ),
                 },
                 {
                   key: 'provider',
                   label: t('pushOps.provider'),
-                  render: (c) => c.kind,
+                  render: (c) => providerLabel(c.kind),
                 },
                 {
                   key: 'status',
@@ -1090,7 +1085,7 @@ function CredentialEditor({
             >
               {PROVIDER_SPECS.map((p) => (
                 <option key={p.provider} value={p.provider}>
-                  {p.provider}
+                  {providerLabel(p.provider)}
                 </option>
               ))}
             </Select>
@@ -1102,7 +1097,7 @@ function CredentialEditor({
               onChange={(e) => setLabel(e.target.value)}
             />
           </Field>
-          <div>
+          <div className="file-field">
             <p className="field-label">{t('pushOps.uploadCredential')}</p>
             <FileInput
               key={fileEpoch}
@@ -1199,7 +1194,7 @@ function CredentialDialog({
   return (
     <Dialog
       open
-      title={c.label || c.kind}
+      title={c.label || providerLabel(c.kind)}
       closeLabel={t('common.close')}
       onClose={() => {
         if (!locked) onClose();
@@ -1269,15 +1264,7 @@ function CredentialDialog({
           </p>
         )}
         {!c.active && c.last_validate_status !== 'ok' && (
-          <label className="flex gap-3 items-start">
-            <input
-              type="checkbox"
-              checked={force}
-              disabled={locked}
-              onChange={(e) => setForce(e.target.checked)}
-            />
-            {t('pushOps.forceAck')}
-          </label>
+          <Checkbox checked={force} disabled={locked} onChange={nextChecked => setForce(nextChecked)} label={t('pushOps.forceAck')}/>
         )}
         {deleting && (
           <div role="alert">
@@ -1582,7 +1569,7 @@ function Audience({ project }: { project: string }) {
                 {
                   key: 'provider',
                   label: t('pushOps.provider'),
-                  render: (d) => d.provider,
+                  render: (d) => providerLabel(d.provider),
                 },
                 {
                   key: 'traits',

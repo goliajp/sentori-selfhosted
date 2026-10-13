@@ -1,3 +1,4 @@
+import { Action, NativeSelect } from '../../shared/design/controls';
 import { Button as DesignButton, Badge as DesignBadge } from "../../shared/design/controls";
 export { Input, Textarea, Field } from "../../shared/design/controls";
 // The dashboard's layout and data primitives.
@@ -72,21 +73,6 @@ export function CardHeader({
  */
 export const CONTROL_H = { sm: 'h-[var(--control-height-small)]', md: 'h-[var(--control-height)]' } as const;
 
-/** The one class list every `<select>` in the app wears.
- *
- *  `appearance-none` is the whole point. A native select on macOS
- *  paints its own control over whatever background it is given, so
- *  `bg-surface` had no effect and the dark forms each grew one
- *  light-grey box that matched nothing beside it — visible on the
- *  credentials form and on the triage filters, which is the screen
- *  people are on all day. Taking the appearance away means drawing
- *  the chevron ourselves, hence the token and the right padding. */
-export const SELECT_CLASS =
-  'min-w-0 max-w-full w-full appearance-none rounded border border-border bg-surface bg-[image:var(--sn-select-chevron)] ' +
-  'bg-[length:12px_12px] bg-[right_0.5rem_center] bg-no-repeat text-fg ' +
-  'focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-1 ' +
-  'focus-visible:outline-accent';
-
 /** Select at a shared control height. */
 export function Select({
   size = 'md',
@@ -98,9 +84,9 @@ Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'size'> & { size?: 'sm' | 'm
   const metrics =
     size === 'sm' ? `${CONTROL_H.sm} pl-2 pr-6 text-xs` : `${CONTROL_H.md} pl-2 pr-7 text-sm`;
   return (
-    <select {...rest} className={`${SELECT_CLASS} ${metrics} ${className}`}>
+    <NativeSelect {...rest} className={`${metrics} ${className}`}>
       {children}
-    </select>
+    </NativeSelect>
   );
 }
 
@@ -304,7 +290,7 @@ export function FoldPanel({
   const [open, setOpen] = useState(defaultOpen);
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-surface">
-      <button
+      <Action
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -315,7 +301,7 @@ export function FoldPanel({
           className={`h-3.5 w-3.5 text-fg-subtle transition-transform ${open ? 'rotate-90' : ''}`}
         />
         {title}
-      </button>
+      </Action>
       {open && <div className="border-t border-border">{children}</div>}
     </section>
   );
@@ -582,7 +568,7 @@ export function Tabs({
   return (
     <div className="flex gap-1 border-b border-border">
       {options.map((o) => (
-        <button
+        <Action
           key={o.value}
           onClick={() => onChange(o.value)}
           className={`border-b-2 px-3 py-2 text-sm transition ${
@@ -592,7 +578,7 @@ export function Tabs({
           }`}
         >
           {o.label}
-        </button>
+        </Action>
       ))}
     </div>
   );
@@ -757,7 +743,7 @@ export function ThemeSwitch() {
       className="flex rounded-md border border-border p-0.5"
     >
       {options.map((o) => (
-        <button
+        <Action
           key={o.mode}
           type="button"
           role="radio"
@@ -772,7 +758,7 @@ export function ThemeSwitch() {
           }`}
         >
           <o.Glyph aria-hidden className="h-3.5 w-3.5" />
-        </button>
+        </Action>
       ))}
     </div>
   );

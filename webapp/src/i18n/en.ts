@@ -9,6 +9,11 @@
 // translation obvious in review.
 
 export const en = {
+  "artifact.sourceMap": "Source Map",
+  "artifact.dsym": "dSYM",
+  "artifact.proguard": "ProGuard mapping",
+  "artifact.sourceBundle": "Source bundle",
+  "artifact.source": "Source",
   "bench.noDocuments": "No open tabs",
   "bench.openDocument": "Open a resource or a page from the navigation to start working",
   "bench.reopenDocument": "Reopen last page",

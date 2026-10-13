@@ -1,3 +1,4 @@
+import { Action } from '../../shared/design/controls';
 import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Copy, ExternalLink } from 'lucide-react';
@@ -76,7 +77,7 @@ export function IntegrateSection({ project }: { project: string }) {
         action={
           <div className="flex flex-wrap gap-1">
             {SNIPPET_LANGS.map((l) => (
-              <button
+              <Action
                 key={l.id}
                 type="button"
                 onClick={() => setLang(l.id)}
@@ -88,7 +89,7 @@ export function IntegrateSection({ project }: { project: string }) {
                 )}
               >
                 {l.label}
-              </button>
+              </Action>
             ))}
           </div>
         }
@@ -128,7 +129,7 @@ function CodeBlock({ text, language }: { language: string; text: string }) {
         className="block max-w-full overflow-x-auto px-3.5 py-3 font-mono text-xs leading-relaxed text-fg"
         dangerouslySetInnerHTML={{ __html: highlightBlock(text, language) }}
       />
-      <button
+      <Action
         type="button"
         title={t(failed?'setup.copyFailed':copied?'identity.copied':'identity.copyHint')}
         aria-label={t(failed?'setup.copyFailed':copied?'identity.copied':'identity.copyHint')}
@@ -143,7 +144,7 @@ function CodeBlock({ text, language }: { language: string; text: string }) {
         ) : (
           <Copy className="size-3.5" />
         )}
-      </button>
+      </Action>
       {failed && <p role="status" className="text-xs text-danger p-3">{t('setup.copyFailed')}</p>}
     </div>
   );
@@ -156,7 +157,7 @@ function Copyable({ text }: { text: string }) {
   const copied = result?.text === text && result.ok;
   const failed = result?.text === text && !result.ok;
   return (
-    <button
+    <Action
       type="button"
       title={t(failed?'setup.copyFailed':copied?'identity.copied':'identity.copyHint')}
         aria-label={t(failed?'setup.copyFailed':copied?'identity.copied':'identity.copyHint')}
@@ -172,7 +173,7 @@ function Copyable({ text }: { text: string }) {
       ) : (
         <Copy className="size-3 shrink-0 text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100" />
       )}
-    </button>
+    </Action>
   );
 }
 

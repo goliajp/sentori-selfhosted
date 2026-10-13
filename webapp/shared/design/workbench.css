@@ -40,7 +40,7 @@
 .workbench-tree summary > span:last-child { margin-left: auto; font-size: var(--bench-chrome-size); font-weight: 400; color: var(--ui-muted); }
 .workbench-tree details:not([open]) summary > svg:first-child { rotate: -90deg; }
 .workbench-tree a { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 5px 10px 5px 22px; text-decoration: none; color: var(--ui-secondary); }
-.workbench-tree a > span:not(.workbench-kind) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.workbench-tree a > span:not(.workbench-kind):not(.status-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .workbench-tree a:hover { background: var(--ui-hover); }
 .workbench-tree a[aria-current="page"] { background: var(--ui-selected); color: var(--ui-selected-ink); }
 .workbench-tree small { font-size: var(--bench-chrome-size); color: var(--ui-muted); }
@@ -103,12 +103,12 @@
 
 /* Narrow workspaces reveal side panels as dismissible overlays. */
 .workbench-body { position: relative; }
-.workbench-backdrop { position: absolute; inset: 0; z-index: 4; background: #0005; cursor: default; }
+.workbench-backdrop { position: absolute; inset: 0; z-index: 4; background: var(--ui-shadow-popup); cursor: default; }
 @container (max-width: 1000px) {
-  .workbench[data-overlay="inspector"] .workbench-inspector { display: block; position: absolute; inset: 0 0 0 auto; width: min(88%, var(--inspector-size)); z-index: 5; border-left: 1px solid var(--ui-line); box-shadow: -8px 0 24px #0002; }
+  .workbench[data-overlay="inspector"] .workbench-inspector { display: block; position: absolute; inset: 0 0 0 auto; width: min(88%, var(--inspector-size)); z-index: 5; border-left: 1px solid var(--ui-line); box-shadow: -8px 0 24px var(--ui-shadow-panel); }
 }
 @container (max-width: 720px) {
-  .workbench[data-overlay="explorer"] .workbench-explorer { display: block; position: absolute; inset: 0 auto 0 0; width: min(88%, var(--explorer-size)); z-index: 5; border-right: 1px solid var(--ui-line); box-shadow: 8px 0 24px #0002; }
+  .workbench[data-overlay="explorer"] .workbench-explorer { display: block; position: absolute; inset: 0 auto 0 0; width: min(88%, var(--explorer-size)); z-index: 5; border-right: 1px solid var(--ui-line); box-shadow: 8px 0 24px var(--ui-shadow-panel); }
 }
 .workbench-document .result-filters .control-bar { --field-label-gap: 4px; gap: 12px; margin-bottom: 12px; }
 .workbench-document .result-filters .field { gap: 4px; }
@@ -160,7 +160,7 @@
 
 @media (max-width: 959px) { .studio-shell[data-scope="product"] { grid-template-columns: minmax(0,1fr); } }
 
-.workbench-tab-menu { max-height: calc(100dvh - 8px); overflow: auto; position: fixed; inset: auto; margin: 0; min-width: 200px; max-width: calc(100vw - 8px); padding: 4px; border: 1px solid var(--ui-line); border-radius: 4px; background: var(--ui-surface); color: var(--ui-ink); box-shadow: 0 8px 28px #0005; }
+.workbench-tab-menu { max-height: calc(100dvh - 8px); overflow: auto; position: fixed; inset: auto; margin: 0; min-width: 200px; max-width: calc(100vw - 8px); padding: 4px; border: 1px solid var(--ui-line); border-radius: 4px; background: var(--ui-surface); color: var(--ui-ink); box-shadow: 0 8px 28px var(--ui-shadow-popup); }
 .workbench-tab-menu button { display: flex; align-items: center; width: 100%; text-align: left; padding: 8px 12px; font-size: var(--bench-control-size); border-radius: 2px; }
 .workbench-tab-menu button:focus-visible,.workbench-tab-menu button:hover:not(:disabled) { background: var(--ui-selected); outline: none; color: var(--ui-selected-ink); }
 .workbench-tab-menu button:disabled { color: var(--ui-muted); opacity: .5; }

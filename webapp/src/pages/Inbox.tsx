@@ -1,3 +1,4 @@
+import { Checkbox } from "../../shared/design/Checkbox";
 import { useDocumentSearchParams } from '../lib/search-params';
 import { WorkbenchEmpty } from '../components/WorkbenchEmpty';
 import { useRef, useState } from 'react';
@@ -52,5 +53,5 @@ function Preferences({ onClose }: { onClose: () => void }) {
     finally { lock.current = false; setBusy(false); }
   }
   const labels = { assignments: t('team.assignment'), mentions: t('team.mention'), taskUpdates: t('team.taskUpdates'), monitors: t('team.monitors') };
-  return <Dialog open onClose={onClose} closeLabel={t('common.close')} title={t('team.preferences')} footer={<Button variant="primary" busy={busy} disabled={!current} onClick={() => void save()}>{t('team.save')}</Button>}><div className="form-stack">{(error || prefs.error) && <ErrorBanner reason={error || prefs.error || ''}>{t('team.failed')}</ErrorBanner>}{prefs.error && <Button onClick={prefs.reload}>{t('common.retry')}</Button>}{current && (Object.keys(labels) as (keyof InboxPreferences)[]).map(key => <label key={key} className="flex gap-3 items-center"><input type="checkbox" checked={current[key]} disabled={busy} onChange={e => setDraft({ ...current, [key]: e.target.checked })}/>{labels[key]}</label>)}</div></Dialog>;
+  return <Dialog open onClose={onClose} closeLabel={t('common.close')} title={t('team.preferences')} footer={<Button variant="primary" busy={busy} disabled={!current} onClick={() => void save()}>{t('team.save')}</Button>}><div className="form-stack">{(error || prefs.error) && <ErrorBanner reason={error || prefs.error || ''}>{t('team.failed')}</ErrorBanner>}{prefs.error && <Button onClick={prefs.reload}>{t('common.retry')}</Button>}{current && (Object.keys(labels) as (keyof InboxPreferences)[]).map(key => <Checkbox key={key} checked={current[key]} disabled={busy} onChange={nextChecked => setDraft({ ...current, [key]: nextChecked })} label={labels[key]}/>)}</div></Dialog>;
 }

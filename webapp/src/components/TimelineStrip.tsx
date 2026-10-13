@@ -1,3 +1,5 @@
+import { signalKindLabel } from '../lib/technical-labels';
+import { Action } from '../../shared/design/controls';
 // The case timeline — the narrative spine of an issue, pinned to
 // the bottom of the case file like a video editor's track area.
 //
@@ -216,7 +218,7 @@ export function TimelineStrip({
           {/* lane 1 — replay frames as ticks */}
           <div className="absolute inset-x-0 top-0 h-1/3">
             {inWindow.frames.map((f, i) => (
-              <button
+              <Action
                 key={i}
                 type="button"
                 onClick={(e) => {
@@ -237,7 +239,7 @@ export function TimelineStrip({
           {/* lane 2 — behaviour signals as dots */}
           <div className="absolute inset-x-0 top-1/3 h-1/3">
             {inWindow.signals.map((s, i) => (
-              <button
+              <Action
                 key={i}
                 type="button"
                 onClick={(e) => {
@@ -246,13 +248,13 @@ export function TimelineStrip({
                 }}
                 onMouseEnter={() =>
                   setReadout(
-                    `${s.t.toFixed(1)}s · ${s.kind} ${summarizeSignal(s)}`.trim(),
+                    `${s.t.toFixed(1)}s · ${signalKindLabel(s.kind)} ${summarizeSignal(s)}`.trim(),
                   )
                 }
                 onMouseLeave={() => setReadout(null)}
-                onFocus={() => setReadout(`${s.t.toFixed(1)}s · ${s.kind} ${summarizeSignal(s)}`.trim())}
+                onFocus={() => setReadout(`${s.t.toFixed(1)}s · ${signalKindLabel(s.kind)} ${summarizeSignal(s)}`.trim())}
                 onBlur={() => setReadout(null)}
-                aria-label={`${s.t.toFixed(1)}s ${s.kind}`}
+                aria-label={`${s.t.toFixed(1)}s ${signalKindLabel(s.kind)}`}
                 className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-bg hover:h-3.5 hover:w-3.5"
                 style={{ left: `${pct(s.t)}%`, backgroundColor: signalColor(s.kind) }}
               />
@@ -262,7 +264,7 @@ export function TimelineStrip({
           {/* lane 3 — the other events of the same user's minute */}
           <div className="absolute inset-x-0 top-2/3 h-1/3">
             {inWindow.context.map((c) => (
-              <button
+              <Action
                 key={c.id}
                 type="button"
                 onClick={(e) => {
@@ -270,12 +272,12 @@ export function TimelineStrip({
                   onSeek?.(c.t);
                 }}
                 onMouseEnter={() =>
-                  setReadout(`${c.t.toFixed(1)}s · ${c.kind} ${c.name}`)
+                  setReadout(`${c.t.toFixed(1)}s · ${signalKindLabel(c.kind)} ${c.name}`)
                 }
                 onMouseLeave={() => setReadout(null)}
-                onFocus={() => setReadout(`${c.t.toFixed(1)}s · ${c.kind} ${c.name}`)}
+                onFocus={() => setReadout(`${c.t.toFixed(1)}s · ${signalKindLabel(c.kind)} ${c.name}`)}
                 onBlur={() => setReadout(null)}
-                aria-label={`${c.kind} ${c.name}`}
+                aria-label={`${signalKindLabel(c.kind)} ${c.name}`}
                 className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 ring-2 ring-bg hover:h-3.5 hover:w-3.5"
                 style={{ left: `${pct(c.t)}%`, backgroundColor: kindColor(c.kind) }}
               />

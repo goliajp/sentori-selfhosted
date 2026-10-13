@@ -1,3 +1,4 @@
+import { Checkbox } from "../../shared/design/Checkbox";
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { Surface } from '../../shared/design/Surface';
@@ -97,7 +98,7 @@ function QuoteCard({quote,checkout,busy,mode,money,accept}:{quote:CloudQuote;che
     <dl className="host-facts">{[[t('cloud.events'),offer.limits.monthlyEvents],[t('cloud.replays'),offer.limits.monthlyReplays],[t('cloud.ingestBytes'),offer.limits.monthlyIngestBytes],[t('cloud.artifactBytes'),offer.limits.artifactBytes],[t('nav.projects'),offer.limits.projects]].map(([label,amount]) => <div key={label}><dt>{label}</dt><dd>{amount}</dd></div>)}</dl>
     <p>{t('cloud.retention',{events:String(offer.limits.eventRetentionDays),replays:String(offer.limits.replayRetentionDays),rate:String(offer.limits.eventsPerSecond)})}</p><p>{terms.cancellation}</p>
     <div className="flex flex-wrap gap-4">{[[t('cloud.serviceTerms'),terms.serviceUrl],[t('cloud.privacy'),terms.privacyUrl],[t('cloud.refunds'),terms.refundUrl]].map(([label,url]) => <a className="text-link" key={url} href={url} target="_blank" rel="noopener noreferrer">{label}</a>)}</div>
-    <label className="choice-control"><input type="checkbox" checked={agreed} disabled={busy} onChange={event => setAgreed(event.target.checked)}/><span>{t('cloud.agreeTerms',{revision:terms.revision})}</span></label>
+    <Checkbox checked={agreed} disabled={busy} onChange={nextChecked => setAgreed(nextChecked)} label={<><span>{t('cloud.agreeTerms',{revision:terms.revision})}</span></>}/>
     {mode !== 'live' && <p>{t('cloud.testBilling')}</p>}
     <Button variant="primary" busy={busy} disabled={!agreed || !checkout || expired} onClick={accept}>{t('cloud.acceptQuote')}</Button>
   </div>;

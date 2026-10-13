@@ -4,6 +4,11 @@
 import type { Messages } from './en';
 
 export const zh: Messages = {
+  "artifact.sourceMap": "Source Map（源码映射）",
+  "artifact.dsym": "dSYM",
+  "artifact.proguard": "ProGuard 混淆映射",
+  "artifact.sourceBundle": "源码包",
+  "artifact.source": "源码",
   "bench.noDocuments": "没有打开的标签",
   "bench.openDocument": "从导航或资源列表打开页面，开始工作",
   "bench.reopenDocument": "重新打开刚才的页面",

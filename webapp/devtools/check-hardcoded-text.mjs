@@ -107,6 +107,8 @@ for (const root of ROOTS) {
     while ((m = re.exec(src)) !== null) {
       const text = m[2].replace(/\\(.)/g, '$1').trim();
       if (!isProse(text)) continue;
+      // Official provider name; translating it would change the proper noun.
+      if (file === 'src/lib/technical-labels.ts' && text === 'HUAWEI Push Kit') continue;
 
       const before = src.slice(0, m.index);
       const line = before.split('\n').length;
@@ -138,6 +140,8 @@ for (const root of ROOTS) {
       while ((j = jsx.exec(src)) !== null) {
         const text = j[1].trim();
         if (!isProse(text)) continue;
+      // Official provider name; translating it would change the proper noun.
+      if (file === 'src/lib/technical-labels.ts' && text === 'HUAWEI Push Kit') continue;
         const line = src.slice(0, j.index).split('\n').length;
         const lineText = lines[line - 1] ?? '';
         if (/^\s*(\/\/|\*)/.test(lineText)) continue;

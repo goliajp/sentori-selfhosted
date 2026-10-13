@@ -1,3 +1,9 @@
+.control-action { touch-action: manipulation; cursor: pointer; }
+.control-action:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.control-action:disabled { cursor: not-allowed; }
+.tooltip-anchor { display: contents; }
+.control-tooltip { position: fixed; z-index: var(--layer-tooltip); transform: translate(var(--space-2), -50%); max-width: min(var(--tooltip-max-width), calc(100vw - var(--space-8))); padding: var(--space-2) var(--space-3); border: 1px solid var(--ui-line); border-radius: var(--radius-control); background: var(--ui-overlay); color: var(--ui-ink); box-shadow: 0 var(--space-2) var(--space-6) var(--ui-shadow); font: var(--bench-meta-size)/var(--control-line-height) var(--font-ui); overflow-wrap: anywhere; }
+.control-tooltip[data-side="left"] { transform: translate(calc(-100% - var(--space-2)), -50%); }
 /* Button and Badge typography, alignment and states: shared by production and preview. */
 .button {
   position: relative;
@@ -147,3 +153,6 @@
 .status-label-marker > i { display: block; width: 7px; height: 7px; border-radius: 50%; background: var(--ui-muted); }
 .status-label-marker > svg { display: block; }
 .status-label-text { min-width: 0; overflow-wrap: anywhere; }
+
+.status-label-truncate { flex: 1; }
+.status-label-truncate .status-label-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

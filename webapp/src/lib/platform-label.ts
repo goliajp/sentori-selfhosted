@@ -25,13 +25,23 @@ const NAMES: Record<string, string> = {
   javascript: 'JavaScript',
   'react-native': 'React Native',
   web: 'Web',
+  ipados: 'iPadOS',
+  macos: 'macOS',
+  tvos: 'tvOS',
+  watchos: 'watchOS',
+  visionos: 'visionOS',
+  androidtv: 'Android TV',
+  windows: 'Windows',
+  linux: 'Linux',
 };
 
 type Translate = (key: MessageKey, params?: Record<string, string>) => string;
 
 export function platformLabel(platform: string | null | undefined, t: Translate): string {
   if (!platform) return '—';
-  if (platform === 'unknown') return t('platform.unknown');
-  if (platform === 'weapp') return t('platform.weapp');
-  return NAMES[platform] ?? platform;
+  const key = platform.trim().toLowerCase();
+  if (!key) return '—';
+  if (key === 'unknown') return t('platform.unknown');
+  if (key === 'weapp') return t('platform.weapp');
+  return NAMES[key] ?? platform;
 }

@@ -1,3 +1,5 @@
+import { Action } from '../../shared/design/controls';
+import { artifactLabel } from '../lib/technical-labels';
 import { useDocumentSearchParams } from '../lib/search-params';
 import { useEffect, useRef, useState } from 'react';
 import { ReleaseJobs } from '../components/ReleaseJobs';
@@ -68,11 +70,11 @@ function Releases({projectId}:{projectId:string}){
       const index=buttons.indexOf(document.activeElement as HTMLButtonElement);if(index<0)return;
       event.preventDefault();const next=buttons[event.key==='Home'?0:event.key==='End'?buttons.length-1:Math.max(0,Math.min(buttons.length-1,index+(event.key==='ArrowDown'?1:-1)))];next.focus();next.click();
     }}>
-      {needsDetail&&release&&<><p className="workbench-message">{t('releaseView.outsideList')}</p><button type="button" aria-current="true" onClick={()=>update({detail:release.id})}><strong>{releaseDisplayName(release,t,{appId})}</strong><Coverage release={release}/></button></>}
-      {(pendingQuery?[]:state.data?.rows??[]).map(row=><button type="button" key={row.id} aria-current={row.id===selected?'true':undefined} onClick={()=>update({detail:row.id})}><strong>{releaseDisplayName(row,t,{appId})}</strong><Coverage release={row}/><small><TimeAgo iso={(row.createdAt??row.created_at)!}/></small></button>)}
+      {needsDetail&&release&&<><p className="workbench-message">{t('releaseView.outsideList')}</p><Action type="button" aria-current="true" onClick={()=>update({detail:release.id})}><strong>{releaseDisplayName(release,t,{appId})}</strong><Coverage release={release}/></Action></>}
+      {(pendingQuery?[]:state.data?.rows??[]).map(row=><Action type="button" key={row.id} aria-current={row.id===selected?'true':undefined} onClick={()=>update({detail:row.id})}><strong>{releaseDisplayName(row,t,{appId})}</strong><Coverage release={row}/><small><TimeAgo iso={(row.createdAt??row.created_at)!}/></small></Action>)}
       {!state.loading&&!state.data?.rows.length&&<p className="workbench-message">{t('releases.emptyTitle')}</p>}
     </div>:<DataTable<Row> appearance="design" rowKey={row=>row.id} rows={pendingQuery?[]:state.data?.rows??[]} empty={t(state.loading||pendingQuery?'projects.loading':state.error?'releases.loadFailed':'releases.emptyTitle')} columns={[
-      {key:'name',label:t('inbox.releaseFilter'),render:row=><button className="text-link font-semibold" onClick={()=>update({detail:row.id})}>{releaseDisplayName(row,t,{appId})}</button>},
+      {key:'name',label:t('inbox.releaseFilter'),render:row=><Action className="text-link font-semibold" onClick={()=>update({detail:row.id})}>{releaseDisplayName(row,t,{appId})}</Action>},
       {key:'apps',label:t('apps.title'),render:row=>row.apps?.map(app=>`${appDisplayName(app,t)} · ${platformLabel(app.platform,t)}`).join(', ')||'—'},
       {key:'sessions',label:t('releaseView.sessions'),align:'right',render:row=>byRelease.get(row.name)?.sessions.toLocaleString()??'—'},
       {key:'crashFree',label:t('releases.crashFree'),align:'right',render:row=><CrashFreeCell health={byRelease.get(row.name)??null}/>},
@@ -86,6 +88,7 @@ function Releases({projectId}:{projectId:string}){
   </div>;
 }
 function Coverage({release}:{release:Row}){
+  const t=useT();
   return <div className="release-coverage">{(['sourcemap','dsym','proguard','srcbundle'] as const).map((kind,index)=>{
     const artifacts=release.artifacts?.filter(row=>row.kind===kind);
     const summary=release.artifactSummary?.find(row=>row.kind===kind);
@@ -93,7 +96,7 @@ function Coverage({release}:{release:Row}){
     const on=artifacts!==undefined
       ?artifacts.some(row=>row.usable==null)?undefined:artifacts.some(row=>row.usable===true)
       :release.artifactSummary===undefined||summary?.unchecked?undefined:summary?.usable??false;
-    return <Light key={kind} on={on} warn={artifacts?.some(row=>row.usable===false)??summary?.broken} label={['JavaScript','iOS','Android','Source'][index]} used={kind==='sourcemap'||kind==='dsym'&&!!release.platforms?.includes('ios')||kind==='proguard'&&!!release.platforms?.includes('android')}/>;
+    return <Light key={kind} on={on} warn={artifacts?.some(row=>row.usable===false)??summary?.broken} label={['JavaScript','iOS','Android',t('artifact.source')][index]} used={kind==='sourcemap'||kind==='dsym'&&!!release.platforms?.includes('ios')||kind==='proguard'&&!!release.platforms?.includes('android')}/>;
   })}</div>;
 }
 function ReleaseDetails({projectId,appId,release,health,onClose,onChange}:{projectId:string;appId:string;release:Row;health:{sessions:number;crashed:number}|null;onClose:()=>void;onChange:()=>void}){
@@ -123,10 +126,10 @@ function ReleaseDetails({projectId,appId,release,health,onClose,onChange}:{proje
         {artifactState.loading&&<p role="status">{t('shell.loading')}</p>}
         {artifactState.error&&<div><ErrorBanner reason={artifactState.error}>{t('releaseView.artifactFailed')}</ErrorBanner><Button onClick={artifactState.reload}>{t('common.retry')}</Button></div>}
         {artifactState.data?.artifacts.length===0&&<p className="muted">{t('releases.noArtifacts')}</p>}
-        {artifactState.data?.artifacts.map(artifact=><Surface key={artifact.id}><div className="flex flex-wrap justify-between gap-3"><strong className="text-sm break-all">{artifact.name}</strong><Badge tone={artifact.usable===true?'success':artifact.usable===false?'danger':'neutral'}>{t(artifact.usable===true?'releaseView.usable':artifact.usable===false?'releaseView.unusable':'releaseView.unchecked')}</Badge></div><p className="muted text-xs mt-3">{artifact.kind} · {formatBytes(artifact.size_bytes??0)}</p><p className="subtle text-xs mt-2 break-all">{artifact.content_hash}</p></Surface>)}
+        {artifactState.data?.artifacts.map(artifact=><Surface key={artifact.id}><div className="flex flex-wrap justify-between gap-3"><strong className="text-sm break-all">{artifact.name}</strong><Badge tone={artifact.usable===true?'success':artifact.usable===false?'danger':'neutral'}>{t(artifact.usable===true?'releaseView.usable':artifact.usable===false?'releaseView.unusable':'releaseView.unchecked')}</Badge></div><p className="muted text-xs mt-3">{artifactLabel(artifact.kind,t)} · {formatBytes(artifact.size_bytes??0)}</p><p className="subtle text-xs mt-2 break-all">{artifact.content_hash}</p></Surface>)}
         <Surface title={t('releaseView.upload')}><form className="form-stack" onSubmit={upload}>
-          <Field label={t('queue.kind')}><Select disabled={busy} value={kind} onChange={e=>setKind(e.target.value)}>{['sourcemap','dsym','proguard','srcbundle'].map(value=><option key={value}>{value}</option>)}</Select></Field>
-          <div><p className="field-label">{t('releaseView.file')}</p><p className="field-note">{t('releaseView.fileHint')}</p><FileInput key={fileEpoch} t={sharedT} number={(value,digits=0)=>value.toLocaleString(locale,{maximumFractionDigits:digits})} multiple={false} maxFiles={1} maxFileSize={255*1024*1024} preview={false} disabled={busy} onChange={files=>{setFile(files[0]??null);setReceipt(null);}}/></div>
+          <Field label={t('queue.kind')}><Select disabled={busy} value={kind} onChange={e=>setKind(e.target.value)}>{['sourcemap','dsym','proguard','srcbundle'].map(value=><option key={value} value={value}>{artifactLabel(value,t)}</option>)}</Select></Field>
+          <div className="file-field"><div className="file-field-heading"><p className="field-label">{t('releaseView.file')}</p><p className="field-note">{t('releaseView.fileHint')}</p></div><FileInput key={fileEpoch} t={sharedT} number={(value,digits=0)=>value.toLocaleString(locale,{maximumFractionDigits:digits})} multiple={false} maxFiles={1} maxFileSize={255*1024*1024} preview={false} disabled={busy} onChange={files=>{setFile(files[0]??null);setReceipt(null);}}/></div>
           <Button type="submit" variant="primary" busy={busy} disabled={!file}>{t('releaseView.upload')}</Button>
           {failure&&<ErrorBanner reason={failure}>{t('releaseView.actionFailed')}</ErrorBanner>}
           {receipt!==null&&<p role="status" className={receipt?'text-ok':'text-danger'}>{t(receipt?'releaseView.uploaded':'releaseView.uploadedInvalid')}</p>}

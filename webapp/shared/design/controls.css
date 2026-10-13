@@ -1,3 +1,4 @@
+@import "./choices.css";
 @import "./actions.css";
 
 .control-bar .field {
@@ -247,7 +248,7 @@ input.control::file-selector-button {
   border-radius: var(--radius-control);
   background: var(--ui-surface);
   color: var(--ui-secondary);
-  box-shadow: 0 8px 24px #00000022;
+  box-shadow: 0 8px 24px var(--ui-shadow-panel);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -281,18 +282,6 @@ input.control::file-selector-button {
   min-width: 24px;
   padding: 2px 6px;
 }
-.choice-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: var(--control-size, var(--control-height));
-  font-size: var(--control-font-size);
-  line-height: var(--control-line-height);
-}
-.choice-control input {
-  margin: 0;
-}
-.choice-label { display: block; min-width: 0; }
 
 .spinner { display: block; flex: 0 0 auto; aspect-ratio: 1; overflow: visible; }
 .spinner-arc { transform-box: view-box; transform-origin: 12px 12px; animation: spin 900ms linear infinite; }
@@ -398,3 +387,13 @@ input.control::file-selector-button {
 }
 
 .data-table[data-layout="content"] { table-layout: auto; }
+
+.native-select:not([multiple]):not([size]) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-inline-end: calc(var(--space-6) + var(--space-1));
+  background-image: var(--ui-select-chevron);
+  background-size: 12px 12px;
+  background-position: right var(--space-2) center;
+  background-repeat: no-repeat;
+}

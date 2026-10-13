@@ -1,0 +1,84 @@
+/* Approved selection controls: one owner for production and the design preview. */
+input[type="checkbox"],
+input[type="radio"] {
+  width: var(--choice-size);
+  height: var(--choice-size);
+  flex-shrink: 0;
+}
+input[type="checkbox"]:not([role="switch"]) {
+  appearance: none;
+  -webkit-appearance: none;
+  width: var(--choice-size);
+  height: var(--choice-size);
+  margin: 0;
+  display: inline-grid;
+  place-content: center;
+  vertical-align: middle;
+  border: 1px solid var(--ui-control);
+  border-radius: var(--radius-small);
+  background: var(--ui-surface);
+  color: var(--ui-on-action);
+  cursor: pointer;
+}
+input[type="checkbox"]:not([role="switch"])::before {
+  content: "";
+  width: 5px;
+  height: 9px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: translateY(-1px) rotate(45deg);
+  opacity: 0;
+}
+input[type="checkbox"]:not([role="switch"]):is(:checked, :indeterminate) {
+  border-color: var(--ui-action);
+  background: var(--ui-action);
+}
+input[type="checkbox"]:not([role="switch"]):is(
+    :checked,
+    :indeterminate
+  )::before {
+  opacity: 1;
+}
+input[type="checkbox"]:not([role="switch"]):indeterminate::before {
+  width: 10px;
+  height: 2px;
+  border: 0;
+  background: currentColor;
+  transform: none;
+}
+input[type="checkbox"]:not([role="switch"]):focus-visible {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+input[type="checkbox"]:not([role="switch"]):disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+@media (forced-colors: active) {
+  input[type="checkbox"]:not([role="switch"]) {
+    forced-color-adjust: none;
+    border-color: ButtonText;
+    background: Canvas;
+    color: HighlightText;
+  }
+  input[type="checkbox"]:not([role="switch"]):is(:checked, :indeterminate) {
+    border-color: Highlight;
+    background: Highlight;
+  }
+  input[type="checkbox"]:not([role="switch"]):focus-visible {
+    outline-color: Highlight;
+  }
+}
+
+.choice-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--choice-gap);
+  min-height: var(--control-size, var(--control-height));
+  font-size: var(--control-font-size);
+  line-height: var(--control-line-height);
+}
+.choice-control input {
+  margin: 0;
+}
+.choice-label { display: block; min-width: 0; overflow-wrap: anywhere; }

@@ -196,7 +196,7 @@ input[type="radio"]:focus-visible {
   background: var(--ui-surface);
   border-color: var(--ui-border);
   color: var(--ui-ink);
-  box-shadow: 0 1px 2px #00000012;
+  box-shadow: 0 1px 2px var(--ui-shadow-soft);
 }
 .segment:hover:not(:has(:disabled)) {
   color: var(--ui-ink);
@@ -409,7 +409,7 @@ input[type="radio"]:focus-visible {
   border-radius: var(--radius-panel);
   background: var(--ui-overlay);
   color: var(--ui-ink);
-  box-shadow: 0 12px 32px #08142c26;
+  box-shadow: 0 12px 32px var(--ui-shadow-panel);
   font-size: 14px;
   line-height: 20px;
   overflow: auto;

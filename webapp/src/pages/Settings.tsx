@@ -1,3 +1,5 @@
+import { StatusLabel } from '../../shared/design/StatusLabel';
+import { Checkbox } from "../../shared/design/Checkbox";
 import { AuthenticationMode } from '../components/AuthenticationMode';
 import { canUse } from '../lib/system-contract';
 import { Tabs } from "../../shared/design/Tabs";
@@ -194,7 +196,7 @@ function UsersTab() {
       <p className="break-all mb-4">{managing?.email}</p>
       <fieldset className="form-stack" disabled={busy}><legend className="field-label mb-3">{t('settings.fieldProject')}</legend>
         {projects.length === 0 && <p>{t('table.empty')}</p>}
-        {projects.map(project => <label key={project.id} className="choice-control"><input type="checkbox" disabled={busy} checked={managing?.projects.includes(project.id) ?? false} onChange={event => void assign(project.id, event.target.checked)} /><span className="break-all">{project.name}</span></label>)}
+        {projects.map(project => <Checkbox key={project.id} disabled={busy} checked={managing?.projects.includes(project.id) ?? false} onChange={nextChecked => void assign(project.id, nextChecked)} label={project.name}/>)}
       </fieldset>
       {failure && <ErrorBanner reason={failure}>{t('settings.memberActionFailed')}</ErrorBanner>}
     </Dialog>
@@ -352,7 +354,7 @@ function WebhookPanel() {
       <div className="space-y-2 p-3.5">
         <p className="text-xs text-fg-muted">{t('notify.webhookHint')}</p>
         <div className="flex items-center gap-2">
-          <input
+          <Input
             type="url"
             aria-label={t('notify.webhookTitle')}
             disabled={loading || !!error || state === 'saving'}
@@ -462,18 +464,9 @@ function NotificationsTab() {
         <div className="p-3.5">
           {smtp.data?.configured && (
             <div className="flex items-center gap-3 text-sm">
-              {/* The dot follows the last delivery, not the config. It
-                  was hard-coded green, so it stayed green through two
-                  days of expired-certificate failures. */}
-              <span
-                className={clsx(
-                  'h-2 w-2 shrink-0 rounded-full',
-                  smtp.data.healthy ? 'bg-ok' : 'bg-kind-error',
-                )}
-              />
-              <span className="font-mono text-xs text-fg-muted">
+              <StatusLabel marker={<span className={clsx('h-2 w-2 rounded-full', smtp.data.healthy ? 'bg-ok' : 'bg-kind-error')} />} className="font-mono text-xs text-fg-muted">
                 {smtp.data.host} · {smtp.data.from}
-              </span>
+              </StatusLabel>
               <Button
                 size="sm"
                 disabled={testState === 'sending'}
@@ -491,8 +484,7 @@ function NotificationsTab() {
           )}
           {smtp.data && !smtp.data.configured && (
             <div className="flex items-center gap-3 text-sm text-fg-muted">
-              <span className="h-2 w-2 rounded-full bg-border-strong" />
-              {t('notify.smtpUnconfigured')}
+              <StatusLabel marker={<span className="h-2 w-2 rounded-full bg-border-strong" />}>{t('notify.smtpUnconfigured')}</StatusLabel>
             </div>
           )}
           {/* What the server said the last time it tried. Without this
@@ -542,31 +534,13 @@ function NotificationsTab() {
               {rows.map((p) => (
                 <div
                   key={p.projectId}
-                  className="flex items-center gap-4 px-3.5 py-2 text-sm"
+                  className="flex flex-wrap items-center gap-4 px-3.5 py-2 text-sm"
                 >
-                  <span className="min-w-0 flex-1 truncate font-medium text-fg">
+                  <span className="min-w-0 flex-1 basis-48 truncate font-medium text-fg">
                     {p.projectName}
                   </span>
-                  <label className="flex items-center gap-1.5 text-xs text-fg-muted">
-                    <input
-                      type="checkbox"
-                      disabled={pending.includes(p.projectId)}
-                      checked={p.onNewIssue}
-                      onChange={() => flip(p, 'onNewIssue')}
-                      className="h-3.5 w-3.5 accent-accent"
-                    />
-                    {t('notify.onNewIssue')}
-                  </label>
-                  <label className="flex items-center gap-1.5 text-xs text-fg-muted">
-                    <input
-                      type="checkbox"
-                      disabled={pending.includes(p.projectId)}
-                      checked={p.onRegression}
-                      onChange={() => flip(p, 'onRegression')}
-                      className="h-3.5 w-3.5 accent-accent"
-                    />
-                    {t('notify.onRegression')}
-                  </label>
+                  <Checkbox disabled={pending.includes(p.projectId)} checked={p.onNewIssue} onChange={() => flip(p, 'onNewIssue')} label={t('notify.onNewIssue')}/>
+                  <Checkbox disabled={pending.includes(p.projectId)} checked={p.onRegression} onChange={() => flip(p, 'onRegression')} label={t('notify.onRegression')}/>
                 </div>
               ))}
             </div>

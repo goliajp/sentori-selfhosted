@@ -1,3 +1,4 @@
+import { Checkbox } from "../../shared/design/Checkbox";
 import { useEffect, useRef, useState } from 'react';
 import { Surface } from '../../shared/design/Surface';
 import { Button, Field, Input } from '../../shared/design/controls';
@@ -33,8 +34,8 @@ export function TaskIntegration({ project }: { project: string }) {
     {state.data && !state.data.vaultConfigured && <p>{t('team.vaultRequired')}</p>}
     {state.data && <form className="form-stack" onSubmit={e => { e.preventDefault(); void save(); }}><fieldset className="form-stack min-w-0" disabled={busy || me.role !== 'superadmin' || !state.data.vaultConfigured}>
       <div className="team-form-grid"><Field label={t('team.repository')}><Input required value={current.repository} onChange={e => patch({ repository: e.target.value })}/></Field><Field label={t('team.environment')}><Input required value={current.environment} onChange={e => patch({ environment: e.target.value })}/></Field></div>
-      <label className="flex gap-3 items-center"><input type="checkbox" checked={current.enabled} onChange={e => patch({ enabled: e.target.checked })}/>{t('team.enabled')}</label>
-      {current.version > 0 && <label className="flex gap-3 items-center"><input type="checkbox" checked={rotate} onChange={e => setRotate(e.target.checked)}/>{t('team.rotate')}</label>}
+      <Checkbox checked={current.enabled} onChange={nextChecked => patch({ enabled: nextChecked })} label={t('team.enabled')}/>
+      {current.version > 0 && <Checkbox checked={rotate} onChange={nextChecked => setRotate(nextChecked)} label={t('team.rotate')}/>}
       <div><Button type="submit" variant="primary" busy={busy}>{t('team.save')}</Button></div>
     </fieldset></form>}
     {secret && <Field label={t('team.signingKey')} hint={t('team.secretOnce')}><Input readOnly value={secret}/></Field>}

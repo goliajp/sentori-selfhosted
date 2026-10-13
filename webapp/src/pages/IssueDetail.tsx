@@ -1,3 +1,6 @@
+import { StatusLabel } from '../../shared/design/StatusLabel';
+import { Action, Textarea } from '../../shared/design/controls';
+import { deviceSummary, signalKindLabel } from '../lib/technical-labels';
 import { useReleaseNames } from '../lib/useReleaseNames';
 import type { ReleaseScope } from '../lib/release-name';
 import { Code } from '../../shared/documents/Code';
@@ -153,9 +156,9 @@ export function IssueDetailPane({
       <div className="flex h-full items-center justify-center">
         <div className="text-sm text-fg-subtle">
           <ErrorBanner reason={error}>{t('issue.loadFailed')}</ErrorBanner>
-          <button type="button" className="underline" onClick={reload}>
+          <Action type="button" className="underline" onClick={reload}>
             {t('common.retry')}
-          </button>
+          </Action>
         </div>
       </div>
     );
@@ -235,7 +238,7 @@ export function IssueDetailPane({
           <span>{t('detail.lastReceived')}: <TimeAgo iso={current.receivedAt}/></span>
           <span>{t('issue.deviceClock')}: <TimeAgo iso={current.occurredAt}/></span>
           <span>{releaseNames.label(current.release,{platform:current.platform})} · {current.environment} · {platformLabel(current.platform,t)}</span>
-          <span>{[device?.model,device?.os,device?.osVersion,surface.screen,surface.element].filter(Boolean).map(String).join(' · ')}</span>
+          <span>{[deviceSummary(device,t),surface.screen,surface.element].filter(Boolean).map(String).join(' · ')}</span>
         </div>}
         {event.loading&&currentId&&<p role="status">{t('projects.loading')}</p>}
         {context.error&&<ErrorBanner reason={context.error}>{t('detail.contextFailed')}</ErrorBanner>}
@@ -345,9 +348,9 @@ export function IssueDetailPane({
         </div>
 
       {/* ── the minute itself: the case's narrative spine ── */}
-      <button type="button" aria-expanded={timelineOpen} aria-controls={timelineId} onClick={() => setTimelineOpen(!timelineOpen)} className="min-h-10 shrink-0 border-t border-border px-4 text-left text-xs text-fg-muted sm:hidden">
+      <Action type="button" aria-expanded={timelineOpen} aria-controls={timelineId} onClick={() => setTimelineOpen(!timelineOpen)} className="min-h-10 shrink-0 border-t border-border px-4 text-left text-xs text-fg-muted sm:hidden">
         {t(timelineOpen ? 'triage.hideTimeline' : 'triage.showTimeline')}
-      </button>
+      </Action>
       <div id={timelineId} data-issue-timeline className={clsx('shrink-0', timelineOpen ? 'block' : 'hidden sm:block')}>
       <TimelineStrip
         key={currentId}
@@ -366,7 +369,7 @@ export function IssueDetailPane({
         {occurrences.loading?<p className="p-6" role="status">{t('projects.loading')}</p>:occ?.events.length?<OccurrenceList label={releaseNames.label} rows={occ.events} currentId={currentId??null} onPick={id=>updateParams({occurrence:id,tab:'evidence'})}/>:<p className="p-6">{t('detail.noEvents')}</p>}
         <div className="table-pagination"><span>{occ?t('queue.pageCount',{first:String(occ.events.length?occurrenceOffset+1:0),last:String(occ.events.length?occurrenceOffset+occ.events.length:0),total:String(occ.total)}):'—'}</span><div className="flex gap-2"><Button small disabled={occurrences.loading||occurrenceOffset===0} onClick={()=>updateParams({occurrenceOffset:String(Math.max(0,occurrenceOffset-50))})}>{t('queue.previous')}</Button><Button small disabled={occurrences.loading||occ?.nextOffset==null} onClick={()=>updateParams({occurrenceOffset:String(occ!.nextOffset)})}>{t('queue.next')}</Button></div></div>
       </Surface>}
-      {tab==='activity'&&<div className="section-stack"><Surface title={t('detail.addNote')}><form className="form-stack" onSubmit={async e=>{e.preventDefault();if(await act(()=>api.addNote(issue.id,note)))setNote('');}}><Field label={t('detail.note')}><textarea className="input" required maxLength={10000} value={note} disabled={busy} onChange={e=>setNote(e.target.value)}/></Field><Button type="submit" variant="primary" disabled={busy||!note.trim()}>{t('detail.saveNote')}</Button></form></Surface><Surface title={t('detail.activity')}><p className="subtle text-xs mb-4">{t('detail.activityLimit')}</p>{issue.activity.length?<ol className="space-y-5">{issue.activity.map(item=><li key={item.id}><div className="flex flex-wrap items-center gap-3 text-sm"><Badge>{t(`detail.activity.${item.kind}`)}</Badge><span>{item.actorEmail??t('detail.system')}</span><TimeAgo iso={item.at}/></div><p className="mt-2 whitespace-pre-wrap break-words text-sm">{item.kind==='note'?String(item.body.text??''):item.kind==='assign'?(issue.assignees.find(user=>user.id===item.body.assignee)?.displayName||issue.assignees.find(user=>user.id===item.body.assignee)?.email||String(item.body.assignee??t('detail.unassigned'))):JSON.stringify(item.body)}</p></li>)}</ol>:<p>{t('detail.noActivity')}</p>}</Surface></div>}
+      {tab==='activity'&&<div className="section-stack"><Surface title={t('detail.addNote')}><form className="form-stack" onSubmit={async e=>{e.preventDefault();if(await act(()=>api.addNote(issue.id,note)))setNote('');}}><Field label={t('detail.note')}><Textarea className="input" required maxLength={10000} value={note} disabled={busy} onChange={e=>setNote(e.target.value)}/></Field><Button type="submit" variant="primary" disabled={busy||!note.trim()}>{t('detail.saveNote')}</Button></form></Surface><Surface title={t('detail.activity')}><p className="subtle text-xs mb-4">{t('detail.activityLimit')}</p>{issue.activity.length?<ol className="space-y-5">{issue.activity.map(item=><li key={item.id}><div className="flex flex-wrap items-center gap-3 text-sm"><Badge>{t(`detail.activity.${item.kind}`)}</Badge><span>{item.actorEmail??t('detail.system')}</span><TimeAgo iso={item.at}/></div><p className="mt-2 whitespace-pre-wrap break-words text-sm">{item.kind==='note'?String(item.body.text??''):item.kind==='assign'?(issue.assignees.find(user=>user.id===item.body.assignee)?.displayName||issue.assignees.find(user=>user.id===item.body.assignee)?.email||String(item.body.assignee??t('detail.unassigned'))):JSON.stringify(item.body)}</p></li>)}</ol>:<p>{t('detail.noActivity')}</p>}</Surface></div>}
       </Tabs>
       <Dialog open={rawOpen&&!!current} title={t('detail.rawEvent')} closeLabel={t('common.close')} onClose={()=>setRawOpen(false)}>{current&&<Code key={current.id} t={sharedT} code={JSON.stringify(current,null,2)} language="json" fileName={current.id+'.json'}/>}</Dialog>
     </div>
@@ -415,25 +418,22 @@ function SignalList({
                 ),
               });
         return (
-          <button
+          <Action
             key={i}
             type="button"
             disabled={!onSeek}
             onClick={() => onSeek?.(s.t)}
             className={clsx(
-              'flex w-full items-baseline gap-2.5 border-b border-border/60 px-3.5 py-1.5 text-left text-xs last:border-b-0',
+              'flex w-full items-center gap-2.5 border-b border-border/60 px-3.5 py-1.5 text-left text-xs last:border-b-0',
               near ? 'bg-raised' : onSeek ? 'hover:bg-raised/50' : '',
             )}
           >
             <span className="w-12 shrink-0 text-right tabular-nums text-fg-subtle">
               {s.t.toFixed(1)}s
             </span>
-            <span
-              aria-hidden
-              className="h-1.5 w-1.5 shrink-0 self-center rounded-full"
-              style={{ backgroundColor: signalColor(s.kind) }}
-            />
-            <span className="w-14 shrink-0 text-fg">{s.kind}</span>
+            <StatusLabel className="shrink-0 text-fg" marker={<span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: signalColor(s.kind) }} />}>
+              <span className="inline-block w-14">{signalKindLabel(s.kind)}</span>
+            </StatusLabel>
             <span
               className={`min-w-0 flex-1 truncate font-mono ${
                 httpFailed ? 'text-kind-error' : 'text-fg-muted'
@@ -441,7 +441,7 @@ function SignalList({
             >
               {summary}
             </span>
-          </button>
+          </Action>
         );
       })}
     </div>
