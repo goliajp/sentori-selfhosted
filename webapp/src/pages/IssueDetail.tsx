@@ -23,6 +23,7 @@ import { isBareTypeTitle } from '../lib/issue-title';
 import { formatApiError } from '../lib/useAsyncData';
 import { useScopedAsyncData } from '../lib/useScopedAsyncData';
 
+import { IssueInspection } from '../components/IssueInspection';
 import { ReplayPlayer } from '../components/ReplayPlayer';
 import { StackTrace, type StackFrame as Frame } from '../components/StackTrace';
 import {
@@ -47,6 +48,7 @@ export function IssueDetailPane({
   const timelineId=useId();
   const locale = useLocale();
   const sharedT = useSharedT();
+  const [selectedFrame,setSelectedFrame] = useState<{eventId:string;index:number}|null>(null);
   const [rawOpen,setRawOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [params, setParams] = useSearchParams();
@@ -199,6 +201,7 @@ export function IssueDetailPane({
 
   return (
     <div className="issue-detail flex min-h-0 min-w-0 flex-1 flex-col">
+      <IssueInspection event={current} frame={selectedFrame?.eventId===current?.id?stack[selectedFrame?.index ?? -1]:undefined} frameIndex={selectedFrame?.eventId===current?.id?selectedFrame?.index:undefined} stack={stack} onReset={()=>setSelectedFrame(null)} onRaw={()=>setRawOpen(true)} loading={event.loading} error={event.error} />
       <Link className="text-link text-sm" to={`/tasks?project=${issue.projectId}&issue=${issue.id}`}>{t('team.issueTask')}</Link>
       <Heading title={headline} description={issue.id} action={<div className="flex flex-wrap items-center gap-2"><KindBadge kind={issue.kind}/><Badge tone={issue.status==='resolved'?'success':'neutral'}>{t(`inbox.group.${issue.status}`)}</Badge>{issue.regressedAt&&issue.status==='open'&&<RegressedBadge/>}</div>}/>
       {subline&&<p className="muted mb-5 break-words">{subline}</p>}
@@ -236,11 +239,11 @@ export function IssueDetailPane({
         {current&&<>
       {/* The same evidence order at every width: code first, then replay.
           One scroll container keeps evidence reachable on a phone. */}
-        <div className="issue-evidence-grid grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)]">
+        <div className="issue-evidence-grid">
           <section data-evidence-code className="min-w-0">
             <Panel title={t('issue.code')}>
               {hasStack ? (
-                <StackTrace key={current.id} frames={stack} />
+                <StackTrace key={current.id} frames={stack} projectId={issue.projectId} release={current.release} selected={selectedFrame?.eventId===current.id?selectedFrame.index:undefined} onSelect={index=>setSelectedFrame({eventId:current.id,index})} />
               ) : (
                 <PanelEmpty>{t('issue.codeNone')}</PanelEmpty>
               )}
@@ -312,7 +315,7 @@ export function IssueDetailPane({
             </Panel>
 
           </section>
-          <div className="min-w-0 space-y-4 xl:col-span-2">
+          <div className="issue-evidence-wide min-w-0 space-y-4">
             <Panel title={`${t('issue.signals')}${signals.length ? ` (${signals.length})` : ''}`}>
               {signals.length === 0 ? (
                 <PanelEmpty>{t('issue.signalsNone')}</PanelEmpty>
@@ -343,6 +346,7 @@ export function IssueDetailPane({
       </button>
       <div id={timelineId} data-issue-timeline className={clsx('shrink-0', timelineOpen ? 'block' : 'hidden sm:block')}>
       <TimelineStrip
+        key={currentId}
         signals={signals as StripSignal[]}
         frameTimes={frameTimes}
         context={contextEvents}

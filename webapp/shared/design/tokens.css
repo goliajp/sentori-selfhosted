@@ -1,5 +1,14 @@
 /* Foundation tokens, theme, density and responsive policy. Components consume these. */
 :root {
+  /* Workbench reading hierarchy; density only changes spacing. */
+  --bench-title-size: 22px;
+  --bench-section-size: 15px;
+  --bench-body-size: 14px;
+  --bench-control-size: 13px;
+  --bench-meta-size: 12px;
+  --bench-code-size: 12px;
+  --bench-chrome-size: 11px;
+
   scrollbar-gutter: stable;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans",

@@ -28,6 +28,8 @@ await withLiveBrowsers('instance-reset', async ({engine,page,origin,out,password
   for (const locale of ['en','zh','ja']) for (const theme of ['light','dark']) {
     const text = labels[locale];
     await page.goto(origin + '/self-hosted');
+    // Do not abort shell initialization requests while changing the locale.
+    await page.waitForLoadState('networkidle');
     await page.evaluate(({locale,theme}) => { localStorage.setItem('sentori_locale',locale); localStorage.setItem('sentori-theme',theme); }, {locale,theme});
     await page.reload();
     const launch = page.getByRole('button',{name:text.title,exact:true});
