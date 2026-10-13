@@ -18,6 +18,8 @@ sharedComponent('src/App.tsx','Workbench','./components/Workbench');
 sharedComponent('src/components/Workbench.tsx','WorkbenchLayout','../../shared/design/WorkbenchLayout');
 sharedComponent('src/components/Workbench.tsx','DocumentTabs','../../shared/design/DocumentTabs');
 sharedComponent('src/components/Workbench.tsx','Picker','../../shared/design/Picker');
+sharedComponent('src/components/Workbench.tsx','ResourceLabel','../../shared/design/ResourceLabel');
+sharedComponent('vis/src/components/Workbench.tsx','ResourceLabel','../../../shared/design/ResourceLabel');
 sharedComponent('vis/src/components/Workbench.tsx','WorkbenchLayout','../../../shared/design/WorkbenchLayout');
 sharedComponent('vis/src/components/DocumentTabs.tsx','DocumentTabs','../../../shared/design/DocumentTabs');
 sharedComponent('vis/src/components/Selection.tsx','Picker','../../../shared/design/Picker');
