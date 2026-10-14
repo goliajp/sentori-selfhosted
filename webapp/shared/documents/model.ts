@@ -79,7 +79,7 @@ export const SECTIONS: { key: string; slugs: string[] }[] = [
       'dashboard',
     ],
   },
-  { key: 'docs.section.sdk', slugs: ['sdk-swift', 'sdk-kotlin'] },
+  { key: 'docs.section.sdk', slugs: ['sdk-swift', 'sdk-kotlin', 'cli'] },
   { key: 'docs.section.wire', slugs: ['protocol', 'errors', 'replay-encoding-v2'] },
   { key: 'docs.section.run', slugs: ['self-hosting', 'teams', 'runbook/scaling', 'runbook/cli-auth'] },
   { key: 'docs.section.recipes', slugs: ['recipes/sourcemap-upload', 'recipes/release-versioning'] },

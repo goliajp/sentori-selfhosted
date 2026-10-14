@@ -153,7 +153,7 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
   const uploadPath=`**/admin/api/projects/${project.id}/releases/${release.id}/artifacts`;
   await page.route(uploadPath,route=>route.request().method()==='POST'?route.fulfill({status:503,contentType:'application/json',body:'{"error":"injected_failure"}'}):route.continue());
   await dialog.getByRole('button',{name:'Upload debug file',exact:true}).click();await dialog.getByRole('alert').waitFor();assert.equal(await dialog.locator('.file-list strong').textContent(),'index.android.bundle.map');
-  await page.unroute(uploadPath);await dialog.getByRole('button',{name:'Upload debug file',exact:true}).click();await dialog.getByRole('status').filter({hasText:'File stored and readable'}).waitFor();
+  await page.unroute(uploadPath);await dialog.getByRole('button',{name:'Upload debug file',exact:true}).click();await dialog.getByRole('status').filter({hasText:'File stored and format checked'}).waitFor();
   assert.ok((await call(`/admin/api/projects/${project.id}/releases/${release.id}/artifacts`)).artifacts.some(artifact=>artifact.usable===true));
   for(let attempt=0;attempt<50;attempt++){const event=await call('/admin/api/events/'+target.eventId);if(event.payload.error.stack[0].contextLine)break;await new Promise(resolve=>setTimeout(resolve,100));}
   await visit(detail);await page.locator('[data-evidence-code] .code-block').waitFor();assert.ok((await page.locator('[data-evidence-code] .code-block').innerText()).includes("return post('/pay'"));

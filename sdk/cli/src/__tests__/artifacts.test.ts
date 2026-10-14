@@ -65,7 +65,7 @@ describe('artifacts read', () => {
 
   test('the release name is escaped — @ and + are ordinary in one', async () => {
     seen.length = 0
-    const restore = serve(200, full)
+    const restore = serve(200, { ...full, release: 'focus-ai-app@5.4.26080601+382' })
     try {
       await fetchArtifacts({
         apiUrl: 'https://x.test/',

@@ -29,6 +29,7 @@ jobs:
           bun install --frozen-lockfile
           bun run build:sdks
           bun run test:sdks
+          node sdk/cli/tools/check-install.mjs
           cd webapp
           bun install --frozen-lockfile
           bun run check

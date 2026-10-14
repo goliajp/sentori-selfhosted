@@ -12,6 +12,13 @@ export type ArtifactRow = {
     usable?: boolean | null;
 };
 export type ArtifactsResponse = {
+    /** Additive capability advertisement. Absent on older servers. */
+    compatibility?: {
+        serverVersion: string;
+        artifactProtocol: number;
+        sourceBundleFormats: string[];
+        verification: string[];
+    };
     release: string;
     /** False when the server has never heard this release name at all
      *  — a typo in `--release` and an un-uploaded release look the

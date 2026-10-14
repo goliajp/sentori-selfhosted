@@ -171,7 +171,7 @@ pub async fn prepare(
         }
         // Native frames (JVM class.method+line, or iOS addr+image
         // info) go through the proguard / DWARF resolvers.
-        if w.platform == "android" || w.platform == "ios" {
+        {
             let n = crate::native_symbolicate::symbolicate_native(
                 &state.pool,
                 &state.attachments,

@@ -254,6 +254,12 @@ pub async fn list_by_release_name(
         .collect();
 
     Ok(Json(json!({
+        "compatibility": {
+            "serverVersion": env!("CARGO_PKG_VERSION"),
+            "artifactProtocol": 1,
+            "sourceBundleFormats": ["zip", "json"],
+            "verification": ["sha256", "format"],
+        },
         "release": release,
         "known": known,
         "kinds": Value::Object(counts),
@@ -308,6 +314,32 @@ pub fn name_carrying(name: String, ids: &[String]) -> String {
     out
 }
 
+// Validate archive build identity before committing a release row or blob.
+async fn validate_source_release(
+    bytes: &[u8],
+    release_id: Uuid,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let bundle = crate::source_bundle::SrcBundle::parse(bytes).map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": error.to_string()})),
+        )
+    })?;
+    let release: String = sqlx::query_scalar("SELECT name FROM releases WHERE id = $1")
+        .bind(release_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(super::jobs::database_error)?;
+    bundle.validate_release(&release).map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": error.to_string()})),
+        )
+    })?;
+    Ok(())
+}
+
 /// Blob + row. Shared so the two routes cannot drift into storing
 /// artifacts the symbolicator reads differently depending on who
 /// uploaded them.
@@ -320,6 +352,9 @@ async fn store(
     actor: Option<Uuid>,
     mut tx: sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    if kind == "srcbundle" {
+        validate_source_release(bytes, release_id, &mut tx).await?;
+    }
     // A stack finds its dSYM by the debug id embedded in the stored
     // *name*, and the id lives in the file, not the filename.
     // `sentori-cli` builds a name that carries it. The manual path
@@ -511,11 +546,11 @@ fn unusable_hint(kind: &str) -> &'static str {
 /// Each is answered with the same parser that will be asked for real
 /// later — the point is to fail here, once, in front of whoever
 /// uploaded it, rather than months later in a log nobody reads.
-/// `srcbundle` is a plain JSON blob the reader tolerates loosely, so
-/// there is nothing sharp to assert and it stays `None`; claiming
-/// `true` for "we did not look" is worse than saying nothing.
+/// Source bundles validate ZIP paths, size limits, UTF-8 and any manifest
+/// checksums; legacy path-to-text JSON uses the same source parser.
 pub fn usable_for_symbolication(kind: &str, bytes: &[u8]) -> Option<bool> {
     match kind {
+        "srcbundle" => Some(crate::source_bundle::SrcBundle::parse(bytes).is_ok()),
         "sourcemap" => Some(sentori_sourcemap_resolver::ParsedMap::parse(bytes).is_ok()),
         "proguard" => Some(sentori_proguard_resolver::ParsedMapping::parse(bytes.to_vec()).is_ok()),
         // Header and load commands only. insight's main slice is

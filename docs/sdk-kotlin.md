@@ -349,15 +349,30 @@ The `--release` here and the `release` you pass to `Sentori.start`
 must be the same string. They are matched literally; a build number
 in one and not the other is a release the server has never heard of.
 
-To see the failing line rather than only the method name, upload the
-sources too:
+Use the **`sentori`** CLI to configure, upload and verify the build's files,
+including the source code needed to show the failing line. This workflow requires
+CLI 1.6.0 and a server advertising source ZIP support. Follow the
+[installation and compatibility guide](../sdk/cli/README.md) first; until 1.6.0 is
+published, install the supplied package tarball. Git is optional:
 
 ```bash
-npx @goliapkg/sentori-cli@latest upload srcbundle \
-  --api-url "$SENTORI_API_URL" \
-  --release "com.example.app@$VERSION+$BUILD" \
-  --token "$SENTORI_TOKEN" app/src/main/java
+npx --no-install sentori --version
+npx --no-install sentori init --api-url "$SENTORI_API_URL" --mapping app/build/outputs/mapping/release/mapping.txt --sources app/src/main/java
+export SENTORI_RELEASE="com.example.app@$VERSION+$BUILD"
+npx --no-install sentori doctor
+npx --no-install sentori config validate
+npx --no-install sentori upload all
+npx --no-install sentori verify
 ```
+
+The API-scope token comes from `SENTORI_TOKEN`. Review `sentori.config.json` and
+select application/shared source directories, excluding dependencies and build
+outputs. Source paths remain relative to the configured root. Source ZIPs carry
+the release and per-file hashes; ordinary UTF-8 source ZIPs can also be uploaded.
+`sentori sources pack --git-tag <tag>` reads that exact tag's commit without
+checking it out or including working-tree changes. See the
+[CLI source and upload workflow](../sdk/cli/README.md) for ZIP packaging,
+configuration, explicit tag selection, and exact-file verification.
 
 An upload that fails exits 0 and prints the command to run by hand.
 It is not your build's job to fail because our server was

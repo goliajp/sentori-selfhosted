@@ -69,6 +69,7 @@ mod rate_limit;
 mod resymbolicate;
 mod security_headers;
 mod session_mw;
+mod source_bundle;
 mod state;
 mod symbolicate;
 mod team;

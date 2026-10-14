@@ -108,7 +108,7 @@ pub async fn resolve_payload(
     )
     .await
     .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-    if platform == "android" || platform == "ios" {
+    {
         n += crate::native_symbolicate::symbolicate_native_checked(
             &state.pool,
             &state.attachments,

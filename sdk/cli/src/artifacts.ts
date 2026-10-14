@@ -34,6 +34,13 @@ export type ArtifactRow = {
 }
 
 export type ArtifactsResponse = {
+  /** Additive capability advertisement. Absent on older servers. */
+  compatibility?: {
+    serverVersion: string
+    artifactProtocol: number
+    sourceBundleFormats: string[]
+    verification: string[]
+  }
   release: string
   /** False when the server has never heard this release name at all
    *  — a typo in `--release` and an un-uploaded release look the
@@ -61,5 +68,9 @@ export async function fetchArtifacts(opts: {
       `${resp.status} ${resp.statusText}${detail ? ` — ${detail.slice(0, 200)}` : ''}`,
     )
   }
-  return (await resp.json()) as ArtifactsResponse
+  const result = await resp.json() as ArtifactsResponse
+  if (!result || result.release !== opts.release || typeof result.known !== 'boolean' || !Array.isArray(result.artifacts)) {
+    throw new Error('Unsupported artifact inventory response; check --api-url and upgrade the Sentori server or CLI together.')
+  }
+  return result
 }

@@ -28,6 +28,10 @@ export async function fetchArtifacts(opts) {
         const detail = await resp.text().catch(() => '');
         throw new Error(`${resp.status} ${resp.statusText}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
     }
-    return (await resp.json());
+    const result = await resp.json();
+    if (!result || result.release !== opts.release || typeof result.known !== 'boolean' || !Array.isArray(result.artifacts)) {
+        throw new Error('Unsupported artifact inventory response; check --api-url and upgrade the Sentori server or CLI together.');
+    }
+    return result;
 }
 //# sourceMappingURL=artifacts.js.map
