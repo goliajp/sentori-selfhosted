@@ -3,11 +3,11 @@
 .release-legend { font-size: 12px; color: var(--ui-secondary); margin-block: var(--space-4); }
 .release-coverage > span, .release-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .release-coverage i, .release-legend i { width: 7px; height: 7px; border-radius: 50%; background: var(--ui-muted); }
-.release-coverage [data-state="ok"] i, .release-legend [data-state="ok"] i { background: var(--ui-success); }
-.release-coverage [data-state="broken"] i, .release-legend [data-state="broken"] i { background: var(--ui-warning); }
-.release-coverage [data-state="missing"] i, .release-legend [data-state="missing"] i { background: var(--ui-danger); }
+.release-coverage [data-state="valid"] i, .release-legend [data-state="valid"] i { background: var(--ui-success); }
+.release-coverage [data-state="partial"] i, .release-legend [data-state="partial"] i { background: var(--ui-warning); }
+.release-coverage [data-state="invalid"] i, .release-legend [data-state="invalid"] i { background: var(--ui-danger); }
 .release-coverage { column-gap: 10px; row-gap: 4px; font-size: 11px; }
-.release-coverage > span { white-space: nowrap; }
+.release-coverage > span { max-width: 100%; }
 /* A release is a selection in one document, with independently scrolling panes. */
 .production-page.release-workspace { display: flex; flex-direction: column; overflow: hidden; scrollbar-gutter: auto; }
 .release-workspace > .page-heading,.release-workspace > .control-bar { flex-shrink: 0; }

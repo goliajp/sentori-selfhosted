@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
+import { runWorkflow, runSourcesPack, WORKFLOW_HELP } from './workflow.js';
+import { checkCompatibility, CLI_VERSION } from './compatibility.js';
 import { fetchBundle, formatIssueLine, listIssues, noteIssue, resolveIssue, } from './issue.js';
 import { isStrict, lenientFail, stripStrict } from './lenient.js';
 import { runMcpServer } from './mcp.js';
@@ -9,22 +11,21 @@ import { parseJsonArg, pushCredsDelete, pushCredsList, pushCredsSet, pushReceipt
 import { reactNativeUpload } from './react-native.js';
 import { fetchArtifacts } from './artifacts.js';
 import { expandSourcemapPaths, uploadArtifact } from './upload.js';
-const HELP = `sentori-cli — Sentori command-line interface
+const HELP = `${WORKFLOW_HELP}\n\nsentori — Sentori command-line interface
 
 Symbolication artifacts (api-scope token; failures NEVER block your
 build — exit 0 with a friendly note unless --strict):
-  sentori-cli upload sourcemap --release <r> --token <t> <path...>
-  sentori-cli upload dsym      --release <r> --token <t> <path.dSYM>
-  sentori-cli upload mapping   --release <r> --token <t> mapping.txt
+  sentori upload sourcemap --release <r> --token <t> <path...>
+  sentori upload dsym      --release <r> --token <t> <path.dSYM>
+  sentori upload mapping   --release <r> --token <t> mapping.txt
                                (mapping = the R8/proguard map; stored as kind "proguard")
-  sentori-cli upload srcbundle --release <r> --token <t> <src-dir...>
-                               (native source files so dSYM/proguard frames
-                                show the failing line; nothing touches git)
-  sentori-cli react-native upload --release <r> --token <t> \\
+  sentori upload srcbundle --release <r> --token <t> <src-dir...>
+                               (ZIP or selected source directories; optional --git-tag pins a tag)
+  sentori react-native upload --release <r> --token <t> \\
       --metro-map <m> --hermes-map <h> [--bundle <b>]
 
-Release gate (the ONE command here that is allowed to fail):
-  sentori-cli artifacts check --release <r> --token <t> [--expect dsym,sourcemap]
+Legacy kind-presence gate (use verify for exact planned files):
+  sentori artifacts check --release <r> --token <t> [--expect dsym,sourcemap]
       Asks the server what actually landed for this release. With
       --expect, exits 1 when one of those kinds is missing. Uploads
       never block your build; this is the step that does, and it
@@ -32,23 +33,24 @@ Release gate (the ONE command here that is allowed to fail):
       the upload step that stopped being called at all.
 
 Regression tripwires (design: probes):
-  sentori-cli probes sync --release <r> --token <t> [--dir .]
+  sentori probes sync --release <r> --token <t> [--dir .]
       Statically scans source for sentori.probe('REF') call sites and
       registers them, so a silent probe is visibly alive.
 
 CI triage (the same /api surface an AI agent uses):
-  sentori-cli issue list [--status open] [--kind error]
-  sentori-cli issue resolve <issue-id> [--in-release <r>]
-  sentori-cli issue note <issue-id> --body "fixed in abc123"
-  sentori-cli issue bundle <issue-id>
+  sentori issue list [--status open] [--kind error]
+  sentori issue resolve <issue-id> [--in-release <r>]
+  sentori issue note <issue-id> --body "fixed in abc123"
+  sentori issue bundle <issue-id>
 
 MCP (for Claude Code and friends):
-  sentori-cli mcp serve --token <api-token> [--api-url <url>]
+  sentori mcp serve --token <api-token> [--api-url <url>]
 
 Push (carried):
-  sentori-cli push send / receipt / creds ...
+  sentori push send / receipt / creds ...
 
 Common options:
+  --version     installed CLI package version
   --token       api-scope token (or $SENTORI_TOKEN)
   --api-url     instance URL (or $SENTORI_API_URL; default https://sentori.golia.jp)
   --strict      upload commands: exit non-zero on failure
@@ -106,48 +108,54 @@ const UPLOAD_OPTS = {
 // ── upload commands (lenient by contract) ─────────────────────────
 async function cmdUploadSrcbundle(argv) {
     const strict = isStrict(argv);
-    let parsed;
     try {
-        parsed = parseArgs({ allowPositionals: true, args: stripStrict(argv), options: UPLOAD_OPTS });
-    }
-    catch (e) {
-        console.error(`error: ${e.message}\n${HELP}`);
-        return 2;
-    }
-    if (parsed.values.help) {
-        console.log(HELP);
-        return 0;
-    }
-    const c = parseCommon(parsed.values);
-    if (!c)
-        return 2;
-    if (parsed.positionals.length === 0) {
-        console.error('error: at least one source directory is required');
-        return 2;
-    }
-    try {
-        const { collectSources } = await import('./srcbundle.js');
-        const { bundle, stats } = collectSources(parsed.positionals);
-        if (stats.files === 0) {
-            console.error('error: no native source files found under the given directories');
-            return 2;
+        const parsed = parseArgs({ allowPositionals: true, args: stripStrict(argv), options: {
+                ...UPLOAD_OPTS, root: { type: 'string' }, 'git-tag': { type: 'string' }, exclude: { type: 'string', multiple: true },
+            } });
+        if (parsed.values.help) {
+            console.log(HELP);
+            return 0;
         }
-        const { writeFileSync, mkdtempSync } = await import('node:fs');
+        const c = parseCommon({ ...parsed.values, release: parsed.values.release ?? process.env.SENTORI_RELEASE });
+        if (!c)
+            throw new Error('upload configuration is incomplete');
+        const { inspectSourceArchive, packSources } = await import('./srcbundle.js');
+        const { readFileSync, writeFileSync, mkdtempSync, rmSync } = await import('node:fs');
         const { tmpdir } = await import('node:os');
         const { join } = await import('node:path');
-        const tmp = join(mkdtempSync(join(tmpdir(), 'sentori-srcbundle-')), 'srcbundle.json');
-        writeFileSync(tmp, JSON.stringify(bundle));
-        await uploadArtifact({ ...c, kind: 'srcbundle', path: tmp, name: 'srcbundle.json' });
-        console.log(`uploaded a source bundle for "${c.release}" — ${stats.files} file(s)` +
-            `${stats.skipped ? ` (${stats.skipped} skipped as oversized/unreadable)` : ''}; ` +
-            `native frames on this release now show their source window.`);
-        return 0;
+        let temporary;
+        try {
+            let path = parsed.positionals[0];
+            if (parsed.positionals.length === 1 && path?.toLowerCase().endsWith('.zip')) {
+                if (parsed.values['git-tag'])
+                    throw new Error('--git-tag applies to source directories, not an existing ZIP');
+                const archive = inspectSourceArchive(readFileSync(path), c.release);
+                console.log(`Checked ${archive.files.length} source files in ${path}`);
+            }
+            else {
+                const packed = packSources(parsed.positionals, c.release, { root: parsed.values.root, exclude: parsed.values.exclude, gitTag: parsed.values['git-tag'] });
+                temporary = mkdtempSync(join(tmpdir(), 'sentori-sources-'));
+                path = join(temporary, 'sources.zip');
+                writeFileSync(path, packed.bytes);
+                console.log(JSON.stringify(packed.manifest, null, 2));
+            }
+            console.log(checkCompatibility(await fetchArtifacts(c), true));
+            const verdict = await uploadArtifact({ ...c, kind: 'srcbundle', path: path, name: 'sources.zip' });
+            if (verdict.usable !== true)
+                throw new Error('source bundle was stored but not verified by the server');
+            console.log(`Source bundle stored and validated for ${c.release}; source context requires matching file paths and line numbers.`);
+            return 0;
+        }
+        finally {
+            if (temporary)
+                rmSync(temporary, { recursive: true, force: true });
+        }
     }
-    catch (e) {
+    catch (error) {
         return lenientFail(strict, {
-            failure: `srcbundle upload failed (${e.message})`,
-            impact: `native frames from ${c.release} will show file:line without the code window until uploaded.`,
-            retry: `sentori-cli upload srcbundle --release "${c.release}" --token <t> ${parsed.positionals.join(' ')}`,
+            failure: `source upload failed (${error instanceof Error ? error.message : String(error)})`,
+            impact: 'source context may be unavailable for this release',
+            retry: 'sentori upload srcbundle --release <exact-sdk-release> sources.zip',
         });
     }
 }
@@ -191,7 +199,7 @@ async function cmdUploadSourcemap(argv) {
         return lenientFail(strict, {
             failure: `sourcemap upload failed (${e.message})`,
             impact: `crashes from ${c.release} will show minified stacks until the map is uploaded.`,
-            retry: `sentori-cli upload sourcemap --release "${c.release}" --token <t> ${parsed.positionals.join(' ')}`,
+            retry: `sentori upload sourcemap --release "${c.release}" --token <t> ${parsed.positionals.join(' ')}`,
         });
     }
 }
@@ -253,7 +261,7 @@ async function cmdUploadDsym(argv) {
         return lenientFail(strict, {
             failure: `dSYM upload failed (${e.message})`,
             impact: `native iOS stacks from ${c.release} stay unsymbolicated until the dSYM lands.`,
-            retry: `sentori-cli upload dsym --release "${c.release}" --token <t> ${path}`,
+            retry: `sentori upload dsym --release "${c.release}" --token <t> ${path}`,
         });
     }
 }
@@ -298,7 +306,7 @@ async function cmdUploadMapping(argv) {
         return lenientFail(strict, {
             failure: `mapping upload failed (${e.message})`,
             impact: `Android stacks from ${c.release} stay R8-obfuscated until the mapping lands.`,
-            retry: `sentori-cli upload mapping --release "${c.release}" --token <t> ${path}`,
+            retry: `sentori upload mapping --release "${c.release}" --token <t> ${path}`,
         });
     }
 }
@@ -351,7 +359,7 @@ async function cmdReactNativeUpload(argv) {
         return lenientFail(strict, {
             failure: `react-native upload failed (${e.message})`,
             impact: `Hermes stacks from ${c.release} stay unsymbolicated until the composed map lands.`,
-            retry: `sentori-cli react-native upload --release "${c.release}" --token <t> --metro-map ${metroMap} --hermes-map ${hermesMap}`,
+            retry: `sentori react-native upload --release "${c.release}" --token <t> --metro-map ${metroMap} --hermes-map ${hermesMap}`,
         });
     }
 }
@@ -391,7 +399,7 @@ async function cmdProbesSync(argv) {
         return lenientFail(strict, {
             failure: `probes sync failed (${e.message})`,
             impact: `silent probes on ${c.release} can't be told apart from deleted code until registered.`,
-            retry: `sentori-cli probes sync --release "${c.release}" --token <t> --dir ${dir}`,
+            retry: `sentori probes sync --release "${c.release}" --token <t> --dir ${dir}`,
         });
     }
 }
@@ -572,11 +580,11 @@ async function cmdMcpServe(argv) {
  *  the listing, so the advice lives on both sides. */
 const UNREADABLE_HINT = {
     dsym: 'Upload the binary inside the .dSYM bundle ' +
-        '(Contents/Resources/DWARF/<name>), or point `sentori-cli upload dsym` ' +
+        '(Contents/Resources/DWARF/<name>), or point `sentori upload dsym` ' +
         'at the .dSYM and let it find the slices.',
     proguard: 'Upload build/outputs/mapping/<variant>/mapping.txt.',
     sourcemap: 'For React Native upload the composed map — ' +
-        '`sentori-cli react-native upload --metro-map <m> --hermes-map <h>` — not the bundle.',
+        '`sentori react-native upload --metro-map <m> --hermes-map <h>` — not the bundle.',
 };
 async function cmdArtifactsCheck(argv) {
     let parsed;
@@ -647,18 +655,34 @@ async function cmdArtifactsCheck(argv) {
     return 1;
 }
 async function main(argv) {
+    if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V')) {
+        console.log(`sentori ${CLI_VERSION}`);
+        return 0;
+    }
     if (argv.length === 0 || argv[0] === '-h' || argv[0] === '--help') {
         console.log(HELP);
         return 0;
     }
     const [a, b, ...rest] = argv;
+    if (a === 'init')
+        return runWorkflow('init', argv.slice(1));
+    if (a === 'doctor')
+        return runWorkflow('doctor', argv.slice(1));
+    if (a === 'verify')
+        return runWorkflow('verify', argv.slice(1));
+    if (a === 'config' && b === 'validate')
+        return runWorkflow('validate', rest);
+    if (a === 'upload' && b === 'all')
+        return runWorkflow('upload', rest);
+    if (a === 'sources' && b === 'pack')
+        return runSourcesPack(rest);
     if (a === 'upload' && b === 'sourcemap')
         return cmdUploadSourcemap(rest);
     if (a === 'upload' && b === 'dsym')
         return cmdUploadDsym(rest);
     if (a === 'upload' && b === 'mapping')
         return cmdUploadMapping(rest);
-    if (a === 'upload' && b === 'srcbundle')
+    if (a === 'upload' && (b === 'srcbundle' || b === 'source-bundle'))
         return cmdUploadSrcbundle(rest);
     if (a === 'react-native' && b === 'upload')
         return cmdReactNativeUpload(rest);

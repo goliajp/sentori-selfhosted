@@ -15,6 +15,8 @@ await withLiveBrowsers('projects', async ({engine, browser, context, page, origi
     await page.evaluate(({locale,theme}) => {localStorage.setItem('sentori_locale',locale);localStorage.setItem('sentori-theme',theme);}, {locale,theme});
     for (const width of (process.env.PROJECT_WIDTHS?.split(',').map(Number) ?? [320,768,1440,3840])) {
       await page.setViewportSize({width,height:1000}); await page.goto(origin + '/projects'); await card(aName).waitFor();
+      // Health and app loading can move the edit button after the card first appears.
+      await activeDocument.locator('.grid[aria-busy=false]').waitFor();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1), false, `${engine}/${locale}/${theme}/${width}`);
       await card(aName).locator('.surface-head button').first().click();
       const dialog = page.locator('dialog[open]'); await dialog.waitFor();
@@ -29,6 +31,7 @@ await withLiveBrowsers('projects', async ({engine, browser, context, page, origi
   }
   await page.setViewportSize({width:768,height:1000});
   await page.evaluate(() => localStorage.setItem('sentori_locale','en')); await page.goto(origin + '/projects'); await card(aName).waitFor();
+  await activeDocument.locator('.grid[aria-busy=false]').waitFor();
   await card(aName).getByRole('button',{name:'Edit project',exact:true}).click();
   const dialog = page.locator('dialog[open]');
   try { await dialog.waitFor(); } catch(error) {

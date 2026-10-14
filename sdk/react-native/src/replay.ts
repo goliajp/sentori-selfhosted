@@ -23,6 +23,7 @@ import {
 } from '@goliapkg/sentori-core';
 import type { ReplayFrame, ReplayNode } from '@goliapkg/sentori-core';
 
+import { appLifecycle } from './handlers/lifecycle';
 import { maskedNativeIds } from './mask';
 import { describeWireframeNative } from './native';
 
@@ -51,11 +52,16 @@ type NativeFrame = ReplayFrame;
 let _ring = new ReplayRing();
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _running = false;
+let _windowMs = 60_000;
+let _epoch = appLifecycle().epoch;
+let _lastFrameTs = 0;
 
 let _nativeMod: ReplayNativeModule | null = null;
 
 export type ReplayOptions = {
   mode?: 'off' | 'wireframe';
+  /** Retention window; init passes replaySeconds. */
+  windowSeconds?: number;
   /** Ticks per second. Default 2. Opt into 4 (or 8) for
    *  motion-heavy apps where playback smoothness matters more than
    *  the marginal CPU saving. */
@@ -83,10 +89,12 @@ export function startReplay(opts: ReplayOptions): void {
   );
   _running = true;
   _nativeMod = loadNativeReplay();
-  _keyframeIntervalMs = opts.keyframeMs ?? KEYFRAME_INTERVAL_MS;
+  _windowMs = (opts.windowSeconds ?? 60) * 1000;
+  _epoch = appLifecycle().epoch;
+  _keyframeIntervalMs = Math.min(opts.keyframeMs ?? KEYFRAME_INTERVAL_MS, _windowMs);
   // A fresh ring, so a restart with a different cadence does not
   // carry the previous one's state or its keyframe clock.
-  _ring = new ReplayRing({ keyframeMs: _keyframeIntervalMs });
+  _ring = new ReplayRing({ keyframeMs: _keyframeIntervalMs, windowMs: _windowMs });
   const hz = opts.hz ?? 2;
   const period = Math.max(MIN_TICK_PERIOD_MS, Math.round(1000 / hz));
   _timer = setInterval(() => {
@@ -100,6 +108,8 @@ export function startReplay(opts: ReplayOptions): void {
 
 export function stopReplay(): void {
   _running = false;
+  _ring.drain();
+  _lastFrameTs = 0;
   if (_timer !== null) {
     clearInterval(_timer);
     _timer = null;
@@ -123,7 +133,7 @@ let _firstTickLogged = false;
 const THIN_RESULT_NODES = 6;
 
 function captureTick(): void {
-  if (!_running) return;
+  if (!_running || !syncLifecycle()) return;
   if (!_firstTickLogged) {
     logger.debug('replay', 'tick: first invocation');
     _firstTickLogged = true;
@@ -157,7 +167,20 @@ function captureTick(): void {
   }
 }
 
+function syncLifecycle(): boolean {
+  const lifecycle = appLifecycle();
+  if (!lifecycle.active || lifecycle.epoch !== _epoch) {
+    _ring.drain();
+    _lastFrameTs = 0;
+  }
+  _epoch = lifecycle.epoch;
+  return lifecycle.active;
+}
+
 function encodeAndPush(snapshot: NativeFrame): void {
+  if (!Number.isFinite(snapshot.ts)) return;
+  if (snapshot.ts < _lastFrameTs) _ring.drain();
+  _lastFrameTs = snapshot.ts;
   _ring.push(snapshot);
 }
 
@@ -235,8 +258,12 @@ export function isReplayRunning(): boolean {
 /** Drain the ring as NDJSON (keyframe or delta per line). Empty
  *  string when the ring is empty. Resets state so the next session's
  *  replay starts with a fresh keyframe. */
-export function drainReplay(): string {
-  const entries = _ring.drain();
+export function drainReplay(now = Date.now()): string {
+  syncLifecycle();
+  const retained = _ring.drain().filter((entry) => entry.ts >= now - _windowMs && entry.ts <= now);
+  // A delta cannot be decoded after its expired base was removed.
+  const firstKey = retained.findIndex((entry) => entry.kind === 'key');
+  const entries = firstKey < 0 ? [] : retained.slice(firstKey);
   if (entries.length === 0) return '';
   return entries.map((e) => JSON.stringify(e)).join('\n');
 }
@@ -253,7 +280,10 @@ export function __tickWithNativeForTests(mod: ReplayNativeModule): void {
 
 export function __resetReplayForTests(): void {
   stopReplay();
-  _ring = new ReplayRing({ keyframeMs: _keyframeIntervalMs });
+  _windowMs = 60_000;
+  _keyframeIntervalMs = KEYFRAME_INTERVAL_MS;
+  _epoch = appLifecycle().epoch;
+  _ring = new ReplayRing({ keyframeMs: _keyframeIntervalMs, windowMs: _windowMs });
 }
 
 /** rc.9 — test seam. Lets unit tests drive the encoder without a
@@ -263,6 +293,7 @@ export function __feedTickForTests(frameJson: string): void {
     // Simulate "running" without an actual setInterval — caller drives.
     _running = true;
   }
+  if (!syncLifecycle()) return;
   const snapshot = JSON.parse(frameJson) as NativeFrame;
   encodeAndPush(snapshot);
 }

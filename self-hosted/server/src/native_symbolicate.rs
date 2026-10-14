@@ -14,8 +14,8 @@
 //!   uploaded name embeds the same debug id. Older SDKs send text
 //!   symbols only — those stay as-is, honestly unsymbolicated.
 //! - **srcbundle**: after either resolver produces file+line, a
-//!   `srcbundle` artifact (JSON path→content, uploaded by the
-//!   build) supplies the ±5-line reading window. No repository
+//!   `srcbundle` artifact (source ZIP or legacy JSON, uploaded by the
+//!   build) supplies the ±11-line reading window. No repository
 //!   access, mirroring the JS sourcesContent path.
 
 use std::collections::HashMap;
@@ -28,64 +28,7 @@ use uuid::Uuid;
 use sentori_dwarf_resolver::DwarfModule;
 use sentori_proguard_resolver::ParsedMapping;
 
-const CONTEXT_LINES: usize = 11;
-const MAX_CONTEXT_LINE_CHARS: usize = 300;
-
-/// Parsed srcbundle: project-relative path → file content.
-pub struct SrcBundle {
-    files: HashMap<String, String>,
-}
-
-impl SrcBundle {
-    fn parse(bytes: &[u8]) -> Option<Self> {
-        let v: Value = serde_json::from_slice(bytes).ok()?;
-        let obj = v.as_object()?;
-        let mut files = HashMap::new();
-        for (k, val) in obj {
-            if let Some(s) = val.as_str() {
-                files.insert(k.clone(), s.to_owned());
-            }
-        }
-        Some(Self { files })
-    }
-
-    /// Look a compiler-recorded path up leniently: exact, then by
-    /// suffix — DWARF records build-host absolute paths, the bundle
-    /// carries project-relative ones.
-    fn lookup(&self, path: &str) -> Option<&str> {
-        if let Some(c) = self.files.get(path) {
-            return Some(c);
-        }
-        self.files
-            .iter()
-            .find(|(k, _)| path.ends_with(k.as_str()) || k.ends_with(path))
-            .map(|(_, v)| v.as_str())
-    }
-
-    fn window(&self, path: &str, line: u32) -> Option<(Vec<String>, String, Vec<String>)> {
-        let content = self.lookup(path)?;
-        let rows: Vec<&str> = content.lines().collect();
-        let line0 = usize::try_from(line).ok()?.checked_sub(1)?;
-        if line0 >= rows.len() {
-            return None;
-        }
-        let start = line0.saturating_sub(CONTEXT_LINES);
-        let end = (line0 + CONTEXT_LINES + 1).min(rows.len());
-        let clip = |s: &str| -> String {
-            if s.chars().count() <= MAX_CONTEXT_LINE_CHARS {
-                s.to_owned()
-            } else {
-                let c: String = s.chars().take(MAX_CONTEXT_LINE_CHARS).collect();
-                format!("{c}…")
-            }
-        };
-        Some((
-            rows[start..line0].iter().map(|s| clip(s)).collect(),
-            clip(rows[line0]),
-            rows[(line0 + 1)..end].iter().map(|s| clip(s)).collect(),
-        ))
-    }
-}
+use crate::source_bundle::SrcBundle;
 
 /// Rewrite the native frames of an error payload in place. Returns
 /// how many frames were resolved.
@@ -160,12 +103,12 @@ async fn resolve(
         strict,
     )
     .await?
-    .and_then(|b| SrcBundle::parse(&b));
+    .and_then(|b| SrcBundle::parse(&b).ok());
 
-    let mut resolved = 0usize;
+    let mut resolved = std::collections::HashSet::new();
     match platform {
         "android" => {
-            let Some(mapping) = artifact_bytes(
+            let mapping = artifact_bytes(
                 pool,
                 attachments,
                 project_id,
@@ -175,20 +118,20 @@ async fn resolve(
                 strict,
             )
             .await?
-            .and_then(|b| ParsedMapping::parse(b).ok()) else {
-                return Ok(0);
-            };
-            for frame in stack.iter_mut() {
-                if rewrite_android(&mapping, frame) {
-                    resolved += 1;
+            .and_then(|b| ParsedMapping::parse(b).ok());
+            for (index, frame) in stack.iter_mut().enumerate() {
+                if mapping
+                    .as_ref()
+                    .is_some_and(|mapping| rewrite_android(mapping, frame))
+                {
+                    resolved.insert(index);
                 }
-                fill_context(srcbundle.as_ref(), frame);
             }
         }
         "ios" => {
             // Per-frame dSYM slice lookup, cached per event by uuid.
             let mut modules: HashMap<String, Option<Arc<DwarfModule>>> = HashMap::new();
-            for frame in stack.iter_mut() {
+            for (index, frame) in stack.iter_mut().enumerate() {
                 let Some(uuid) = frame
                     .get("imageUuid")
                     .and_then(Value::as_str)
@@ -213,14 +156,20 @@ async fn resolve(
                 if let Some(Some(module)) = modules.get(&uuid)
                     && rewrite_ios(module, frame)
                 {
-                    resolved += 1;
+                    resolved.insert(index);
                 }
-                fill_context(srcbundle.as_ref(), frame);
             }
         }
         _ => {}
     }
-    Ok(resolved)
+    // Already-readable native frames and source maps without embedded source
+    // can use an uploaded source archive even without a native symbol file.
+    for (index, frame) in stack.iter_mut().enumerate() {
+        if fill_context(srcbundle.as_ref(), frame) {
+            resolved.insert(index);
+        }
+    }
+    Ok(resolved.len())
 }
 
 /// `"a.b.C.method"` → deobfuscated frame via the R8 mapping.
@@ -306,13 +255,13 @@ fn rewrite_ios(module: &DwarfModule, frame: &mut Value) -> bool {
 
 /// Fill the reading window from the srcbundle for a frame that has
 /// file+line and no context yet.
-fn fill_context(bundle: Option<&SrcBundle>, frame: &mut Value) {
-    let Some(bundle) = bundle else { return };
+fn fill_context(bundle: Option<&SrcBundle>, frame: &mut Value) -> bool {
+    let Some(bundle) = bundle else { return false };
     let Some(obj) = frame.as_object_mut() else {
-        return;
+        return false;
     };
-    if obj.contains_key("preContext") {
-        return;
+    if obj.get("contextLine").is_some_and(|value| !value.is_null()) {
+        return false;
     }
     let (Some(file), Some(line)) = (
         obj.get("file").and_then(Value::as_str).map(str::to_owned),
@@ -320,10 +269,10 @@ fn fill_context(bundle: Option<&SrcBundle>, frame: &mut Value) {
             .and_then(Value::as_u64)
             .and_then(|l| u32::try_from(l).ok()),
     ) else {
-        return;
+        return false;
     };
     let Some((pre, at, post)) = bundle.window(&file, line) else {
-        return;
+        return false;
     };
     obj.insert(
         "preContext".into(),
@@ -334,6 +283,7 @@ fn fill_context(bundle: Option<&SrcBundle>, frame: &mut Value) {
         "postContext".into(),
         Value::from(post.into_iter().map(Value::from).collect::<Vec<_>>()),
     );
+    true
 }
 
 pub(crate) fn normalize_uuid(s: &str) -> String {
@@ -423,14 +373,13 @@ mod tests {
             .map(|n| format!("kt line {n}"))
             .collect::<Vec<_>>()
             .join("\n");
-        let bundle = SrcBundle::parse(json!({ "app/src/Pay.kt": src }).to_string().as_bytes())
-            .ok_or("bundle parse failed")?;
+        let bundle = SrcBundle::parse(json!({ "app/src/Pay.kt": src }).to_string().as_bytes())?;
         let mut frame = json!({ "file": "Pay.kt", "line": 15 });
         fill_context(Some(&bundle), &mut frame);
         assert_eq!(frame["contextLine"], "kt line 15");
         assert_eq!(
             frame["preContext"].as_array().ok_or("pre missing")?.len(),
-            CONTEXT_LINES
+            11
         );
         Ok(())
     }

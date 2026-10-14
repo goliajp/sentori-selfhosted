@@ -30,7 +30,9 @@ type Node = {
   color?: string;
 };
 
+let now = 0;
 function frame(ts: number, nodes: Node[]) {
+  now = ts;
   return JSON.stringify({ ts, width: 1080, height: 2340, nodes });
 }
 
@@ -43,7 +45,7 @@ function nodeText(x: number, y: number, w: number, h: number, text: string, colo
 }
 
 function readDrainedLines(): unknown[] {
-  const drained = drainReplay();
+  const drained = drainReplay(now);
   if (drained.length === 0) return [];
   return drained.split('\n').map((l) => JSON.parse(l) as unknown);
 }
@@ -195,7 +197,7 @@ describe('rc.9 encoder — keyframe vs delta', () => {
       });
       __feedTickForTests(frame(1_000 + t * 250, nodes));
     }
-    const drained = drainReplay();
+    const drained = drainReplay(now);
     totalBytes = drained.length;
 
     // rc.8 baseline for the same window: 60 × 100 nodes × ~50 bytes/node ≈ 300 KB.

@@ -74,6 +74,8 @@ Each page is the API surface that ships with its package:
   assignment.
 - [Scaling](runbook/scaling.md) — what to read before adding capacity,
   and what this topology does not do.
+- [CLI installation, compatibility and release uploads](cli.md) —
+  configure, package sources, upload and verify exact build files.
 - [CLI authentication](runbook/cli-auth.md) — which token each command
   wants.
 

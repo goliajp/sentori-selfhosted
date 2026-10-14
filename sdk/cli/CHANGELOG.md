@@ -1,5 +1,11 @@
 # @goliapkg/sentori-cli
 
+## 1.6.0
+
+### Minor Changes
+
+- Add the sentori command and retain sentori-cli as an alias. Configure, pack source ZIPs from directories or exact Git tags, upload all selected debug artifacts and verify their exact stored bytes. Add --version and doctor; negotiate server artifact capabilities before source ZIP uploads. Document CLI/server compatibility, installation, platform recipes and strict CI gates.
+
 ## 0.6.0
 
 ### Minor Changes

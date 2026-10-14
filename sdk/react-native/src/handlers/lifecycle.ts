@@ -1,23 +1,30 @@
-/**
- * Phase 26 sub-B: AppState binding.
- *
- * Subscribes to AppState transitions:
- *   - active → start a fresh session (after a previous background end)
- *   - background / inactive → end the current session
- *
- * RN's AppState fires `inactive` on iOS during multitasking peek; we
- * end on it because that's effectively a background and the user may
- * not return. If they do, `active` starts a new one — the on-the-wire
- * session count goes up by one, which matches "the user opened the app
- * twice". Sentry historically did the opposite (treat inactive as
- * still alive), but that lets a swiped-away session never end.
+/** Shared foreground state for signals, JS freeze detection and replay.
+ * Both inactive and background suspend sampling; every transition advances
+ * a generation so even a full suspend/resume between two ticks is visible.
  */
 import { pushSignal } from '@goliapkg/sentori-core';
 
 let _installed = false;
 let _subscription: { remove: () => void } | null = null;
+let _appState: AppStateLike | undefined;
+let _state = 'active';
+let _epoch = 0;
+
+function updateState(state: string): void {
+  if (state === _state) return;
+  _state = state;
+  _epoch += 1;
+}
+
+/** A generation changes even if background and resume happen between ticks. */
+export function appLifecycle(): { active: boolean; epoch: number } {
+  // currentState can change before the queued change callback reaches JS.
+  if (_appState?.currentState != null) updateState(_appState.currentState);
+  return { active: _state === 'active', epoch: _epoch };
+}
 
 type AppStateLike = {
+  currentState?: string | null;
   addEventListener: (
     event: 'change',
     handler: (state: string) => void
@@ -38,17 +45,37 @@ export const installLifecycleHandler = (): void => {
   }
   if (!AppState || typeof AppState.addEventListener !== 'function') return;
 
-  _subscription = AppState.addEventListener('change', (state) => {
-    if (state === 'active') {
-      pushSignal('lifecycle', { state: 'active' });
-    } else if (state === 'background' || state === 'inactive') {
-      pushSignal('lifecycle', { state: 'background' });
-    }
-  });
+  bindLifecycle(AppState);
 };
+
+function bindLifecycle(AppState: AppStateLike): void {
+  _appState = AppState;
+  updateState(AppState.currentState ?? 'unknown');
+  try {
+    _subscription = AppState.addEventListener('change', (state) => {
+      updateState(state);
+      if (state === 'active') {
+        pushSignal('lifecycle', { state: 'active' });
+      } else if (state === 'background' || state === 'inactive') {
+        pushSignal('lifecycle', { state: 'background' });
+      }
+    });
+  } catch {
+    // A missing/broken native subscription must never break host initialization.
+  }
+}
 
 export const __uninstallLifecycleForTests = (): void => {
   _subscription?.remove();
   _subscription = null;
   _installed = false;
+  _appState = undefined;
+  _state = 'active';
+  _epoch += 1;
 };
+
+export function __setLifecycleForTests(state: string): void {
+  updateState(state);
+}
+
+export const __bindLifecycleForTests = bindLifecycle;

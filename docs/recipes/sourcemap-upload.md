@@ -1,234 +1,139 @@
 ---
-title: Source map upload from CI
-description: GitHub Actions / GitLab CI / Vercel build hook recipes
+title: Debug files in CI
+description: Upload and verify the exact debug files produced by an application release
 ---
 
-# Source map upload from CI
+# Debug files in CI
 
-The CLI is `@goliapkg/sentori-cli` (npm). `sentori-cli upload sourcemap`
-takes a release name + files or directories and POSTs them to your
-Sentori instance. Directories are scanned (one level) for `.map` /
-`.js` / `.jsbundle` / `.bundle` / `.hbc` files; the server dedupes by
-sha256, so re-runs are cheap. No install needed in CI — `npx` it:
+Use [CLI 1.6](../cli.md) to configure one build target, upload its source maps,
+native symbols and optional source ZIP, then verify the exact stored bytes.
+Commit `sentori.config.json` and a lockfile pinning
+`@goliapkg/sentori-cli@1.6.0`. Do not commit the API token or `.sentori/` archives.
 
-```bash
-npx @goliapkg/sentori-cli@latest upload sourcemap \
-  --release "myapp@1.2.3+456" \
-  --token "$SENTORI_TOKEN" \
-  --api-url "$SENTORI_API_URL" \
-  dist/assets/
+For Cloud, `apiUrl` is the target workspace's runtime URL. For self-hosted it is
+the instance URL. The Cloud billing site and separate ingest hostname are not
+substitutes. [Authentication](../runbook/cli-auth.md) explains API scope and rotation.
+
+## Prepare the application
+
+From the application root, after selecting your actual output paths:
+
+```sh
+npm install --save-dev --save-exact @goliapkg/sentori-cli@1.6.0
+npx --no-install sentori init --api-url https://sentori.example.com \
+  --sourcemap dist --sources src
 ```
 
-`--token` falls back to `$SENTORI_TOKEN`, `--api-url` to
-`$SENTORI_API_URL` (default `https://sentori.golia.jp`; for a
-self-hosted instance, your host). `--ingest-url` is accepted as an
-alias for `--api-url`. `--dry-run` lists what would be uploaded.
+Change `dist` to the build directory that contains your `.map` files. Directory
+uploads recurse and preserve relative filenames; two routes named `index.js.map`
+remain distinct. JavaScript bundles without maps do not replace source maps.
+Use only sources you intend to upload. The source ZIP cannot reconstruct a
+missing mapping between minified code and original lines.
 
-> **The release string must match.** `--release` here has to be byte-for-byte
-> what the SDK reports via `init({ release })` (e.g. `myapp@1.2.3+456`).
-> If they differ the dashboard silently can't symbolicate — see the
-> "no source map for release X" / "release mismatch" hints on the issue
-> page.
-
-Below: how to wire this into the common CI surfaces (the recipes below
-install the CLI globally; `npx` works too).
+Set **one exact release string** in both the application SDK and the upload job,
+including any build number. The CLI does not inject it into the app for you.
+Build files and source revision must belong to that release.
 
 ## GitHub Actions
 
-`.github/workflows/deploy.yml`:
+A dedicated required artifact job can use the following steps after checking
+out the application and restoring the exact build outputs:
 
 ```yaml
-name: Deploy
-on:
-  push:
-    branches: [main]
-jobs:
-  build-and-upload:
-    runs-on: ubuntu-latest
-    env:
-      SENTORI_TOKEN: ${{ secrets.SENTORI_TOKEN }}
-      SENTORI_API_URL: https://sentori.example.com
-      RELEASE: myapp@${{ github.ref_name }}+${{ github.run_number }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run build
-      - name: Install sentori-cli
-        run: |
-          npm install -g @goliapkg/sentori-cli
-      - name: Upload sourcemaps
-        run: sentori-cli upload sourcemap --release "$RELEASE" dist/assets/
-      - name: Notify of deploy
-        run: |
-          curl -fsS -X POST "$SENTORI_API_URL/v1/deploys" \
-            -H "Authorization: Bearer $SENTORI_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"release\":\"$RELEASE\",\"environment\":\"prod\"}"
-      # ... actual deploy step (Vercel CLI / AWS S3 sync / Fly deploy / ...)
+- uses: actions/setup-node@v4
+  with:
+    node-version: '24'
+- run: npm ci
+- name: Verify and upload release debug files
+  env:
+    SENTORI_TOKEN: ${{ secrets.SENTORI_TOKEN }}
+    SENTORI_RELEASE: ${{ needs.build.outputs.release }}
+  run: |
+    npx --no-install sentori doctor
+    npx --no-install sentori config validate
+    npx --no-install sentori upload all --dry-run
+    npx --no-install sentori upload all --strict
+    npx --no-install sentori verify
 ```
 
-Notes:
-
-- `actions/checkout@v4` is sufficient — we don't need `fetch-depth:
-  0`. The release name comes from `github.ref_name` + `run_number`.
-- The install step caches naturally on subsequent runs because the
-  GHA runner image is fresh per job but `curl` is fast (~1 s).
-- Put the upload **before** the deploy step so any release the user
-  sees is already symbolicatable. If the upload fails (network /
-  ingest down), failing the deploy job is the safe default.
+This is a step fragment, not a complete workflow: your `build` job must publish
+its release value and debug outputs. Restore them at the paths recorded in the
+configuration. Use the same commit's sources, or a locally available exact Git
+tag with `--git-tag` on both upload and verification. Do not derive a second
+release string independently in this job.
 
 ## GitLab CI
 
-`.gitlab-ci.yml`:
+Pin the CLI in the application's package lock. Have the `build` job retain the
+debug outputs and pass the release string through a dotenv artifact:
 
 ```yaml
-stages: [build, deploy]
-
-variables:
-  SENTORI_API_URL: "https://sentori.example.com"
-
-build:
-  stage: build
-  image: oven/bun:1
-  script:
-    - bun install --frozen-lockfile
-    - bun run build
-  artifacts:
-    paths: [dist/]
-    expire_in: 1 day
-
-upload-sourcemaps:
+upload-debug-files:
   stage: deploy
-  image: oven/bun:1
-  needs: [build]
+  image: node:24
+  needs:
+    - job: build
+      artifacts: true
   script:
-    - npm install -g @goliapkg/sentori-cli
-    - export PATH="$HOME/.sentori/bin:$PATH"
-    - export RELEASE="myapp@$CI_COMMIT_REF_NAME+$CI_PIPELINE_IID"
-    - sentori-cli upload sourcemap --release "$RELEASE" dist/assets/
-    - |
-      curl -fsS -X POST "$SENTORI_API_URL/v1/deploys" \
-        -H "Authorization: Bearer $SENTORI_TOKEN" \
-        -H "Content-Type: application/json" \
-        -d "{\"release\":\"$RELEASE\",\"environment\":\"prod\"}"
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - npm ci
+    - npx --no-install sentori doctor
+    - npx --no-install sentori upload all --strict
+    - npx --no-install sentori verify
 ```
 
-`SENTORI_TOKEN` lives in GitLab's CI/CD variables (Settings →
-CI/CD → Variables, mark "Masked"). `CI_PIPELINE_IID` is the
-per-project pipeline number — stable + monotonic.
+The upstream build must provide `SENTORI_RELEASE`; set `SENTORI_TOKEN` as a masked
+CI/CD secret. Keep this job separate from compilation if a reporting outage
+must not interrupt producing the application binary.
 
-## Vercel build hook
+## Nonblocking build hooks and Vercel
 
-Vercel doesn't expose a separate "post-build" step in the dashboard,
-but `package.json#scripts.build` is a normal shell command:
+Run the pinned local executable after the build has produced its debug files:
 
 ```json
 {
   "scripts": {
-    "build": "next build && bun run upload-sourcemaps",
-    "upload-sourcemaps": "node ./scripts/upload-sourcemaps.mjs"
+    "build": "next build && npm run sentori:upload",
+    "sentori:upload": "sentori upload all",
+    "sentori:verify": "sentori verify"
   }
 }
 ```
 
-`scripts/upload-sourcemaps.mjs`:
+Configure the real source-map output directory and set `SENTORI_TOKEN` and
+`SENTORI_RELEASE` in the build environment. Normal upload failures report the
+problem but return zero, preserving the host build. Run `sentori:verify` in a
+separate verification step; exit zero from the upload hook alone proves nothing.
+`doctor`, `config validate` and `verify` intentionally fail on errors. Adding
+`--strict` to the upload opts into a required gate.
 
-```js
-#!/usr/bin/env node
-import { execSync } from 'node:child_process'
+## Native and React Native builds
 
-const release = `myapp@${process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local'}`
-const token = process.env.SENTORI_TOKEN
-if (!token) {
-  console.warn('[sentori] SENTORI_TOKEN unset, skipping')
-  process.exit(0) // don't fail the build on a missing local token
-}
+- **iOS:** select the `.dSYM` bundle produced by the archived app using
+  `--dsym`, and any source directories separately. Source ZIPs cannot replace
+  the matching native debug IDs.
+- **Android:** select the release's R8 `mapping.txt` using `--mapping`. Use a
+  separate configuration if its release string differs from iOS.
+- **React Native / Hermes:** put the final composed map in
+  `artifacts.sourcemap`. If your build retains separate Metro and Hermes maps,
+  compose and upload them with `sentori react-native upload --metro-map ...
+  --hermes-map ... --release ...`. Metro maps alone do not resolve Hermes offsets.
+- **Expo / EAS:** retain the integration from the
+  [React Native guide](../../sdk/react-native/README.md). The CLI runs in the
+  build environment with API credentials; do not expose these in public Expo
+  application configuration.
 
-execSync(
-  `sentori-cli upload sourcemap --release "${release}" .next/static/chunks/`,
-  { stdio: 'inherit' },
-)
+Use `--config sentori.ios.config.json` (or the Android configuration) on every
+workflow command. All paths are relative to that configuration file. See the
+[CLI guide](../cli.md) for complete commands and Git-tag/source ZIP rules.
 
-// Deploy ping — Vercel sets VERCEL_ENV to 'production'|'preview'|'development'
-execSync(
-  `curl -fsS -X POST "$SENTORI_API_URL/v1/deploys" \
-    -H "Authorization: Bearer ${token}" \
-    -H "Content-Type: application/json" \
-    -d '{"release":"${release}","environment":"${process.env.VERCEL_ENV ?? 'preview'}"}'`,
-  { shell: '/bin/bash', stdio: 'inherit' },
-)
-```
+## What success proves
 
-Add `SENTORI_TOKEN` + `SENTORI_API_URL` to Vercel project →
-Settings → Environment Variables (scope: Production + Preview).
+`verify` requires every planned file's kind, name, SHA-256 and server format
+validation to match. An older file of the same kind is insufficient. This does
+not prove the debug files came from the app binary or that a particular stack
+can resolve; check the matching release and a real event as well.
 
-For source-map generation specifically:
-
-```js
-// next.config.js
-module.exports = {
-  productionBrowserSourceMaps: true,
-}
-```
-
-## React Native / Expo (Hermes)
-
-A React Native release build is double-minified: Metro bundles your JS
-(emitting `*.packager.map`), then Hermes compiles that to bytecode
-(emitting `*.hbc.map`). The frames you get in production point at the
-*bytecode* offset, so the **composed** map is what Sentori needs.
-`sentori-cli react-native upload` does the compose + upload in one step:
-
-```bash
-# produce the bundle + the Metro source map (the native iOS/Android
-# build then compiles to Hermes and writes main.jsbundle.hbc.map)
-npx react-native bundle \
-  --platform ios --dev false --entry-file index.js \
-  --bundle-output main.jsbundle \
-  --sourcemap-output main.jsbundle.packager.map
-
-# compose (Metro + Hermes maps) and upload — one command
-npx @goliapkg/sentori-cli@latest react-native upload \
-  --release "myapp@$VERSION+$BUILD" --token "$SENTORI_TOKEN" \
-  --metro-map main.jsbundle.packager.map \
-  --hermes-map main.jsbundle.hbc.map \
-  --bundle main.jsbundle
-```
-
-Do this once per platform (the iOS and Android bundles differ). The
-`--release` value must equal what the app passes to `init({ release })`.
-
-If you'd rather compose by hand and upload separately:
-
-```bash
-node node_modules/react-native/scripts/compose-source-maps.js \
-  main.jsbundle.packager.map main.jsbundle.hbc.map -o main.jsbundle.map
-npx @goliapkg/sentori-cli@latest upload sourcemap \
-  --api-url "$SENTORI_API_URL" --token "$SENTORI_TOKEN" \
-  --release "myapp@$VERSION+$BUILD" main.jsbundle.map main.jsbundle
-```
-
-**Expo / EAS:** `@goliapkg/sentori-expo` ships an EAS post-build hook
-(`@goliapkg/sentori-expo/eas-post-build`) that runs step 3 against
-`./dist` after `expo export --source-maps`. Wire it from `eas.json`'s
-`build.<profile>.hooks.postPublish` with `{ "options": { "release":
-"..." } }`, and set `SENTORI_ADMIN_TOKEN` in EAS secrets. For a *Hermes*
-EAS build you still need the compose step (1–2 above) before the hook —
-run it from a custom build script.
-
-## Verifying
-
-After an upload, the release detail page in the dashboard
-(`/org/<slug>/releases/<encoded-release>`) shows:
-
-- a "Source maps: N files" line
-- per-file size + sha256
-- the first 5 events to land against this release with a "preview
-  symbolicated frame" panel
-
-If the upload succeeded but events still show minified frames, check
-that the release name on the event matches the upload exactly —
-case-sensitive, `+build` suffix included.
+A failed upload can be retried with the same configuration and release. Servers
+reprocess existing events after a late artifact upload. Missing capability,
+wrong token, wrong workspace, quota rejection and unreadable files must be fixed
+before treating verification as complete.

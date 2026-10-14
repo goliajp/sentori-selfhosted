@@ -177,6 +177,16 @@ every stack in it symbolicate to whatever they choose.
 `multipart/form-data` with two fields:
 
 - `kind` — one of `sourcemap`, `dsym`, `proguard`, `srcbundle`.
+- `srcbundle` accepts a UTF-8 source ZIP or legacy JSON mapping relative paths to
+  text. ZIPs are read in memory: no absolute/traversal paths, symlinks, encryption
+  or duplicate paths; at most 10,000 entries, 512 KiB per source and 64 MiB of
+  source text. The optional `sentori-source-manifest.json` declares version 1,
+  the exact release, and each file's path, byte length and SHA-256. Its file list
+  and hashes must match; a declared release mismatch rejects the upload.
+  `sentori sources pack` creates this manifest from selected directories or an
+  explicit Git tag. Source bundles supply context after paths and lines are
+  known; they do not replace symbolication maps. See the
+  [CLI workflow](../sdk/cli/README.md).
 - `file` — the artifact. Gzip is inflated server-side, so `foo.map.gz` stores as
   `foo.map`. The **filename is data**: dSYM slices are matched to a crashing frame by
   the debug id embedded in it (`MyApp.app-arm64-<uuid>`).
@@ -231,6 +241,12 @@ Response (`200 OK`):
 
 ```json
 {
+  "compatibility": {
+    "serverVersion": "5.1.12",
+    "artifactProtocol": 1,
+    "sourceBundleFormats": ["zip", "json"],
+    "verification": ["sha256", "format"]
+  },
   "release": "myapp@1.2.3+456",
   "known":   true,
   "kinds":   { "sourcemap": 1, "dsym": 2, "proguard": 0, "srcbundle": 0 },
@@ -248,6 +264,13 @@ Response (`200 OK`):
 }
 ```
 
+- `compatibility` is an additive capability advertisement, also returned when
+  `known` is false. `serverVersion` identifies the binary; it is not a substitute
+  for capability negotiation. Older servers omit this field. CLI 1.6 checks
+  artifact protocol 1 and `sha256`/`format` verification before unified uploads;
+  source ZIPs additionally require `zip` in `sourceBundleFormats`. It rejects
+  unsupported ZIP plans before uploading any files. Existing non-ZIP pipelines
+  and old clients keep using the same endpoint.
 - `kinds` carries **every** kind with a count, zeros included: a gate wants to test a
   number, not the absence of a key.
 - `known` is false when this instance has never heard the release name at all. A typo
@@ -258,9 +281,10 @@ Scoped to the token's project: two projects with a release of the same name see 
 their own.
 
 `sentori-cli artifacts check --release <r> --expect sourcemap,dsym` wraps this and is
-the one CLI command that exits non-zero on purpose — uploads stay lenient so Sentori
-can never block a release, which means a broken upload step is silent and something
-has to be allowed to notice.
+a kind-presence gate. CLI 1.6 `sentori verify` checks the exact configured files
+and their format verdicts; `sentori doctor` checks credentials and compatibility.
+These checks return nonzero on failure. Uploads remain lenient unless `--strict`
+is supplied. See the [CLI guide](../sdk/cli/README.md).
 
 ### Conventions
 

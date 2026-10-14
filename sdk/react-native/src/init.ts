@@ -88,7 +88,7 @@ export const init = safeFn('init', (config: InitConfig): void => {
   // going out drains it into a replay attachment on that event.
   const replaySeconds = config.replaySeconds ?? 30;
   if (replaySeconds > 0) {
-    startReplay({ mode: 'wireframe' });
+    startReplay({ mode: 'wireframe', windowSeconds: replaySeconds });
     // Visual ring is opt-in: screenshots can carry user content.
     if (config.replayScreens === true) startScreenReplay(replaySeconds);
     registerEmitHook((event) => {

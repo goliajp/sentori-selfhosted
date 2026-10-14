@@ -167,3 +167,35 @@ release. See MIGRATION.md §6.
 
 Dual-licensed under [Apache-2.0](../../LICENSE-APACHE) OR
 [MIT](../../LICENSE-MIT).
+
+
+## Build files and source code
+
+Use the build-time **`sentori`** CLI (package `@goliapkg/sentori-cli`) to configure
+and upload source maps, native debug files and selected source directories.
+Install CLI 1.6.0 using the [installation and compatibility guide](../cli/README.md)
+first; until it is published, use the supplied tarball. The server must advertise
+source ZIP support; installing a new CLI alone cannot enable it:
+
+```sh
+npx --no-install sentori init --api-url https://sentori.your-domain.com --sources ios --sources android/app/src --sources src
+export SENTORI_RELEASE='my-app@1.2.3+42'
+npx --no-install sentori doctor
+npx --no-install sentori config validate
+npx --no-install sentori upload all
+npx --no-install sentori verify
+```
+
+Add the source-map/dSYM/mapping paths produced by your build to
+`sentori.config.json`. Use an API-scope `SENTORI_TOKEN` in the build environment.
+The release must exactly match `sentori.init({ release })`, including its build
+number. The CLI can package sources as ZIP without Git, or select committed
+sources with `--git-tag <tag>`. See the [CLI guide](../cli/README.md).
+
+The compatibility `sentori-rn-upload-source-bundle` script delegates version-1
+configuration to `sentori upload all`. Legacy `sources.ios`/`sources.android`
+configuration still accepts `--platform`; pass an explicit release or
+`SENTORI_RELEASE`. It no longer guesses a release from `package.json`, requires
+no project UUID, and never blocks a build on failure unless `--strict` is set.
+These tools run on the build machine; they add no runtime capture or network work
+to the host application.

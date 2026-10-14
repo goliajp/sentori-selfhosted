@@ -12,6 +12,7 @@
 
 import { logger } from '@goliapkg/sentori-core';
 
+import { appLifecycle } from './handlers/lifecycle';
 import { maskedNativeIds } from './mask';
 import { captureNativeReplayFrame } from './native';
 
@@ -43,12 +44,18 @@ let _ring: ScreenFrame[] = [];
 let _capacity = 0;
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _capturing = false;
+let _windowMs = 0;
+let _generation = 0;
+let _epoch = appLifecycle().epoch;
 let _captured = 0;
 
 /** Start the ring. `windowSeconds` is how far back the replay
  *  reaches when an event fires. */
 export const startScreenReplay = (windowSeconds: number): void => {
   if (_timer !== null || windowSeconds <= 0) return;
+  _windowMs = windowSeconds * 1000;
+  _epoch = appLifecycle().epoch;
+  _generation += 1;
   _capacity = Math.max(1, Math.ceil((windowSeconds * 1000) / TICK_INTERVAL_MS));
   _timer = setInterval(() => {
     void tick();
@@ -59,17 +66,24 @@ export const startScreenReplay = (windowSeconds: number): void => {
 const tick = async (): Promise<void> => {
   // Never overlap captures: a slow frame skips a beat instead of
   // queueing main-thread work.
-  if (_capturing) return;
+  if (_capturing || _timer === null || !syncLifecycle()) return;
   _capturing = true;
+  const generation = _generation;
+  const epoch = _epoch;
+  const startedAt = Date.now();
   try {
     const frame = await _capture(maskedNativeIds(), FRAME_LONG_EDGE_PX, FRAME_QUALITY);
-    if (frame) {
+    const active = syncLifecycle();
+    if (frame && active && epoch === _epoch && generation === _generation && _timer !== null) {
       _captured += 1;
-      _ring.push({ t: Date.now(), ...frame });
+      _ring.push({ t: startedAt, ...frame });
+      evict(Date.now());
       if (_ring.length > _capacity) _ring.splice(0, _ring.length - _capacity);
     }
+  } catch {
+    // Native capture may reject; sampling must stay silent to the host.
   } finally {
-    _capturing = false;
+    if (generation === _generation) _capturing = false;
   }
 };
 
@@ -91,9 +105,22 @@ export const screenReplayArmed = (): boolean => _timer !== null;
  *  than from a console line on a device nobody is holding. */
 export const screenReplayCaptured = (): number => _captured;
 
+function syncLifecycle(): boolean {
+  const lifecycle = appLifecycle();
+  if (!lifecycle.active || lifecycle.epoch !== _epoch) _ring = [];
+  _epoch = lifecycle.epoch;
+  return lifecycle.active;
+}
+
+function evict(now: number): void {
+  _ring = _ring.filter((frame) => frame.t >= now - _windowMs && frame.t <= now);
+}
+
 export const drainScreenReplay = (): null | string => {
-  if (_ring.length === 0) return null;
+  syncLifecycle();
   const now = Date.now();
+  evict(now);
+  if (_ring.length === 0) return null;
   return _ring
     .map((f) =>
       JSON.stringify({
@@ -111,6 +138,9 @@ export const drainScreenReplay = (): null | string => {
 export const __resetForTests = (): void => {
   if (_timer !== null) clearInterval(_timer);
   _timer = null;
+  _generation += 1;
+  _windowMs = 0;
+  _epoch = appLifecycle().epoch;
   _captured = 0;
   _ring = [];
   _capacity = 0;
@@ -121,3 +151,6 @@ export const __resetForTests = (): void => {
 export const __setCaptureForTests = (fn: CaptureFn): void => {
   _capture = fn;
 };
+
+/** Drive an asynchronous capture without waiting for its interval. */
+export const __tickScreenReplayForTests = tick;

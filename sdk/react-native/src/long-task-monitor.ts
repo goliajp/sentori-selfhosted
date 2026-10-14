@@ -1,7 +1,7 @@
 // long_freeze — detected warn scenario (category B:
 // 「app 卡住了 / 死了几秒」), JS-thread side.
 //
-// Mini-spec: a setInterval(50 ms) tick measures wall-clock drift.
+// Mini-spec: a setInterval(50 ms) tick measures monotonic-clock drift while active.
 // Drift ≤ 2 s ⇒ a `freeze` signal in the ring (context only —
 // brief jank is not worth an event). Drift > 2 s ⇒ one `warn`
 // event, scenario `long_freeze`, surface = current screen, with the
@@ -18,6 +18,7 @@
 
 import { pushSignal } from '@goliapkg/sentori-core';
 
+import { appLifecycle } from './handlers/lifecycle';
 import { currentScreen } from './navigation';
 import { warnDetected } from './verbs';
 
@@ -28,15 +29,23 @@ const MAX_WARNS_PER_MIN = 6;
 
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _lastTick = 0;
+let _epoch = 0;
+let _active = true;
+const monotonicNow = (): number => globalThis.performance?.now?.() ?? Date.now();
 let _warnWindowStart = 0;
 let _warnsThisWindow = 0;
 
 export function startLongTaskMonitor(): void {
   if (_timer !== null) return;
-  _lastTick = Date.now();
+  _lastTick = monotonicNow();
+  const lifecycle = appLifecycle();
+  _epoch = lifecycle.epoch;
+  _active = lifecycle.active;
   _warnWindowStart = _lastTick;
   _warnsThisWindow = 0;
-  _timer = setInterval(tick, TICK_INTERVAL_MS);
+  _timer = setInterval(() => {
+    try { tick(); } catch { /* Instrumentation must not crash the host. */ }
+  }, TICK_INTERVAL_MS);
   (_timer as unknown as { unref?: () => void }).unref?.();
 }
 
@@ -48,9 +57,14 @@ export function stopLongTaskMonitor(): void {
 }
 
 function tick(): void {
-  const now = Date.now();
+  const now = monotonicNow();
+  const lifecycle = appLifecycle();
+  const interrupted = !lifecycle.active || !_active || lifecycle.epoch !== _epoch;
+  _epoch = lifecycle.epoch;
+  _active = lifecycle.active;
   const elapsed = now - _lastTick;
   _lastTick = now;
+  if (interrupted || elapsed < 0) return;
   const lag = elapsed - TICK_INTERVAL_MS;
   if (lag <= SIGNAL_THRESHOLD_MS) return;
 
