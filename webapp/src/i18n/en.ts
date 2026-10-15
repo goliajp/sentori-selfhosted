@@ -9,10 +9,11 @@
 // translation obvious in review.
 
 export const en = {
+  "releaseView.noFiles": "No debug files uploaded",
   "releaseView.uploadedUnchecked": "File stored; format has not been verified.",
   "releaseView.cliHint": "Use sentori to configure, collect source files, upload all debug files, and verify the stored bytes. Git is optional; --git-tag selects an exact tag.",
   "releaseView.sourceZipHint": "Upload a ZIP of this build’s UTF-8 source files, preserving project-relative paths. Limit: 64 MiB expanded, 512 KiB per file. Legacy source JSON is also supported.",
-  "releaseView.validationHint": "These are file types, not platform coverage. An absent file is not necessarily needed. Format checks do not confirm a match to a build or event.",
+  "releaseView.validationHint": "Uploaded debug files are listed by type. Format validation does not confirm a match to the build or event. Native builds do not need JavaScript source maps unless they also run JavaScript.",
   "releaseView.fileStatus": "{kind}: {status} · {count} files",
   "releaseView.notUploaded": "Not uploaded",
   "artifact.sourceMap": "Source Map",

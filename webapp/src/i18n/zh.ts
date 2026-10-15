@@ -4,10 +4,11 @@
 import type { Messages } from './en';
 
 export const zh: Messages = {
+  "releaseView.noFiles": "尚未上传调试文件",
   "releaseView.uploadedUnchecked": "文件已存储，尚未验证格式",
   "releaseView.cliHint": "用 sentori 完成配置、源码收集、调试文件上传和存储校验。不依赖 Git；使用 Git 时可通过 --git-tag 指定准确的标签。",
   "releaseView.sourceZipHint": "上传该构建的 UTF-8 源码 ZIP，保留相对项目根目录的路径。解压后最多 64 MiB，单文件最多 512 KiB；也兼容旧版源码 JSON。",
-  "releaseView.validationHint": "这里展示文件类型，不代表平台覆盖率。未上传不一定是缺失；格式验证通过也不代表已匹配构建或事件。",
+  "releaseView.validationHint": "这里只列出已上传的调试文件。格式验证通过不代表已匹配构建或事件；不运行 JavaScript 的原生应用不需要 Source Map。",
   "releaseView.fileStatus": "{kind}：{status} · {count} 个文件",
   "releaseView.notUploaded": "未上传",
   "artifact.sourceMap": "Source Map（源码映射）",

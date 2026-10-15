@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { lightState, lightColour } from '../src/lib/release-lights.ts';
+import { lightState, lightColour, uploadedArtifactKinds } from '../src/lib/release-lights.ts';
 const cases = [
   [{count:0},'absent'],
   [{},'unchecked'],
@@ -19,3 +19,11 @@ for(const state of ['valid','partial','invalid','absent','unchecked'])assert.ok(
 assert.ok(!page.includes("kind==='sourcemap'||"),'source maps are not universally required');
 assert.ok(page.includes('artifactLabel(kind,t)'),'labels must describe file types');
 console.log(`✓ ${cases.length+9} artifact-state assertions; absent files do not claim missing platform coverage`);
+
+assert.deepEqual(uploadedArtifactKinds({artifactSummary:[{kind:'dsym',count:8},{kind:'proguard',count:2},{kind:'srcbundle',count:1}]}), ['dsym','proguard','srcbundle']);
+assert.deepEqual(uploadedArtifactKinds({artifacts:[{kind:'dsym'},{kind:'sourcemap'}]}), ['sourcemap','dsym']);
+assert.deepEqual(uploadedArtifactKinds({artifactSummary:[{kind:'sourcemap',count:0}]}), []);
+assert.deepEqual(uploadedArtifactKinds({artifacts:[],artifactSummary:[{kind:'sourcemap',count:2}]}), []);
+assert.deepEqual(uploadedArtifactKinds({}), []);
+console.log('✓ Native, mixed JavaScript/native, empty and unavailable artifact inventories');
+assert.deepEqual(uploadedArtifactKinds({artifacts:null,artifactSummary:[{kind:'dsym',count:1}]}), ['dsym']);
