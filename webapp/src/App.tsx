@@ -22,6 +22,7 @@ import { Link, NavLink, type NavLinkProps, useOutlet, useLocation, useMatch, use
 
 import { CommandPalette, openPalette } from './components/CommandPalette';
 import { Kbd, ThemeSwitch, ErrorBanner } from './components/ui';
+import { LanguageSwitch } from './components/LanguageSwitch';
 import { useT } from './i18n';
 import { api, type Me, type Project } from './lib/api';
 import { formatApiError, useAsyncData } from './lib/useAsyncData';
@@ -242,7 +243,8 @@ export function App() {
               <span className="control-label-text">{t('nav.settings')}</span>
             </NavigationLink>
           </nav>
-          <div className="mt-auto px-1 pb-1">
+          <div className="mt-auto grid gap-2 px-1 pb-1">
+            <div className="sm:hidden"><LanguageSwitch /></div>
             <ThemeSwitch />
           </div>
     </>
@@ -289,6 +291,7 @@ export function App() {
               <Kbd>⌘K</Kbd>
             </Action>
             <div className="ml-auto hidden items-center gap-3 sm:flex">
+              <LanguageSwitch />
               <div className="w-24 shrink-0"><ThemeSwitch /></div>
               <span className="text-xs text-fg-subtle">
                 {me.email}

@@ -23,7 +23,7 @@ import { platformLabel } from '../lib/platform-label';
 import { appDisplayName } from '../lib/app-name';
 import { releaseDisplayName } from '../lib/release-name';
 import { formatCrashFree } from '../lib/crash-free';
-import { lightColour, lightState, type LightState } from '../lib/release-lights';
+import { lightColour, lightState, uploadedArtifactKinds, type LightState } from '../lib/release-lights';
 
 type Row = ReleaseRow & {artifacts?:ArtifactRow[]|null};
 export default function ReleasesPage(){
@@ -93,7 +93,8 @@ const artifactStateKey = {
 } as const;
 function Coverage({release}:{release:Row}){
   const t=useT();
-  return <div className="release-coverage">{(['sourcemap','dsym','proguard','srcbundle'] as const).map(kind=>{
+  const kinds=uploadedArtifactKinds(release);
+  return <div className="release-coverage">{!kinds.length&&<span className="text-fg-muted">{t(release.artifacts==null&&release.artifactSummary===undefined?'releaseView.unchecked':'releaseView.noFiles')}</span>}{kinds.map(kind=>{
     const artifacts=release.artifacts?.filter(row=>row.kind===kind);
     const summary=release.artifactSummary?.find(row=>row.kind===kind);
     const count=artifacts?.length ?? (release.artifactSummary === undefined ? undefined : summary?.count ?? 0);

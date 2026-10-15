@@ -4,10 +4,11 @@
 import type { Messages } from './en';
 
 export const ja: Messages = {
+  "releaseView.noFiles": "デバッグファイルは未アップロードです",
   "releaseView.uploadedUnchecked": "ファイルを保存しました。形式は未確認です。",
   "releaseView.cliHint": "sentori で設定、ソース収集、デバッグファイルのアップロード、保存内容の検証を行えます。Git は任意です。利用する場合は --git-tag でタグを指定します。",
   "releaseView.sourceZipHint": "このビルドの UTF-8 ソースを、プロジェクト相対パスを保った ZIP でアップロードできます。展開後は最大 64 MiB、各ファイルは最大 512 KiB。旧形式のソース JSON にも対応します。",
-  "releaseView.validationHint": "ファイルの種類を示しており、プラットフォームの網羅率ではありません。未アップロードでも必要とは限りません。形式の確認だけではビルドやイベントとの一致は保証されません。",
+  "releaseView.validationHint": "アップロード済みのデバッグファイルを種類別に表示します。形式の確認だけではビルドやイベントとの一致は保証されません。JavaScript を実行しないネイティブアプリに Source Map は不要です。",
   "releaseView.fileStatus": "{kind}：{status} · {count} ファイル",
   "releaseView.notUploaded": "未アップロード",
   "artifact.sourceMap": "Source Map（ソースマップ）",

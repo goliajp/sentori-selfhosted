@@ -608,7 +608,6 @@ pub fn router(state: Arc<AppState>) -> Router {
 
     // ── Credentialed auth endpoints with their own per-IP limiter ──
     let auth_bruteforce_routes = Router::new()
-        .route("/auth/config", get(crate::cloud::auth_config))
         .route("/auth/cloud/start", get(crate::cloud::start))
         .route(
             "/auth/cloud/complete",
@@ -650,6 +649,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state.clone());
 
     Router::new()
+        // Reading public configuration is not a credential attempt. Settings and
+        // sign-in pages must remain readable even when the login budget is spent.
+        .route("/auth/config", get(crate::cloud::auth_config))
         .route("/cloud/runtime/health", get(crate::cloud::health))
         .route(
             "/hooks/tasks/{project_id}",

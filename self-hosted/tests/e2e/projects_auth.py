@@ -17,6 +17,19 @@ def run(*, base, owner, sql, password, client, request):
         call(http, '/auth/login', 'POST', {'email': email, 'password': secret}, status)
         return http
 
+    # A settings read never consumes the credential-attempt budget, even after
+    # that budget is exhausted. Use a distinct proxy client IP for this fixture.
+    limited = client()
+    limited.addheaders = [('X-Forwarded-For', '198.51.100.42')]
+    for _ in range(30):
+        assert call(limited, '/auth/config') == {'mode': 'password'}
+    for _ in range(10):
+        call(limited, '/auth/login', 'POST', {'email': 'owner@example.test', 'password': 'wrong-password'}, 401)
+    call(limited, '/auth/login', 'POST', {'email': 'owner@example.test', 'password': 'wrong-password'}, 429)
+    assert call(limited, '/auth/config') == {'mode': 'password'}
+    call(limited, '/auth/reset-password', 'POST', {'token': 'invalid', 'newPassword': password}, 429)
+    print('PASS: auth configuration stays readable without consuming or bypassing credential limits')
+
     projects = '/admin/api/projects'
     no_platform = call(owner, projects, 'POST', {'name': '  No platform  '}, 201)
     a = call(owner, projects, 'POST', {'name': 'Project A', 'platform': 'web'}, 201)
