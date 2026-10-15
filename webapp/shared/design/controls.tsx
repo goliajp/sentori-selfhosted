@@ -116,14 +116,16 @@ export function Textarea({ rows = 5, className = '', ...props }: TextareaHTMLAtt
 export function ControlRow({
   children,
   size = "regular",
+  layout = "fill",
   className = "",
 }: {
   children: ReactNode;
   size?: "regular" | "small";
+  layout?: "fill" | "content";
   className?: string;
 }) {
   return (
-    <div className={`control-row ${className}`} data-control-size={size}>
+    <div className={`control-row ${className}`} data-control-size={size} data-control-layout={layout}>
       {children}
     </div>
   );

@@ -93,6 +93,19 @@ input.control::file-selector-button {
   width: auto;
   flex: 1 1 140px;
 }
+.control-row[data-control-layout="content"] {
+  flex-wrap: nowrap;
+}
+.control-row[data-control-layout="content"] > .control {
+  flex: 0 0 auto;
+}
+.control-row > .theme-switch {
+  height: var(--control-size);
+  flex: 0 0 auto;
+}
+.control-row > .theme-switch > .control-action {
+  min-width: calc(var(--control-size) - var(--space-1));
+}
 .control-row > .button,
 .control-row > .choice-control {
   flex: 0 0 auto;

@@ -740,7 +740,7 @@ export function ThemeSwitch() {
     <div
       role="radiogroup"
       aria-label={t('theme.label')}
-      className="flex rounded-md border border-border p-0.5"
+      className="theme-switch flex rounded-md border border-border p-0.5"
     >
       {options.map((o) => (
         <Action

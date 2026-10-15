@@ -1,5 +1,5 @@
 import { Tooltip } from '../shared/design/Tooltip';
-import { Action } from '../shared/design/controls';
+import { Action, ControlRow } from '../shared/design/controls';
 import { currentSearchParams } from './lib/search-params';
 import { WorkspaceLayout } from "../shared/design/WorkspaceLayout";
 import {
@@ -291,8 +291,10 @@ export function App() {
               <Kbd>⌘K</Kbd>
             </Action>
             <div className="ml-auto hidden items-center gap-3 sm:flex">
-              <LanguageSwitch />
-              <div className="w-24 shrink-0"><ThemeSwitch /></div>
+              <ControlRow size="small" layout="content">
+                <LanguageSwitch />
+                <ThemeSwitch />
+              </ControlRow>
               <span className="text-xs text-fg-subtle">
                 {me.email}
                 <span className="ml-1.5 text-fg-subtle/70">
