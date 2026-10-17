@@ -209,7 +209,19 @@ pub async fn handle(
     if let Err(error) = crate::cloud_quota::payload(&state, &wire).await {
         return error.reply();
     }
-    let ev = match prepare(&state, ctx.project_id, wire).await {
+    let project = state
+        .ingest_policy
+        .project(&ctx, &wire.release, &wire.payload);
+    if state
+        .ingest_policy
+        .filtered(project, wire.kind, wire.name.as_deref())
+    {
+        return (
+            StatusCode::ACCEPTED,
+            Json(json!({"filtered": true, "reason": "retired_trace"})),
+        );
+    }
+    let ev = match prepare(&state, project, wire).await {
         Ok(e) => e,
         Err(msg) => {
             state.ingest_counters.rejected();
@@ -221,7 +233,7 @@ pub async fn handle(
     };
 
     let tick = crate::state::RecentEventTick {
-        project_id: ctx.project_id,
+        project_id: project,
         issue_id: Uuid::nil(), // filled below
         event_id: ev.id,
         kind: ev.kind.as_db_str().to_string(),
@@ -233,6 +245,17 @@ pub async fn handle(
 
     match pipeline::ingest(&state.pool, ev, state.cloud.is_some()).await {
         Ok(outcome) => {
+            if let Err(error) = state
+                .ingest_policy
+                .reconcile_attachments(&state.pool, &ctx, outcome.event_id, project)
+                .await
+            {
+                warn!(%error, "routed attachment reconciliation failed");
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error":"ingest_failed"})),
+                );
+            }
             let _ = state.events_bus.send(crate::state::RecentEventTick {
                 issue_id: outcome.issue_id,
                 ..tick

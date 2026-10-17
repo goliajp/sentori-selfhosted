@@ -118,11 +118,11 @@ const VALID_SESSION_STATUS: [&str; 4] = ["ok", "exited", "errored", "crashed"];
 /// this particular batch is well formed, and a session is the
 /// denominator of the crash-free rate — losing one moves a number a
 /// release decision is made on.
-async fn absorb_telemetry(state: &Arc<AppState>, project_id: Uuid, envelope: &BatchEnvelope) {
+async fn absorb_telemetry(state: &Arc<AppState>, ctx: &IngestContext, envelope: &BatchEnvelope) {
     if let Some(n) = envelope.dropped_events {
         state.ingest_counters.client_dropped(u64::from(n));
     }
-    store_sessions(state, project_id, &envelope.sessions).await;
+    store_sessions(state, ctx, &envelope.sessions).await;
 }
 
 /// Append the sessions, once each.
@@ -131,7 +131,8 @@ async fn absorb_telemetry(state: &Arc<AppState>, project_id: Uuid, envelope: &Ba
 /// lost response carries the same ids, and counting a session twice
 /// moves the rate in the direction that looks better, which is the
 /// worst direction for a number to be wrong in.
-async fn store_sessions(state: &Arc<AppState>, project_id: Uuid, sessions: &[Value]) {
+async fn store_sessions(state: &Arc<AppState>, ctx: &IngestContext, sessions: &[Value]) {
+    let project_id = ctx.project_id;
     if sessions.is_empty() {
         return;
     }
@@ -141,6 +142,8 @@ async fn store_sessions(state: &Arc<AppState>, project_id: Uuid, sessions: &[Val
             warn!(project_id = %project_id, "session skipped: unreadable");
             continue;
         };
+        let payload = json!({"app": raw.get("app")});
+        let project_id = state.ingest_policy.project(ctx, &session.release, &payload);
         let session = &session;
         let status = if VALID_SESSION_STATUS.contains(&session.status.as_str()) {
             session.status.as_str()
@@ -202,6 +205,64 @@ async fn store_sessions(state: &Arc<AppState>, project_id: Uuid, sessions: &[Val
     }
 }
 
+async fn record_batch_metadata(
+    state: &Arc<AppState>,
+    ctx: &IngestContext,
+    envelope: &BatchEnvelope,
+) {
+    let projects: std::collections::HashSet<Uuid> = envelope
+        .events
+        .iter()
+        .map(|wire| {
+            state
+                .ingest_policy
+                .project(ctx, &wire.release, &wire.payload)
+        })
+        .chain(envelope.sessions.iter().map(|s| {
+            state.ingest_policy.project(
+                ctx,
+                s.get("release").and_then(Value::as_str).unwrap_or(""),
+                &json!({"app":s.get("app")}),
+            )
+        }))
+        .collect();
+    let health_project = match projects.len() {
+        0 => Some(ctx.project_id),
+        1 => projects.iter().copied().next(),
+        _ => None,
+    };
+    if let Some(health_project) = health_project
+        && let Some(url) = envelope
+            .backend_health_url
+            .as_deref()
+            .filter(|u| u.len() <= 512 && (u.starts_with("http://") || u.starts_with("https://")))
+    {
+        // Written only on change — batches arrive every few seconds.
+        let r = sqlx::query(
+            "UPDATE projects SET backend_health_url = $2 \
+             WHERE id = $1 AND backend_health_url IS DISTINCT FROM $2",
+        )
+        .bind(health_project)
+        .bind(url)
+        .execute(&state.pool)
+        .await;
+        if let Err(e) = r {
+            warn!(project_id = %ctx.project_id, error = %e, "backend url update failed");
+        }
+    }
+
+    for stat in &envelope.assert_stats {
+        let project = state
+            .ingest_policy
+            .project(ctx, &stat.release, &Value::Null);
+        if let Err(e) =
+            pipeline::record_assert_stats(&state.pool, project, std::slice::from_ref(stat)).await
+        {
+            warn!(project_id = %project, error = %e, "assert stats failed");
+        }
+    }
+}
+
 pub async fn handle(
     Extension(ctx): Extension<IngestContext>,
     State(state): State<Arc<AppState>>,
@@ -210,7 +271,7 @@ pub async fn handle(
     if let Err(error) = crate::cloud_quota::payload(&state, &envelope).await {
         return error.reply();
     }
-    absorb_telemetry(&state, ctx.project_id, &envelope).await;
+    absorb_telemetry(&state, &ctx, &envelope).await;
 
     if envelope.events.len() > MAX_BATCH {
         state.ingest_counters.rejected();
@@ -223,40 +284,28 @@ pub async fn handle(
         );
     }
 
-    if let Some(url) = envelope
-        .backend_health_url
-        .as_deref()
-        .filter(|u| u.len() <= 512 && (u.starts_with("http://") || u.starts_with("https://")))
-    {
-        // Written only on change — batches arrive every few seconds.
-        let r = sqlx::query(
-            "UPDATE projects SET backend_health_url = $2 \
-             WHERE id = $1 AND backend_health_url IS DISTINCT FROM $2",
-        )
-        .bind(ctx.project_id)
-        .bind(url)
-        .execute(&state.pool)
-        .await;
-        if let Err(e) = r {
-            warn!(project_id = %ctx.project_id, error = %e, "backend url update failed");
-        }
-    }
-
-    if !envelope.assert_stats.is_empty()
-        && let Err(e) =
-            pipeline::record_assert_stats(&state.pool, ctx.project_id, &envelope.assert_stats).await
-    {
-        warn!(project_id = %ctx.project_id, error = %e, "assert stats failed");
-    }
+    record_batch_metadata(&state, &ctx, &envelope).await;
 
     let mut outcomes = Vec::with_capacity(envelope.events.len());
     let mut accepted = 0usize;
+    let mut filtered = 0usize;
     for wire in envelope.events {
-        match prepare(&state, ctx.project_id, wire).await {
+        let project = state
+            .ingest_policy
+            .project(&ctx, &wire.release, &wire.payload);
+        if state
+            .ingest_policy
+            .filtered(project, wire.kind, wire.name.as_deref())
+        {
+            filtered += 1;
+            outcomes.push(json!({"filtered":true, "reason":"retired_trace"}));
+            continue;
+        }
+        match prepare(&state, project, wire).await {
             Ok(ev) => {
                 let tick_kind = ev.kind.as_db_str().to_string();
                 let tick = crate::state::RecentEventTick {
-                    project_id: ctx.project_id,
+                    project_id: project,
                     issue_id: uuid::Uuid::nil(),
                     event_id: ev.id,
                     kind: tick_kind,
@@ -267,6 +316,15 @@ pub async fn handle(
                 };
                 match pipeline::ingest(&state.pool, ev, state.cloud.is_some()).await {
                     Ok(o) => {
+                        if let Err(error) = state
+                            .ingest_policy
+                            .reconcile_attachments(&state.pool, &ctx, o.event_id, project)
+                            .await
+                        {
+                            warn!(%error, "routed attachment reconciliation failed");
+                            outcomes.push(json!({"error":"ingest_failed"}));
+                            continue;
+                        }
                         accepted += 1;
                         state.ingest_counters.accepted();
                         let _ = state.events_bus.send(crate::state::RecentEventTick {
@@ -306,6 +364,7 @@ pub async fn handle(
         StatusCode::OK,
         Json(json!({
             "accepted": accepted,
+            "filtered": filtered,
             "outcomes": outcomes,
         })),
     )

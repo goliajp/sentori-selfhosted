@@ -73,7 +73,7 @@ def main():
     def sql(query, database='fresh'):
         return docker('exec', '-i', db, 'psql', '-v', 'ON_ERROR_STOP=1', '-U', 'sentori', '-d', database, '-qtA', input=query)
 
-    def start(database='fresh', storage=None, secret_files=False):
+    def start(database='fresh', storage=None, secret_files=False, ingest_policy=None):
         nonlocal base
         if app in containers:
             docker('rm', '-f', app)
@@ -83,6 +83,7 @@ def main():
             '-e', 'DATABASE_URL=postgres://sentori:test@' + db + '/' + database,
             '-e', 'SENTORI_OWNER_EMAIL=owner@example.test', '-e', 'SENTORI_OWNER_PASSWORD=' + password,
             '-e', 'SENTORI_BASE_URL=http://localhost:8080',
+            *(['-e', 'SENTORI_INGEST_POLICY=' + json.dumps(ingest_policy)] if ingest_policy is not None else []),
             *(['-e', 'SENTORI_OPERATOR_NAME=' + operator_name] if operator_name else []),
             '-e', 'SENTORI_MASTER_KEY=' + ('' if secret_files else '71' * 32),
             *(['-e','SENTORI_MASTER_KEY_FILE=/data/instance-master.key'] if secret_files else []),

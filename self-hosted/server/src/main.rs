@@ -48,6 +48,7 @@ mod handlers;
 mod hcm;
 mod identity;
 mod ingest_metrics;
+mod ingest_policy;
 mod instance_operations;
 mod integrations;
 mod jobs;
@@ -169,6 +170,7 @@ async fn main() -> anyhow::Result<()> {
     );
     let mut state = AppState::new(pool.clone(), attachments);
     state.cloud = cloud;
+    state.ingest_policy = crate::ingest_policy::Policy::load(&pool).await?;
     let state = Arc::new(state);
 
     // Recovery verification must not resend old work or prune restored evidence.

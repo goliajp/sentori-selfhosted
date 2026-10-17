@@ -30,6 +30,7 @@ pub struct RecentEventTick {
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
+    pub ingest_policy: crate::ingest_policy::Policy,
     pub cloud: Option<std::sync::Arc<crate::cloud::Cloud>>,
     pub vault: Option<std::sync::Arc<sentori_secrets_vault::Vault>>,
     /// Parsed source maps, keyed by content hash. Shared so one parse
@@ -67,6 +68,7 @@ impl AppState {
         let pool_for_push = pool.clone();
         Self {
             pool,
+            ingest_policy: crate::ingest_policy::Policy::default(),
             cloud: None,
             vault: crate::credential_vault::from_env().map(std::sync::Arc::new),
             source_maps: std::sync::Arc::new(crate::symbolicate::new_cache()),

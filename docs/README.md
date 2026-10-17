@@ -70,6 +70,8 @@ Each page is the API surface that ships with its package:
 
 - [Self-hosting](self-hosting.md) — environment variables, backup and
   restore, Postgres upgrade notes.
+- [Legacy clients after a project split](operator/ingest-project-split.md) —
+  explicit ingestion delegation and retired trace filtering.
 - [Teams, projects, ownership](teams.md) — accounts, roles, project
   assignment.
 - [Scaling](runbook/scaling.md) — what to read before adding capacity,

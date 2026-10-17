@@ -13,7 +13,7 @@
 
 [package]
 name = "sentori-server"
-version = "5.1.15"
+version = "5.1.16"
 edition = "2024"
 authors = ["GOLIA K.K. <takagi@golia.jp>"]
 license = "Apache-2.0 OR MIT"

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sentori",
-    "version": "5.1.15",
+    "version": "5.1.16",
     "summary": "Self-hosted crash and error reporting for mobile apps.",
     "description": "Its own wire protocol — not Sentry-compatible, and there is no DSN. Generated from the router by scripts/gen-openapi.mjs; the path list cannot drift from the server."
   },
@@ -113,6 +113,27 @@
           },
           "regressed": {
             "type": "boolean"
+          }
+        }
+      },
+      "Filtered": {
+        "type": "object",
+        "required": [
+          "filtered",
+          "reason"
+        ],
+        "properties": {
+          "filtered": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "retired_trace"
+            ]
           }
         }
       },
@@ -396,11 +417,18 @@
         },
         "responses": {
           "202": {
-            "description": "Accepted",
+            "description": "Stored, or explicitly filtered by operator policy",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Receipt"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Receipt"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Filtered"
+                    }
+                  ]
                 }
               }
             }
@@ -479,8 +507,39 @@
           }
         },
         "responses": {
-          "202": {
-            "description": "Accepted"
+          "200": {
+            "description": "Per-event outcomes; accepted counts stored events, filtered counts retired traces.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "integer"
+                    },
+                    "filtered": {
+                      "type": "integer"
+                    },
+                    "outcomes": {
+                      "type": "array",
+                      "items": {
+                        "oneOf": [
+                          {
+                            "$ref": "#/components/schemas/Receipt"
+                          },
+                          {
+                            "$ref": "#/components/schemas/Filtered"
+                          },
+                          {
+                            "$ref": "#/components/schemas/Error"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
           },
           "401": {
             "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",

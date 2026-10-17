@@ -84,12 +84,12 @@ pub async fn handle(
     let parsed = accept(&kind, multipart)
         .await
         .map_err(|(status, body)| (status, Json(body)))?;
-    store(&state, ctx.project_id, event_id, &kind, parsed).await
+    store(&state, &ctx, event_id, &kind, parsed).await
 }
 
 async fn store(
     state: &Arc<AppState>,
-    project: Uuid,
+    ctx: &IngestContext,
     event: Uuid,
     kind: &str,
     parsed: Parsed,
@@ -97,6 +97,11 @@ async fn store(
     let mut tx = state
         .pool
         .begin()
+        .await
+        .map_err(crate::handlers::jobs::database_error)?;
+    let project = state
+        .ingest_policy
+        .attachment_project(&mut tx, ctx, event)
         .await
         .map_err(crate::handlers::jobs::database_error)?;
     if state.cloud.is_some() {
