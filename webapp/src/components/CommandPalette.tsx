@@ -30,7 +30,7 @@ export function CommandPalette() {
     const q=query.trim().toLocaleLowerCase();
     const nav:Item[]=([
       [t('nav.projects'),'/projects'],[t('nav.inbox'),'/issues'],[t('team.title'),'/tasks'],
-      [t('monitor.title'),'/status'],[t('nav.instruments'),'/instruments'],[t('nav.releases'),'/releases'],
+      [t('web.title'),'/web'],[t('monitor.title'),'/status'],[t('nav.instruments'),'/instruments'],[t('nav.releases'),'/releases'],
       [t('nav.setup'),'/setup'],[t('nav.push'),'/push'],[t('integration.title'),'/integrations'],
       [t('team.inbox'),'/inbox'],[t('nav.settings'),'/settings'],
     ] as const).filter(([label])=>!q||label.toLocaleLowerCase().includes(q)).map(([label,to])=>({type:'nav',label,to}));

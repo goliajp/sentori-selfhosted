@@ -6,7 +6,7 @@ import { Button, Field, Input } from '../../shared/design/controls';
 import { ErrorBanner, Select } from './ui';
 import { useT } from '../i18n';
 import { api } from '../lib/api';
-import { appDisplayName } from '../lib/app-name';
+import { appDisplayLabel } from '../lib/app-name';
 import { platformLabel } from '../lib/platform-label';
 import { readEventFilters, type EventFilters as Filters, type EventTag } from '../lib/event-filters';
 import { useScopedAsyncData } from '../lib/useScopedAsyncData';
@@ -43,7 +43,7 @@ export function EventFilters({projectId, value, onChange}: {projectId:string; va
       <Field label={t('apps.title')}><Select value={value.appId??''} onChange={e=>onChange({app:e.target.value,rel:'',release:''})}>
         <option value="">{t('apps.all')}</option>
         {value.appId&&!availableApps.some(app=>app.id===value.appId)&&<option value={value.appId}>{value.appId}</option>}
-        {availableApps.map(app=><option key={app.id} value={app.id}>{appDisplayName(app,t)} · {platformLabel(app.platform,t)}</option>)}
+        {availableApps.map(app=><option key={app.id} value={app.id}>{appDisplayLabel(app,t)}</option>)}
       </Select></Field>
       <Field label={t('filters.platform')}><Select value={value.platform??''} onChange={e=>onChange({platform:e.target.value,appType:'',app:'',rel:'',release:''})}>
         <option value="">{t('queue.all')}</option>{['ios','android','web','weapp','javascript','unknown'].map(platform=><option key={platform} value={platform}>{platformLabel(platform,t)}</option>)}

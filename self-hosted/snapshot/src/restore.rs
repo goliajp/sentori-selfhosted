@@ -204,6 +204,8 @@ pub async fn restore(
             .execute(&mut *tx).await?;
         sqlx::query("UPDATE jobs SET state='cancelled',error_code='instance_restored',lease_owner=NULL,lease_until=NULL,finished_at=now() WHERE state IN ('queued','running','retry_wait')")
             .execute(&mut *tx).await?;
+        sqlx::query("UPDATE web_checks SET enabled=false,configuration=jsonb_set(configuration,'{enabled}','false'::jsonb),version=version+1").execute(&mut *tx).await?;
+        sqlx::query("UPDATE web_check_runs SET status='cancelled',lease_id=NULL,lease_until=NULL,finished_at=now() WHERE status IN ('queued','running')").execute(&mut *tx).await?;
         sqlx::query("UPDATE monitors SET enabled=false,generation=$1,version=version+1,lease_owner=NULL,lease_until=NULL,updated_at=now()")
             .bind(generation).execute(&mut *tx).await?;
         sqlx::query("UPDATE push_sends SET status='failed',provider_outcome=CASE WHEN lease_owner IS NULL THEN 'cancelled' ELSE 'uncertain' END,error='instance_restored',lease_owner=NULL,lease_until=NULL WHERE status='queued'")

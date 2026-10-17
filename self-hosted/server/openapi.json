@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sentori",
-    "version": "5.1.17",
+    "version": "5.2.0",
     "summary": "Self-hosted crash and error reporting for mobile apps.",
     "description": "Its own wire protocol — not Sentry-compatible, and there is no DSN. Generated from the router by scripts/gen-openapi.mjs; the path list cannot drift from the server."
   },
@@ -343,6 +343,654 @@
         "responses": {
           "default": {
             "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
+    "/api/web/checks": {
+      "get": {
+        "summary": "List isolated browser check configurations and health",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "app",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "App-scoped JSON result"
+          },
+          "400": {
+            "description": "Invalid configuration or observation"
+          },
+          "401": {
+            "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "API token or writable project required"
+          },
+          "404": {
+            "description": "App/check/run not found in this project"
+          },
+          "409": {
+            "description": "Version conflict, command replay mismatch or runner not configured"
+          },
+          "429": {
+            "description": "Project quota exceeded"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create, update, delete or run a browser check",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "API token. Retry the same commandId with the identical request. Updates/deletes require expectedVersion. Scheduled execution and alerts default off; manual runs require a configured runner. Two queued/running jobs per project.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "action",
+                      "commandId",
+                      "configuration"
+                    ],
+                    "properties": {
+                      "action": {
+                        "const": "create"
+                      },
+                      "commandId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "configuration": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "appId",
+                          "name",
+                          "url",
+                          "policy"
+                        ],
+                        "properties": {
+                          "appId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string",
+                            "maxLength": 100
+                          },
+                          "url": {
+                            "type": "string",
+                            "format": "uri",
+                            "description": "Public HTTP(S), standard port, no credentials or query. All resolved addresses must be public."
+                          },
+                          "policy": {
+                            "enum": [
+                              "public",
+                              "private"
+                            ]
+                          },
+                          "allowedOrigins": {
+                            "type": "array",
+                            "maxItems": 16,
+                            "items": {
+                              "type": "string"
+                            },
+                            "default": []
+                          },
+                          "readySelector": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "maxLength": 200
+                          },
+                          "authProfile": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "maxLength": 64,
+                            "description": "Name of a runner-local identity scoped to this project and app; never credentials."
+                          },
+                          "steps": {
+                            "type": "array",
+                            "maxItems": 10,
+                            "default": [],
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "action",
+                                "selector"
+                              ],
+                              "properties": {
+                                "action": {
+                                  "enum": [
+                                    "click",
+                                    "waitFor",
+                                    "assertText"
+                                  ]
+                                },
+                                "selector": {
+                                  "type": "string",
+                                  "maxLength": 200
+                                },
+                                "value": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "maxLength": 200
+                                }
+                              }
+                            }
+                          },
+                          "intervalSeconds": {
+                            "type": "integer",
+                            "default": 0,
+                            "description": "0 disables recurrence; otherwise 900–604800 seconds."
+                          },
+                          "budgets": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "lcpMs": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "tbtMs": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "cls": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            }
+                          },
+                          "environment": {
+                            "type": "string",
+                            "default": ""
+                          },
+                          "enabled": {
+                            "type": "boolean",
+                            "default": false
+                          },
+                          "lighthouse": {
+                            "type": "boolean",
+                            "default": false
+                          },
+                          "device": {
+                            "enum": [
+                              "desktop",
+                              "mobile"
+                            ],
+                            "default": "desktop"
+                          },
+                          "alerts": {
+                            "type": "boolean",
+                            "default": false
+                          },
+                          "failureThreshold": {
+                            "type": "integer",
+                            "minimum": 2,
+                            "maximum": 10,
+                            "default": 2
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "action",
+                      "commandId",
+                      "id",
+                      "configuration",
+                      "expectedVersion"
+                    ],
+                    "properties": {
+                      "action": {
+                        "const": "update"
+                      },
+                      "commandId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "configuration": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "appId",
+                          "name",
+                          "url",
+                          "policy"
+                        ],
+                        "properties": {
+                          "appId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "name": {
+                            "type": "string",
+                            "maxLength": 100
+                          },
+                          "url": {
+                            "type": "string",
+                            "format": "uri",
+                            "description": "Public HTTP(S), standard port, no credentials or query. All resolved addresses must be public."
+                          },
+                          "policy": {
+                            "enum": [
+                              "public",
+                              "private"
+                            ]
+                          },
+                          "allowedOrigins": {
+                            "type": "array",
+                            "maxItems": 16,
+                            "items": {
+                              "type": "string"
+                            },
+                            "default": []
+                          },
+                          "readySelector": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "maxLength": 200
+                          },
+                          "authProfile": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "maxLength": 64,
+                            "description": "Name of a runner-local identity scoped to this project and app; never credentials."
+                          },
+                          "steps": {
+                            "type": "array",
+                            "maxItems": 10,
+                            "default": [],
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "action",
+                                "selector"
+                              ],
+                              "properties": {
+                                "action": {
+                                  "enum": [
+                                    "click",
+                                    "waitFor",
+                                    "assertText"
+                                  ]
+                                },
+                                "selector": {
+                                  "type": "string",
+                                  "maxLength": 200
+                                },
+                                "value": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "maxLength": 200
+                                }
+                              }
+                            }
+                          },
+                          "intervalSeconds": {
+                            "type": "integer",
+                            "default": 0,
+                            "description": "0 disables recurrence; otherwise 900–604800 seconds."
+                          },
+                          "budgets": {
+                            "type": [
+                              "object",
+                              "null"
+                            ],
+                            "additionalProperties": false,
+                            "properties": {
+                              "lcpMs": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "tbtMs": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              },
+                              "cls": {
+                                "type": [
+                                  "number",
+                                  "null"
+                                ]
+                              }
+                            }
+                          },
+                          "environment": {
+                            "type": "string",
+                            "default": ""
+                          },
+                          "enabled": {
+                            "type": "boolean",
+                            "default": false
+                          },
+                          "lighthouse": {
+                            "type": "boolean",
+                            "default": false
+                          },
+                          "device": {
+                            "enum": [
+                              "desktop",
+                              "mobile"
+                            ],
+                            "default": "desktop"
+                          },
+                          "alerts": {
+                            "type": "boolean",
+                            "default": false
+                          },
+                          "failureThreshold": {
+                            "type": "integer",
+                            "minimum": 2,
+                            "maximum": 10,
+                            "default": 2
+                          }
+                        }
+                      },
+                      "expectedVersion": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "action",
+                      "commandId",
+                      "id",
+                      "expectedVersion"
+                    ],
+                    "properties": {
+                      "action": {
+                        "const": "delete"
+                      },
+                      "commandId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "expectedVersion": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "action",
+                      "commandId",
+                      "id"
+                    ],
+                    "properties": {
+                      "action": {
+                        "const": "run"
+                      },
+                      "commandId": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "id": {
+                        "type": "string",
+                        "format": "uuid"
+                      },
+                      "trigger": {
+                        "enum": [
+                          "manual",
+                          "deployment"
+                        ],
+                        "default": "manual"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "App-scoped JSON result"
+          },
+          "400": {
+            "description": "Invalid configuration or observation"
+          },
+          "401": {
+            "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "API token or writable project required"
+          },
+          "404": {
+            "description": "App/check/run not found in this project"
+          },
+          "409": {
+            "description": "Version conflict, command replay mismatch or runner not configured"
+          },
+          "429": {
+            "description": "Project quota exceeded"
+          }
+        }
+      }
+    },
+    "/api/web/performance": {
+      "get": {
+        "summary": "Read sampled RUM percentiles, coverage and correlated errors",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "API token. Percentiles are separated by device and require 20 samples. SPA route readiness does not inflate document denominators. Error groups cover at most 500 recent error events; unknown metrics are not passing results.",
+        "parameters": [
+          {
+            "name": "app",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "route",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "release",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "environment",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 720,
+              "default": 24
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "App-scoped JSON result"
+          },
+          "400": {
+            "description": "Invalid configuration or observation"
+          },
+          "401": {
+            "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "API token or writable project required"
+          },
+          "404": {
+            "description": "App/check/run not found in this project"
+          },
+          "409": {
+            "description": "Version conflict, command replay mismatch or runner not configured"
+          },
+          "429": {
+            "description": "Project quota exceeded"
+          }
+        }
+      }
+    },
+    "/api/web/runs": {
+      "get": {
+        "summary": "Read the latest 50 laboratory runs or one exact run",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "app",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "App-scoped JSON result"
+          },
+          "400": {
+            "description": "Invalid configuration or observation"
+          },
+          "401": {
+            "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "API token or writable project required"
+          },
+          "404": {
+            "description": "App/check/run not found in this project"
+          },
+          "409": {
+            "description": "Version conflict, command replay mismatch or runner not configured"
+          },
+          "429": {
+            "description": "Project quota exceeded"
           }
         }
       }
@@ -1166,6 +1814,214 @@
           },
           "409": {
             "description": "The requested migration is not active for this token and project."
+          }
+        }
+      }
+    },
+    "/v1/web/visits": {
+      "post": {
+        "summary": "Ingest sampled Web App visits and metric revisions",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "description": "Requires ingest scope and an existing webapp identifier. Include healthy visits. Increasing revisions replace metrics without adding a denominator. Records older than one day are rejected. Default request limit: 64 KiB.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "visits"
+                ],
+                "properties": {
+                  "visits": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "revision",
+                        "startedAt",
+                        "appIdentifier",
+                        "release",
+                        "environment",
+                        "route",
+                        "deviceClass",
+                        "navigationType",
+                        "sampleRate",
+                        "browser",
+                        "metrics",
+                        "missing",
+                        "errorCount",
+                        "resourceErrorCount",
+                        "diagnostics"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 1000000
+                        },
+                        "startedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "appIdentifier": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "release": {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        "environment": {
+                          "type": "string",
+                          "maxLength": 100
+                        },
+                        "route": {
+                          "type": "string",
+                          "maxLength": 240,
+                          "description": "Normalized path template, without query, fragment or personal identifiers."
+                        },
+                        "deviceClass": {
+                          "enum": [
+                            "desktop",
+                            "mobile"
+                          ]
+                        },
+                        "navigationType": {
+                          "enum": [
+                            "document",
+                            "bfcache",
+                            "spa"
+                          ]
+                        },
+                        "sampleRate": {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 1
+                        },
+                        "browser": {
+                          "enum": [
+                            "Chrome",
+                            "Firefox",
+                            "Safari",
+                            "Edge",
+                            "Other"
+                          ]
+                        },
+                        "metrics": {
+                          "type": "object",
+                          "maxProperties": 6,
+                          "additionalProperties": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "id",
+                              "value",
+                              "unit"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "value": {
+                                "type": "number",
+                                "minimum": 0
+                              },
+                              "unit": {
+                                "enum": [
+                                  "ms",
+                                  "score"
+                                ]
+                              }
+                            }
+                          },
+                          "description": "Document/restored visits: LCP, INP, CLS, FCP, TTFB. SPA records: routeReady only."
+                        },
+                        "missing": {
+                          "type": "object",
+                          "maxProperties": 6,
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "errorCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000
+                        },
+                        "resourceErrorCount": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 1000
+                        },
+                        "diagnostics": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "navigation": {
+                              "type": "object"
+                            },
+                            "resources": {
+                              "type": "array",
+                              "maxItems": 10,
+                              "items": {
+                                "type": "object"
+                              }
+                            },
+                            "longTasks": {
+                              "type": "object"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "App-scoped JSON result"
+          },
+          "400": {
+            "description": "Invalid configuration or observation"
+          },
+          "401": {
+            "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "API token or writable project required"
+          },
+          "404": {
+            "description": "App/check/run not found in this project"
+          },
+          "409": {
+            "description": "Version conflict, command replay mismatch or runner not configured"
+          },
+          "429": {
+            "description": "Project quota exceeded"
           }
         }
       }

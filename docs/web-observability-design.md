@@ -1,6 +1,6 @@
 # Web App monitoring: research and implementation contract
 
-Research date: 2026-10-17. Status: proposed implementation; this document does not claim these capabilities are deployed. It extends the project/app separation work. Public setup documentation must describe only features verified in a released version.
+Research date: 2026-10-17. Implementation contract for Sentori 5.2.0, Web SDK 1.2.0 and CLI 1.8.0. Deployment and acceptance evidence is recorded separately. It extends the project/app separation work. Public setup documentation must describe only features verified in a released version.
 
 ## Product boundary
 
@@ -79,9 +79,9 @@ Search Console integration is a later, separately authorized capability. Its URL
 
 All writes and reads enforce the project/app relationship; an app ID from another project must fail closed. Use explicit app identity for both browser SDK and monitors. Never infer the API versus admin app from the common project token or JavaScript platform alone.
 
-Store raw bounded performance samples and monitor runs separately from issue events. Preserve the existing five event kinds; derive deduplicated actionable issues from configured rules with minimum sample sizes, persistence and recovery behavior. Store audit rule version, evidence and source so a runner upgrade does not masquerade as a site regression.
+Store raw bounded performance samples and monitor runs separately from issue events. Preserve the existing five event kinds; derive deduplicated monitor notifications from explicitly enabled rules with persistence and recovery behavior. RUM sample coverage and percentiles do not create issue events. Store audit rule version, evidence and source so a runner upgrade does not masquerade as a site regression.
 
-The dashboard should provide app-scoped Errors, Performance and Checks views, with release/environment/route filters. CLI capabilities should cover app discovery, performance queries, monitor configuration, explicit run initiation and run/finding inspection. These are requirements, not published command names. JSON output must carry units, source, sample count, coverage and timestamps. A normal successful command can return unhealthy findings; a documented CI strict mode should separately signal failed checks. Authentication/transport failures must be distinguishable from site failures.
+The dashboard should provide app-scoped Errors, Performance and Checks views, with release/environment/route filters. CLI capabilities should cover app discovery, performance queries, monitor configuration, explicit run initiation and run/finding inspection. The supported commands are documented in [CLI reference](cli.md#web-app-monitoring). JSON output must carry units, source, sample count, coverage and timestamps. A normal successful command can return unhealthy findings; a documented CI strict mode should separately signal failed checks. Authentication/transport failures must be distinguishable from site failures.
 
 URL normalization must remove credentials, queries and fragments and allow route templates to avoid collecting identifiers from paths. Do not collect form contents, authorization headers or DOM text for performance attribution. Cap resource count, labels, payload bytes, batches, stored evidence and per-project runner concurrency. Keep SDK remote disable/failure isolation and verify the repository's CPU, rendering, network and bundle budgets before enabling new code.
 

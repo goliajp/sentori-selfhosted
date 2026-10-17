@@ -90,7 +90,7 @@ export const init = safeFn('init', (config: WebInitConfig): void => {
   })
 
   // Whatever a previous page view could not send.
-  void drainOfflineQueue()
+  setTimeout(safeFn('drainOfflineQueue', () => { void drainOfflineQueue().catch(() => {}) }), 0)
 })
 
 export const __resetForTests = (): void => {

@@ -10,7 +10,7 @@ import type { AssertStat, AttachmentKind, SessionPing, WireEvent } from '@goliap
 import { getConfig } from './config.js'
 
 // Pinned to package.json by a test — bump both together.
-export const SDK_VERSION = '1.1.0'
+export const SDK_VERSION = '1.2.0'
 
 /**
  * `localStorage`, wrapped so it cannot take the page down.

@@ -9,7 +9,9 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 const pkg = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 assert.equal(readFileSync(resolve(pkg, '../../docs/cli.md'), 'utf8'),
-  readFileSync(join(pkg, 'README.md'), 'utf8').replaceAll('../../LICENSE-', '../LICENSE-'),
+  readFileSync(join(pkg, 'README.md'), 'utf8')
+    .replaceAll('../../LICENSE-', '../LICENSE-')
+    .replaceAll('(../../docs/', '('),
   'Published CLI README and /docs/cli must describe the same workflow');
 const version = JSON.parse(readFileSync(join(pkg, 'package.json'))).version;
 const root = mkdtempSync(join(tmpdir(), 'sentori-cli-install-'));

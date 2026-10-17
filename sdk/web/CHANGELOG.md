@@ -1,5 +1,11 @@
 # @goliapkg/sentori-web
 
+## 1.2.0
+
+### Minor Changes
+
+- Add an optional real-user performance entry with sampled healthy visits, official Web Vitals, SPA readiness, bounded offline persistence and resource/network diagnostics.
+
 ## 1.1.0
 
 ### Minor Changes

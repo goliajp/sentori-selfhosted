@@ -967,3 +967,58 @@ API-scope tokens can inspect their selected project through `GET /api/project`
 and its apps through `GET /api/apps`. `GET /api/issues` accepts `appId`,
 `platform`, `environment`, and `release`; aggregates use matching events, and
 foreign App IDs are rejected. Ingest tokens cannot use these read endpoints.
+
+## Web monitoring
+
+`POST /v1/web/visits` takes an ingest token and `{ "visits": [...] }` with one
+to twenty sampled visits. A Web App must already exist in that project.
+Each visit includes `id`, increasing `revision`, `startedAt`, `appIdentifier`,
+`release`, `environment`, normalized `route`, `deviceClass`, `navigationType`,
+`sampleRate`, `browser`, `metrics`, `missing`, `errorCount`,
+`resourceErrorCount` and bounded `diagnostics`. Newer revisions replace the same
+visit without adding a denominator. The default body limit is 64 KiB; visits
+older than one day are rejected. The generated OpenAPI describes field types.
+
+An API token can read `GET /api/web/performance?app=<uuid>`, optionally filtering
+by `hours` (1–720), `route`, `release`, `environment` and `device`. Results include
+sample counts, inverse-sampling-weighted visit error rate, device-separated
+metric p75, missing-value coverage, recent diagnostics and at most twenty issue
+groups from the latest 500 matching error events. At least twenty metric samples
+are required for an assessment. Retention is at most thirty days and can be
+shorter under the instance's Cloud entitlement.
+
+`GET /api/web/checks?app=<uuid>` returns configurations, versions and health.
+`GET /api/web/runs?app=<uuid>[&id=<uuid>]` returns the latest fifty runs or one
+exact run. Run results identify `source: synthetic`, browser/Lighthouse versions,
+measurement profile, coverage and bounded findings with severity, evidence and
+advice. They do not contain screenshots, page HTML or authentication secrets.
+
+`POST /api/web/checks` accepts an action and a unique `commandId` UUID:
+
+- `create`: `configuration`.
+- `update`: `id`, `expectedVersion`, `configuration`.
+- `delete`: `id`, `expectedVersion`.
+- `run`: `id`, optional `trigger` (`manual` or `deployment`).
+
+Replay the identical command ID and body to recover a committed result. Reusing
+an ID with another body returns conflict. Configurations require `appId`, `name`,
+`url` and `policy` (`public` or `private`). Optional fields are `allowedOrigins`,
+`readySelector`, `authProfile`, `steps`, `intervalSeconds`, `budgets`,
+`environment`, `enabled`, `lighthouse`, `device`, `alerts` and `failureThreshold`.
+Defaults: recurrence, alerts and Lighthouse off; desktop; failure threshold two.
+An enabled schedule requires an interval from 900 to 604800 seconds. Manual
+execution is allowed for a configuration whose schedule is disabled.
+
+URLs must use public HTTP(S) destinations and standard ports, without credentials
+or query strings. DNS answers, redirects and subresources obey the runner's
+public-address policy. Up to sixteen additional exact origins and ten declarative
+steps are accepted. Steps support `click`, `waitFor` and `assertText` with a
+selector and, for text assertions, a value. Arbitrary scripts are not accepted.
+Budgets optionally specify `lcpMs`, `tbtMs` and `cls`. `authProfile` names a
+runner-local test identity scoped to the same project and app.
+
+A project may have fifty configurations and two queued/running jobs. Two jobs
+may run globally. Leases expire after five minutes. Configuration changes,
+instance generation changes and migration fences invalidate stale results.
+Restoring a snapshot disables schedules and cancels pending jobs. Monitoring
+failures break consecutive site-failure counts and do not trigger outage alerts.

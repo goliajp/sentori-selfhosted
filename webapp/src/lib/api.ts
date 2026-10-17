@@ -1,3 +1,4 @@
+import type { WebPerformance, WebCheck, WebCommand, WebRun } from './web-contract';
 import { eventFilterParams, type EventFilters } from './event-filters';
 import type { ProjectTransfer, TransferCreate, TransferCommand, TransferTail, TransferUpload } from './transfer-contract';
 export type CloudUsage = {
@@ -879,6 +880,19 @@ class Api {
   }
   cancelJob(projectId: string, jobId: string) {
     return this.post<JobRow>(`/admin/api/projects/${projectId}/jobs/${jobId}/cancel`, {});
+  }
+
+  webPerformance(project: string, filters: Record<string,string>, signal?: AbortSignal) {
+    return this.get<WebPerformance>(`/admin/api/projects/${project}/web/performance?${new URLSearchParams(filters)}`,signal);
+  }
+  webChecks(project: string, app: string, signal?: AbortSignal) {
+    return this.get<{checks:WebCheck[];runnerConfigured:boolean}>(`/admin/api/projects/${project}/web/checks?${new URLSearchParams({app})}`,signal);
+  }
+  webRuns(project: string, app: string, id?: string, signal?: AbortSignal) {
+    return this.get<{runs:WebRun[]}>(`/admin/api/projects/${project}/web/runs?${new URLSearchParams({app,...(id?{id}:{})})}`,signal);
+  }
+  webCommand(project: string, command: WebCommand) {
+    return this.post<{id:string;version?:number;status?:string}>(`/admin/api/projects/${project}/web/checks`,command);
   }
 
   // ── releases ──

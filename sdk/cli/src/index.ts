@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runWeb, WEB_HELP } from './web.js'
 import { parseArgs } from 'node:util'
 import { runWorkflow, runSourcesPack, WORKFLOW_HELP } from './workflow.js'
 import { checkCompatibility, CLI_VERSION } from './compatibility.js'
@@ -27,7 +28,7 @@ import { reactNativeUpload } from './react-native.js'
 import { fetchArtifacts } from './artifacts.js'
 import { expandSourcemapPaths, uploadArtifact } from './upload.js'
 
-const HELP = `${WORKFLOW_HELP}\n\nsentori — Sentori command-line interface
+const HELP = `${WEB_HELP}\n${WORKFLOW_HELP}\n\nsentori — Sentori command-line interface
 
 Symbolication artifacts (api-scope token; failures NEVER block your
 build — exit 0 with a friendly note unless --strict):
@@ -721,6 +722,7 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
   const [a, b, ...rest] = argv
+  if (a === 'web') return runWeb(argv.slice(1))
   if (a === 'project' && b === 'show') return cmdProjectApps(rest, false)
   if (a === 'app' && b === 'list') return cmdProjectApps(rest, true)
   if (a === 'init') return runWorkflow('init', argv.slice(1))

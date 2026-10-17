@@ -1,5 +1,11 @@
 # @goliapkg/sentori-cli
 
+## 1.8.0
+
+### Minor Changes
+
+- Inspect Web performance and manage isolated browser checks with idempotent commands, strict deployment results and explicit token-project verification for uploads.
+
 ## 1.7.0
 
 ### Minor Changes

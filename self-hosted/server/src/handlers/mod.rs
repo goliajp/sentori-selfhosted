@@ -58,6 +58,8 @@ mod task_signals;
 mod tasks;
 mod transfer_tail;
 mod transfer_upload;
+pub(crate) mod web_checks;
+mod web_performance;
 
 /// Refuse an IP that is hammering a credentialed auth endpoint.
 ///
@@ -168,6 +170,10 @@ pub fn router(state: Arc<AppState>) -> Router {
     let token_store = TokenStore::new(state.pool.clone());
     let sdk_routes = Router::new()
         .route("/v1/events", post(sdk::events::handle))
+        .route(
+            "/v1/web/visits",
+            post(web_performance::ingest).layer(axum::extract::DefaultBodyLimit::max(64 * 1024)),
+        )
         .route("/v1/transfer-proof", post(transfer_tail::proof))
         .route("/v1/events:batch", post(sdk::events_batch::handle))
         .route(
@@ -298,6 +304,18 @@ pub fn router(state: Arc<AppState>) -> Router {
 
     // ── Dashboard + admin — cookie session ──
     let admin_routes = Router::new()
+        .route(
+            "/admin/api/projects/{project_id}/web/checks",
+            get(web_checks::admin_list).post(web_checks::admin_command),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/web/runs",
+            get(web_checks::admin_runs),
+        )
+        .route(
+            "/admin/api/projects/{project_id}/web/performance",
+            get(web_performance::admin_summary),
+        )
         .route("/admin/api/cloud/usage", get(crate::cloud_quota::usage))
         .route(
             "/admin/api/projects/{project_id}/task-integration",
@@ -633,8 +651,14 @@ pub fn router(state: Arc<AppState>) -> Router {
     // ── AI closed loop — Bearer api-scope token ──
     let api_token_store = TokenStore::new(state.pool.clone());
     let api_routes = Router::new()
+        .route(
+            "/api/web/checks",
+            get(web_checks::api_list).post(web_checks::api_command),
+        )
+        .route("/api/web/runs", get(web_checks::api_runs))
         .route("/api/project", get(api::project))
         .route("/api/apps", get(api::apps))
+        .route("/api/web/performance", get(web_performance::api_summary))
         .route("/api/issues", get(api::list))
         .route("/api/issues/{issue_id}/bundle", get(api::bundle))
         .route("/api/issues/{issue_id}/notes", post(api::add_note))
@@ -658,6 +682,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/hooks/tasks/{project_id}",
             post(task_signals::receive).layer(axum::extract::DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route("/internal/web/claim", post(web_checks::claim))
+        .route(
+            "/internal/web/runs/{run_id}/complete",
+            post(web_checks::complete).layer(axum::extract::DefaultBodyLimit::max(128 * 1024)),
         )
         .route("/openapi.json", get(health::openapi))
         .route("/healthz", get(health::healthz))

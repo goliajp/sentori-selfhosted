@@ -618,3 +618,65 @@ seconds) and `X-Sentori-Signature`. Verify the latter as `sha256=` plus lowercas
 hex HMAC-SHA256 of `timestamp + "." + raw_body`, using the configured signing secret
 as UTF-8 bytes. Verify a bounded timestamp window and deduplicate by delivery ID;
 retries preserve the ID but may have a fresh timestamp and signature.
+
+## Optional isolated Web browser runner
+
+Real-user visit ingestion runs in the server. Active browser and Lighthouse
+checks additionally need a dedicated Linux Docker host with Node.js 24 or later.
+Install the runner from the same qualified source as the server. Keep this host
+separate from sensitive application services; each target page executes inside
+a disposable, non-root container with no host mounts, Docker socket or server
+API token. The coordinator needs permission to create and remove containers.
+
+Build and qualify the image before setting `SENTORI_WEB_RUNNER_IMAGE`:
+
+```sh
+python3 self-hosted/web-runner/qualify.py --build
+python3 self-hosted/web-runner/qualify.py --test
+```
+
+The build prints a content-addressed test image tag. Use the qualified immutable
+image ID in the service configuration. The fixture covers healthy/broken pages,
+public/private SEO, scoped test credentials, blocked destinations and lab budgets.
+Install pinned coordinator dependencies with `bun install --frozen-lockfile
+--production` from `self-hosted/web-runner`, then run `node worker.mjs` under your
+service manager. The source layout must retain `scripts/lib/headless-chrome.mjs`.
+
+| Variable | Purpose |
+| --- | --- |
+| `SENTORI_WEB_RUNNER_TOKEN` | Dedicated random secret of at least 32 characters; configure the same value on the server and coordinator. The server also accepts its `_FILE` variant. Never use an SDK/project token. |
+| `SENTORI_WEB_RUNNER_API_URL` | Coordinator's server origin; default `http://127.0.0.1:8080`. Use HTTPS across hosts. |
+| `SENTORI_WEB_RUNNER_IMAGE` | Required qualified Docker image ID for individual jobs. |
+| `SENTORI_WEB_RUNNER_NETWORK` | Docker network for the job containers; default `bridge`. |
+| `SENTORI_WEB_RUNNER_LOCATION` | Operator-supplied measurement location label; default `unspecified`. |
+| `SENTORI_WEB_RUNNER_AUTH_FILE` | Optional private JSON file of project/app-scoped test identities. |
+| `SENTORI_WEB_RUNNER_LOCK` | Optional absolute path to `bench-lock` on a shared runner; each job takes a separate heavy lock with a 30-second wait limit. |
+
+The coordinator passes only the selected test identity into a browser job over
+stdin. Store the configuration and identity file with owner-only permissions.
+An identity file contains an array of objects shaped as follows; use a dedicated
+least-privilege test account and rotate its session normally:
+
+```json
+[
+  {
+    "projectId": "00000000-0000-0000-0000-000000000001",
+    "appId": "00000000-0000-0000-0000-000000000002",
+    "name": "admin-test",
+    "storageState": { "cookies": [], "origins": [] }
+  }
+]
+```
+
+`storageState` uses Playwright's cookie/local-storage format. Cookie domains and
+local-storage origins must match the configured target origin; another project's
+profile with the same name cannot be used. Profiles are never sent to the server.
+Expired credentials produce a monitoring error and do not establish an outage.
+
+Each job is limited to one CPU, 1 GiB memory, 256 processes and a read-only root
+filesystem with a 512 MiB temporary directory. The browser-side proxy checks all
+DNS answers, pins the selected public address, and caps connections/bytes.
+Private and link-local destinations remain blocked even when explicitly listed
+as allowed origins. Public policy inspects indexing prerequisites only; neither
+it nor private policy confirms Google indexing. No checks or schedules are
+created merely by installing the runner.

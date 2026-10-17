@@ -21,7 +21,7 @@ import { useScopedAsyncData } from '../lib/useScopedAsyncData';
 import { DocumentProject, useShell } from '../lib/shell-context';
 
 type OpenDocument = { key: string; projectId: string; location: Location; context: React.ContextType<typeof UNSAFE_LocationContext>; content: ReactNode; title?: string };
-const routes: Record<string, MessageKey> = { '/':'nav.inbox', '/issues':'nav.inbox', '/projects':'nav.projects', '/tasks':'team.title', '/inbox':'team.inbox', '/status':'monitor.title', '/integrations':'integration.title', '/instruments':'nav.instruments', '/releases':'nav.releases', '/setup':'nav.setup', '/push':'nav.push', '/settings':'nav.settings', '/transfers':'transfer.title', '/self-hosted':'lifecycle.title' };
+const routes: Record<string, MessageKey> = { '/':'nav.inbox', '/issues':'nav.inbox', '/projects':'nav.projects', '/tasks':'team.title', '/inbox':'team.inbox', '/status':'monitor.title', '/web':'web.title', '/integrations':'integration.title', '/instruments':'nav.instruments', '/releases':'nav.releases', '/setup':'nav.setup', '/push':'nav.push', '/settings':'nav.settings', '/transfers':'transfer.title', '/self-hosted':'lifecycle.title' };
 function documentKey(location: Pick<Location,'pathname'|'search'>, projectId: string) {
   const params = new URLSearchParams(location.search);
   return `${projectId}:${location.pathname === '/' ? '/issues' : location.pathname.startsWith('/settings') ? '/settings' : location.pathname}:${location.pathname === '/tasks' ? params.get('id') ?? '' : ''}`;

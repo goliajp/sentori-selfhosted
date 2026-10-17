@@ -111,6 +111,10 @@ async fn export_one(
 const PROJECT_SCOPED: &[&str] = &[
     "apps",
     "app_releases",
+    "web_visits",
+    "web_checks",
+    "web_check_runs",
+    "web_check_commands",
     "cloud_replay_usage",
     "project_transfer_routes",
     "audit_logs",

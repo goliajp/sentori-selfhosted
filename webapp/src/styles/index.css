@@ -531,3 +531,9 @@ time {
 }
 
 .stack-frame[data-selected=true] > .stack-frame-heading { box-shadow: inset 3px 0 var(--ui-action); background: var(--ui-selected); }
+
+.web-monitor-panels { display: grid; gap: 1rem; min-width: 0; padding-block: 1rem; }
+.web-monitor-panels .control-bar { flex-wrap: wrap; }
+.web-monitor-panels details { min-width: 0; }
+.web-monitor-panels summary { cursor: pointer; }
+.web-missing { display: flex; flex-wrap: wrap; gap: 1rem; }

@@ -1,5 +1,12 @@
 # Sentori CHANGELOG
 
+## 5.2.0
+
+- Add opt-in sampled real-user Web performance with healthy-visit denominators, device-separated p75 and coverage.
+- Add isolated browser journeys, public/private SEO checks, Lighthouse budgets, persistent-failure alerts and explicit schedules.
+- Expose app-scoped Web monitoring in the dashboard and CLI, with idempotent commands and project ownership verification.
+- Display configured app labels consistently in releases and filters.
+
 ## 5.1.17
 
 - Configure project apps before telemetry arrives and distinguish Web API from Web App.

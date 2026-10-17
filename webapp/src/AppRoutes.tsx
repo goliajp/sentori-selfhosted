@@ -11,6 +11,7 @@ const TriageView = lazy(() => import('./pages/TriageView'));
 const Docs = lazy(() => import('./pages/Docs'));
 const LoginPage = lazy(() => import('./pages/Login').then((page) => ({ default: page.LoginPage })));
 const PushPage = lazy(() => import('./pages/Push'));
+const WebMonitoring = lazy(() => import('./pages/WebMonitoring'));
 const Releases = lazy(() => import('./pages/Releases'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
 const Transfers = lazy(() => import('./pages/Transfers'));
@@ -57,6 +58,7 @@ export function AppRoutes() {
           <Route path="/releases" element={<Releases />} />
           <Route path="/tasks" element={<Tasks />} />
           <Route path="/inbox" element={<InboxPage />} />
+          <Route path="/web" element={<WebMonitoring />} />
           <Route path="/status" element={<MonitorsPage />} />
           <Route path="/integrations" element={<IntegrationsPage />} />
           <Route path="/push" element={<PushPage />} />

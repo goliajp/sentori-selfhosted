@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
@@ -99,4 +99,39 @@ describe('unified release upload', () => {
     expect(uploaded).toHaveLength(1)
   })
 
+})
+
+test('expected project prevents doctor, upload and verification from accepting another project token', async () => {
+  writeFileSync(join(root, 'mapping.txt'), 'A -> a:\n')
+  const path = config({ mapping: ['mapping.txt'] })
+  const projectId = '31a8f496-faf3-4448-af1d-0118b7b5c8cd'
+  writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), projectId }))
+  const calls: string[] = []
+  globalThis.fetch = (async (url) => {
+    calls.push(String(url))
+    return reply({ project: { id: '019fb8cd-8eed-7fa3-8611-7851e3b1f9ea', name: 'wrong' } })
+  }) as typeof fetch
+  for (const command of ['doctor', 'upload', 'verify'] as const) {
+    expect(await runWorkflow(command, ['--config', path, '--strict'])).toBe(1)
+  }
+  expect(calls).toEqual(Array(3).fill('https://upload.test/api/project'))
+  calls.length = 0
+  expect(await runWorkflow('upload', ['--config', path, '--dry-run'])).toBe(0)
+  expect(calls).toEqual([])
+})
+
+test('matching project is verified before artifact compatibility and upload', async () => {
+  const path = config()
+  const projectId = '31a8f496-faf3-4448-af1d-0118b7b5c8cd'
+  writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, 'utf8')), projectId }))
+  const calls: string[] = []
+  globalThis.fetch = (async (url) => {
+    calls.push(String(url))
+    return String(url).endsWith('/api/project')
+      ? reply({ project: { id: projectId, name: 'home' } })
+      : reply({ release: 'app@1+7', known: false, artifacts: [], compatibility: { serverVersion: '5.1.17', artifactProtocol: 1, sourceBundleFormats: ['zip'], verification: ['sha256', 'format'] } })
+  }) as typeof fetch
+  expect(await runWorkflow('doctor', ['--config', path])).toBe(0)
+  expect(calls[0]).toBe('https://upload.test/api/project')
+  expect(calls).toHaveLength(2)
 })

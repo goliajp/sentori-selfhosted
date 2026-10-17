@@ -7,7 +7,7 @@ machine and does not add runtime work to the application.
 
 ## Install the correct version
 
-This guide requires **CLI 1.7.0**. Check registry availability before updating
+This guide requires **CLI 1.8.0**. Check registry availability before updating
 your build pipeline. The older 1.5.0 package has only the
 `sentori-cli` executable and does not have `init`, `doctor`, `upload all`, ZIP
 packaging or exact-file `verify`. Do not install 1.5.0 and run this guide's commands.
@@ -16,17 +16,17 @@ Use Node **18.17 or newer**; use a maintained Node release for CI. Pin the CLI a
 development dependency and commit the package lock:
 
 ```sh
-npm view @goliapkg/sentori-cli@1.7.0 version
-npm install --save-dev --save-exact @goliapkg/sentori-cli@1.7.0
+npm view @goliapkg/sentori-cli@1.8.0 version
+npm install --save-dev --save-exact @goliapkg/sentori-cli@1.8.0
 npx --no-install sentori --version
 ```
 
-The last command must print `sentori 1.7.0`. If npm cannot find that version, use
+The last command must print `sentori 1.8.0`. If npm cannot find that version, use
 the tested package supplied by the Sentori team, without assuming `latest` has
 these features:
 
 ```sh
-npm install --save-dev --save-exact /absolute/path/goliapkg-sentori-cli-1.7.0.tgz
+npm install --save-dev --save-exact /absolute/path/goliapkg-sentori-cli-1.8.0.tgz
 npx --no-install sentori --version
 ```
 
@@ -49,7 +49,7 @@ package if the local executable is missing. The server maintenance binary
 
 | Value | Meaning |
 | --- | --- |
-| CLI `1.7.0` | Build-tool package version, shown by `sentori --version` |
+| CLI `1.8.0` | Build-tool package version, shown by `sentori --version` |
 | Server version | Running server binary, reported by `sentori doctor` |
 | SDK version | Independently versioned app library; it need not equal the CLI or server |
 | Config `version: 1` | Upload configuration schema, not a product version |
@@ -277,7 +277,7 @@ Native tooling. A Metro map alone does not resolve Hermes bytecode offsets.
 
 | Result | Action |
 | --- | --- |
-| No `sentori` binary / unknown `init` | Check the installed package version; use 1.7.0 or its supplied tarball, with `npx --no-install` |
+| No `sentori` binary / unknown `init` | Check the installed package version; use 1.8.0 or its supplied tarball, with `npx --no-install` |
 | `doctor` rejects ZIP capability | Upgrade/deploy the compatible server; CLI installation cannot enable server support |
 | 401 / `admin_token_required` | Use an API-scope token for the correct project and instance |
 | Local file missing | Build first; resolve paths relative to the configuration file |
@@ -320,3 +320,32 @@ uploading and preserve the exact release reported by the app.
 `SENTORI_API_TOKEN` is accepted by inspection and direct upload commands. The
 configured upload workflow uses its `tokenEnv` setting (default `SENTORI_TOKEN`);
 set `tokenEnv` to `SENTORI_API_TOKEN` if using that variable consistently.
+
+## Web App monitoring
+
+Use a project API token. `--project <uuid>` verifies ownership before any request
+that could create or run a check. The same optional `projectId` field in
+`sentori.config.json` protects doctor/upload/verify from a token for another
+project; a dry run performs no network ownership verification.
+
+```sh
+sentori web performance --app <app-uuid> --hours 24 --device mobile
+sentori web checks --app <app-uuid>
+sentori web create --config web-check.json --project <project-uuid>
+sentori web update --id <check-uuid> --version 1 --config web-check.json
+sentori web run --id <check-uuid> --app <app-uuid> --wait --strict
+sentori web runs --app <app-uuid> --id <run-uuid> --strict
+sentori web delete --id <check-uuid> --version 2
+```
+
+All results are JSON. Mutations print `commandId` to stderr before sending;
+retry the identical request with `--command-id <printed-uuid>` after an ambiguous
+transport failure. Updates and deletion require the version currently returned
+by `web checks`. A deployment can explicitly run a check with
+`--trigger deployment`; uploading symbols alone does not schedule a browser.
+
+Without strict mode, site findings leave exit status zero. Strict `run --wait`
+or `runs --id` returns zero for passed, one for site failed and two for monitoring
+errors, unfinished/cancelled runs or transport errors. `--wait` requires `--app`
+and waits up to 330 seconds. API and invalid-command errors always return two.
+The configuration contract is documented in [the protocol](../../docs/protocol.md#web-monitoring).

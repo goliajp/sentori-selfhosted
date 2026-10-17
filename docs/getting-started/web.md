@@ -124,12 +124,10 @@ Nothing leaves the page otherwise.
 
 ## What you do not get
 
-**Status codes on request breadcrumbs.** They come from
-`PerformanceObserver`, which records a URL, a duration and a size, and
-no HTTP status. Chromium exposes `responseStatus`; no other engine
-does. Reporting one requires our code to sit in the path of every
-request your page makes, and a bug there would break your app rather
-than our reporting.
+**Default request breadcrumbs.** Resource timing exposes duration and size;
+HTTP status visibility depends on the browser. The optional performance
+collector's `networkErrors` setting adds bounded fetch/XHR connectivity and
+HTTP 5xx reporting without reading bodies. It is disabled by default.
 
 If you want the status, say so where you already have it:
 
@@ -147,7 +145,8 @@ is.
 
 ## Cost
 
-9.5 KB gzipped, measured on every build. A run of 550 SDK calls in a
+A 25 KiB gzipped budget covers the default bundle and the combined optional
+performance bundle, measured on every build. A run of 550 SDK calls in a
 real Chrome produces no long task — also measured on every build,
 rather than promised here.
 
@@ -156,3 +155,31 @@ rather than promised here.
 - [SDK reference](../../sdk/web/README.md)
 - [Self-hosting](../self-hosting.md)
 - [Protocol](../protocol.md)
+
+## Real-user performance and browser checks
+
+With Sentori 5.2.0 or later and Web SDK 1.2.0 or later, create a Web App with an explicit identifier in the intended project, then set
+`app: { identifier: 'admin-panel' }` in `sentori.init`. Import the optional
+performance entry and choose a sampling rate as shown in the
+[SDK reference](../../sdk/web/README.md#optional-real-user-performance).
+The dashboard's Web monitoring screen separates sampled real-user performance,
+correlated JavaScript errors and isolated browser checks.
+
+Percentiles require at least twenty metric samples and are separated by mobile
+and desktop. Healthy sampled visits contribute to the error-rate denominator.
+A missing metric, an unobserved interaction or insufficient samples is not a
+successful measurement. SPA readiness is distinct from document LCP and INP.
+
+Browser checks need an operator-installed runner. Configure the exact URL,
+required public resource origins, a visible readiness selector and optional
+click/wait/text assertions. Public policy checks rendered and raw metadata,
+robots directives, canonical links, sitemap coverage and JSON-LD syntax.
+Private policy checks anonymous protection and noindex; an operator may supply
+a scoped test-account profile. These checks do not establish Google indexing
+or search ranking. Lighthouse results are laboratory measurements: TBT is not
+INP and laboratory LCP is not a real-user percentile.
+
+Scheduled execution and alerts start disabled. Enable recurrence explicitly
+(minimum fifteen minutes). Alerts require consecutive failed checks; runner,
+network-policy and expired-authentication failures are monitoring errors, not
+confirmed site outages. Existing incidents recover only after a passing check.

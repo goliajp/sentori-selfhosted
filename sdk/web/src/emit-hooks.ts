@@ -11,8 +11,9 @@ type EmitHook = (event: WireEvent) => void
 
 const hooks: EmitHook[] = []
 
-export const registerEmitHook = (hook: EmitHook): void => {
+export const registerEmitHook = (hook: EmitHook): (() => void) => {
   hooks.push(hook)
+  return () => { const index = hooks.indexOf(hook); if (index >= 0) hooks.splice(index, 1) }
 }
 
 export const onEventEmitted = (event: WireEvent): void => {

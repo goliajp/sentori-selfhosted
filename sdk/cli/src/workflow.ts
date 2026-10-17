@@ -3,6 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { basename, dirname, resolve } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import { parseArgs } from 'node:util'
+import { showProject } from './apps.js'
 import { fetchArtifacts } from './artifacts.js'
 import { checkCompatibility } from './compatibility.js'
 import { dwarfBinariesIn } from './native-artifacts.js'
@@ -14,6 +15,7 @@ export type UploadConfig = {
   version: 1
   apiUrl: string
   tokenEnv: string
+  projectId?: string
   release?: string
   artifacts: { sourcemap?: string[]; dsym?: string[]; mapping?: string[] }
   sources?: { root?: string; include: string[]; exclude?: string[]; gitTag?: string }
@@ -23,6 +25,7 @@ export type UploadPlan = {
   release: string
   apiUrl: string
   tokenEnv: string
+  projectId?: string
   files: { kind: UploadOpts['kind']; name: string; path: string; hash: string; bytes: number }[]
   source?: { files: string[]; tag?: string; commit?: string }
 }
@@ -58,12 +61,13 @@ export function loadUploadConfig(path: string): UploadConfig {
   const value: unknown = JSON.parse(readFileSync(path, 'utf8'))
   if (!object(value) || value.version !== 1 || typeof value.apiUrl !== 'string' || !object(value.artifacts)) throw new Error('config requires version: 1, apiUrl, and artifacts; run sentori init')
   if (Object.hasOwn(value, 'token')) throw new Error('store the API token in the environment and set tokenEnv, not token in the config')
-  const allowed = new Set(['version', 'apiUrl', 'tokenEnv', 'release', 'artifacts', 'sources', 'sourceArchive'])
+  const allowed = new Set(['version', 'apiUrl', 'tokenEnv', 'projectId', 'release', 'artifacts', 'sources', 'sourceArchive'])
   for (const key of Object.keys(value)) if (!allowed.has(key)) throw new Error(`unknown config field: ${key}`)
   for (const [kind, paths] of Object.entries(value.artifacts)) {
     if (!['sourcemap', 'dsym', 'mapping'].includes(kind)) throw new Error(`unknown artifact kind ${kind}; use sourcemap, dsym, or mapping`)
     strings(paths, `artifacts.${kind}`)
   }
+  if (value.projectId !== undefined && (typeof value.projectId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.projectId))) throw new Error('projectId must be the expected Project UUID')
   if (value.release !== undefined && (typeof value.release !== 'string' || !value.release.trim())) throw new Error('release must be a non-empty string')
   if (value.sourceArchive !== undefined && typeof value.sourceArchive !== 'string') throw new Error('sourceArchive must be a ZIP path')
   if (value.sources !== undefined) {
@@ -97,7 +101,7 @@ export function prepareUploadPlan(configPath: string, overrides: { release?: str
   const base = dirname(resolve(configPath))
   const release = overrides.release ?? process.env.SENTORI_RELEASE ?? config.release
   if (!release?.trim()) throw new Error('set --release, SENTORI_RELEASE, or config.release to the exact SDK release')
-  const plan: UploadPlan = { release, apiUrl: apiUrl(overrides.apiUrl ?? process.env.SENTORI_API_URL ?? config.apiUrl), tokenEnv: config.tokenEnv, files: [] }
+  const plan: UploadPlan = { release, apiUrl: apiUrl(overrides.apiUrl ?? process.env.SENTORI_API_URL ?? config.apiUrl), tokenEnv: config.tokenEnv, ...(config.projectId ? { projectId: config.projectId } : {}), files: [] }
   const add = (kind: UploadOpts['kind'], path: string, name = basename(path)): void => {
     let bytes = readFileSync(path)
     if (bytes[0] === 0x1f && bytes[1] === 0x8b) { bytes = gunzipSync(bytes, { maxOutputLength: 512 * 1024 * 1024 }); name = name.replace(/\.gz$/, '') }
@@ -183,6 +187,7 @@ export async function runWorkflow(command: 'init' | 'validate' | 'upload' | 'ver
       const config = loadUploadConfig(configPath)
       const token = process.env[config.tokenEnv]
       if (!token) throw new Error(`set ${config.tokenEnv} to an API-scope token`)
+      await verifyProject({ apiUrl: apiUrl(parsed.values['api-url'] ?? process.env.SENTORI_API_URL ?? config.apiUrl), projectId: config.projectId }, token)
       const result = await fetchArtifacts({
         apiUrl: apiUrl(parsed.values['api-url'] ?? process.env.SENTORI_API_URL ?? config.apiUrl), token,
         release: parsed.values.release ?? process.env.SENTORI_RELEASE ?? config.release ?? '__sentori_compatibility_check__',
@@ -196,6 +201,7 @@ export async function runWorkflow(command: 'init' | 'validate' | 'upload' | 'ver
     if (command === 'validate' || parsed.values['dry-run']) { console.log('Local files checked; no upload or server verification performed.'); return 0 }
     const token = process.env[plan.tokenEnv]
     if (!token) throw new Error(`set ${plan.tokenEnv} to an API-scope token`)
+    await verifyProject(plan, token)
     // Check credentials before the first write. An unknown release is allowed.
     console.log(checkCompatibility(await fetchArtifacts({ ...plan, token }), plan.files.some(file => file.kind === 'srcbundle')))
     const failures: string[] = []
@@ -237,4 +243,13 @@ export async function runSourcesPack(argv: string[]): Promise<number> {
     console.log(JSON.stringify({ output: parsed.values.output, ...packed.manifest, stats: packed.stats }, null, 2))
     return 0
   } catch (error) { console.error(`[sentori] ${error instanceof Error ? error.message : String(error)}`); return 1 }
+}
+
+async function verifyProject(config: { apiUrl: string; projectId?: string }, token: string): Promise<void> {
+  if (!config.projectId) return
+  const { project } = await showProject({ apiUrl: config.apiUrl, token })
+  if (project.id.toLowerCase() !== config.projectId.toLowerCase()) {
+    throw new Error(`Project mismatch: expected ${config.projectId}, token belongs to ${project.id}. No files uploaded.`)
+  }
+  console.log(`Project verified: ${project.name} (${project.id})`)
 }

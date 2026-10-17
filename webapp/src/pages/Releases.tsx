@@ -19,8 +19,7 @@ import { api, type ArtifactRow, type ReleaseRow } from '../lib/api';
 import { formatApiError } from '../lib/useAsyncData';
 import { useScopedAsyncData } from '../lib/useScopedAsyncData';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
-import { platformLabel } from '../lib/platform-label';
-import { appDisplayName } from '../lib/app-name';
+import { appDisplayLabel } from '../lib/app-name';
 import { releaseDisplayName } from '../lib/release-name';
 import { formatCrashFree } from '../lib/crash-free';
 import { lightColour, lightState, uploadedArtifactKinds, type LightState } from '../lib/release-lights';
@@ -57,7 +56,7 @@ function Releases({projectId}:{projectId:string}){
   },[selected,release?.id]);
   return <div className="production-page release-workspace" data-selected={!!selected}>
     <Heading title={t('nav.releases')} description={t('releaseView.description')}/>
-    <div className="control-bar"><Field label={t('apps.title')}><Select value={appId} onChange={e=>update({app:e.target.value,offset:'',detail:''})}><option value="">{t('apps.all')}</option>{apps.data?.apps.map(app=><option key={app.id} value={app.id}>{appDisplayName(app,t)} · {platformLabel(app.platform,t)}</option>)}</Select></Field><Field label={t('releaseView.search')}><Input type="search" maxLength={200} value={query} onChange={e=>update({q:e.target.value,offset:'',detail:''})}/></Field></div>
+    <div className="control-bar"><Field label={t('apps.title')}><Select value={appId} onChange={e=>update({app:e.target.value,offset:'',detail:''})}><option value="">{t('apps.all')}</option>{apps.data?.apps.map(app=><option key={app.id} value={app.id}>{appDisplayLabel(app,t)}</option>)}</Select></Field><Field label={t('releaseView.search')}><Input type="search" maxLength={200} value={query} onChange={e=>update({q:e.target.value,offset:'',detail:''})}/></Field></div>
     <div className="release-workspace-body">
     <div className="release-list" ref={listRef} aria-label={t('nav.releases')}>
     {!selected&&<><p className="muted text-xs">{t('releaseView.validationHint')}</p><Legend/></>}
@@ -75,7 +74,7 @@ function Releases({projectId}:{projectId:string}){
       {!state.loading&&!state.data?.rows.length&&<p className="workbench-message">{t('releases.emptyTitle')}</p>}
     </div>:<DataTable<Row> appearance="design" rowKey={row=>row.id} rows={pendingQuery?[]:state.data?.rows??[]} empty={t(state.loading||pendingQuery?'projects.loading':state.error?'releases.loadFailed':'releases.emptyTitle')} columns={[
       {key:'name',label:t('inbox.releaseFilter'),render:row=><Action className="text-link font-semibold" onClick={()=>update({detail:row.id})}>{releaseDisplayName(row,t,{appId})}</Action>},
-      {key:'apps',label:t('apps.title'),render:row=>row.apps?.map(app=>`${appDisplayName(app,t)} · ${platformLabel(app.platform,t)}`).join(', ')||'—'},
+      {key:'apps',label:t('apps.title'),render:row=>row.apps?.map(app=>appDisplayLabel(app,t)).join(', ')||'—'},
       {key:'sessions',label:t('releaseView.sessions'),align:'right',render:row=>byRelease.get(row.name)?.sessions.toLocaleString()??'—'},
       {key:'crashFree',label:t('releases.crashFree'),align:'right',render:row=><CrashFreeCell health={byRelease.get(row.name)??null}/>},
       {key:'artifacts',label:t('releaseView.artifacts'),render:row=><Coverage release={row}/>},

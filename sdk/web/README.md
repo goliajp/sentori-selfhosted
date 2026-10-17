@@ -94,17 +94,11 @@ sends none of it.
 
 ## What it cannot do
 
-**Request status codes.** Network breadcrumbs come from
-`PerformanceObserver` on resource timings, which carry a URL, a
-duration and a transfer size — and no HTTP status. A 500 and a 200 look
-the same here. Chromium exposes `responseStatus` and is the only engine
-that does, so a status appears on Chrome and is absent elsewhere.
-
-The alternative is patching `fetch` and `XMLHttpRequest`, which the
-React Native SDK does. In a browser that means our code sits in the
-path of every request the page makes, and a bug in it breaks the
-host's app rather than just our reporting. That trade is worth it on a
-platform we control the runtime of; it is not worth it here.
+**Default request breadcrumbs.** Resource timing exposes duration and size,
+but HTTP status visibility depends on the browser. The default SDK does not
+patch browser requests. Optional `networkErrors` in the performance entry
+adds bounded fetch/XHR connectivity and HTTP 5xx reporting; it preserves the
+original response or rejection and never reads response bodies.
 
 To record a status, say so:
 
@@ -135,7 +129,8 @@ server before pointing a browser at it.
 ## Cost
 
 The bundle is measured on every build, gzipped, the way a browser
-receives it. Today: **9.5 KB**. The gate fails over 25 KB.
+receives it. The gate fails over 25 KiB for either the default entry or a
+bundle combining it with the optional performance entry.
 
 The main thread is measured too: a run that makes 550 SDK calls must
 produce no `longtask` entry. That check runs in a real Chrome on every
@@ -144,3 +139,49 @@ build, not as a claim in this file.
 ## License
 
 Apache-2.0 OR MIT
+
+## Optional real-user performance
+
+The separate `@goliapkg/sentori-web/performance` entry requires a server with
+Sentori 5.2.0 or later and a registered Web App. Set `app.identifier` in
+`sentori.init` to that app's exact identifier before starting the collector.
+
+```ts
+import { startWebMonitoring } from '@goliapkg/sentori-web/performance'
+
+const monitoring = startWebMonitoring({
+  sampleRate: 0.1,
+  route: () => '/orders/:id',
+  resourceErrors: true,
+  networkErrors: true,
+})
+
+// The host router decides when its next screen is usable.
+const navigationStarted = performance.now()
+// After the screen becomes ready:
+monitoring.routeReady('/orders/:id', navigationStarted)
+// On consent withdrawal:
+// monitoring.stop()
+```
+
+Collection is off until this entry is imported and started. `sampleRate` is
+required and must be greater than zero and at most one. One sampling decision
+covers each document or restored visit, including healthy visits. Official
+`web-vitals` measurements report LCP, INP, CLS, FCP and TTFB; SPA `routeReady`
+is a separate host-defined measurement. Unsupported values and lack of user
+interaction remain missing, not zero. Never put account IDs or query strings
+in route templates.
+
+Resource and network error reporting are separately opt-in. Network reporting
+captures connectivity failures and HTTP 5xx, ignores aborts, 4xx, opaque
+responses and Sentori requests, and does not read bodies. Each source is capped
+at ten reported errors per page. Ordinary JavaScript errors keep using the
+existing error pipeline and exact-release source maps.
+
+The pending visit queue is bounded to twenty records and 48 KiB, with an
+optional local-storage copy expiring after one day. Uploads run at most every
+thirty seconds, back off on failure, and attempt a final lifecycle flush;
+browser shutdown can still lose data. `stop()` clears this collector's queue,
+listeners, network patches and transport. The official metrics library retains
+bounded document lifecycle observers; its callbacks stop reporting. A stopped
+controller cannot be restarted in the same document.

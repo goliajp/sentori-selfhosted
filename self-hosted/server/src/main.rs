@@ -173,27 +173,7 @@ async fn main() -> anyhow::Result<()> {
     state.ingest_policy = crate::ingest_policy::Policy::load(&pool).await?;
     let state = Arc::new(state);
 
-    // Recovery verification must not resend old work or prune restored evidence.
-    let operating_mode: String =
-        sqlx::query_scalar("SELECT operating_mode FROM instance_settings WHERE singleton")
-            .fetch_one(&pool)
-            .await?;
-    cloud_quota::spawn(Arc::clone(&state), operating_mode == "normal");
-    if operating_mode == "normal" {
-        let token_cache = std::sync::Arc::new(token_cache::TokenCache::new());
-        instance_operations::spawn(Arc::clone(&state));
-        project_transfers::spawn(Arc::clone(&state));
-        jobs::spawn(Arc::clone(&state));
-        team::spawn(state.pool.clone());
-        push_secrets::spawn(Arc::clone(&state));
-        push_worker::spawn(Arc::clone(&state), token_cache);
-        backend_check_worker::spawn(pool.clone());
-        monitors::spawn(pool.clone());
-        notification_delivery::spawn(&state);
-        archive_worker::spawn(pool, state.attachments.clone(), state.cloud.is_some());
-    } else {
-        tracing::warn!(%operating_mode, "automatic workers paused for recovery validation");
-    }
+    start_workers(&state).await?;
 
     // Baseline HSTS / X-Content-Type-Options / X-Frame-Options /
     // Referrer-Policy on every response. Wrapping at the outermost
@@ -215,6 +195,38 @@ async fn main() -> anyhow::Result<()> {
             #[allow(unreachable_code)] Ok::<(),anyhow::Error>(())
         } => result?,
     }
+    Ok(())
+}
+
+async fn start_workers(state: &Arc<AppState>) -> anyhow::Result<()> {
+    let pool = &state.pool;
+    // Recovery verification must not resend old work or prune restored evidence.
+    let operating_mode: String =
+        sqlx::query_scalar("SELECT operating_mode FROM instance_settings WHERE singleton")
+            .fetch_one(pool)
+            .await?;
+    cloud_quota::spawn(Arc::clone(state), operating_mode == "normal");
+    if operating_mode == "normal" {
+        let token_cache = std::sync::Arc::new(token_cache::TokenCache::new());
+        instance_operations::spawn(Arc::clone(state));
+        project_transfers::spawn(Arc::clone(state));
+        jobs::spawn(Arc::clone(state));
+        team::spawn(state.pool.clone());
+        push_secrets::spawn(Arc::clone(state));
+        push_worker::spawn(Arc::clone(state), token_cache);
+        backend_check_worker::spawn(pool.clone());
+        monitors::spawn(pool.clone());
+        handlers::web_checks::spawn(Arc::clone(state));
+        notification_delivery::spawn(state);
+        archive_worker::spawn(
+            pool.clone(),
+            state.attachments.clone(),
+            state.cloud.is_some(),
+        );
+    } else {
+        tracing::warn!(%operating_mode, "automatic workers paused for recovery validation");
+    }
+
     Ok(())
 }
 

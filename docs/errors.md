@@ -4,7 +4,7 @@
      Run `node scripts/gen-error-reference.mjs` after changing a
      handler's error code. `--check` runs in preflight. -->
 
-Every code below is one this server actually sends on a `/v1/*`
+Every code below is one this server actually sends on an SDK or Web monitoring
 endpoint, extracted from the handlers rather than written by hand.
 The shape is always:
 
@@ -29,14 +29,35 @@ change without notice.
 | `empty_file` | events_attachments.rs |
 | `ingest_failed` | events.rs, events_batch.rs |
 | `internal` | ack.rs, batch.rs, count.rs, deploys.rs, get_preferences.rs, legacy.rs, put_preference.rs, receipt.rs, register_token.rs, revoke_token.rs, send.rs, subscribe_topic.rs, unsubscribe_topic.rs |
+| `invalid_allowed_origin` | web_checks.rs |
 | `invalid_fp_hex` | get_preferences.rs, put_preference.rs |
 | `invalid_kind` | events_attachments.rs, legacy.rs, register_token.rs |
+| `invalid_lab_budget` | web_checks.rs |
 | `invalid_multipart` | events_attachments.rs |
 | `invalid_payload` | events.rs, events_batch.rs, events_validate.rs |
+| `invalid_public_url` | web_checks.rs |
+| `invalid_runner_token` | web_checks.rs |
 | `invalid_source` | events_attachments.rs |
+| `invalid_stored_web_check` | web_checks.rs |
+| `invalid_trigger` | web_checks.rs |
+| `invalid_web_check` | web_checks.rs |
+| `invalid_web_observation` | web_performance.rs |
+| `invalid_web_result` | web_checks.rs |
+| `project_unavailable` | web_checks.rs |
 | `send_not_found` | batch.rs |
+| `superadmin_only` | web_checks.rs |
 | `too_large` | events_attachments.rs |
 | `unauthorized` | middleware.rs |
+| `web_app_not_found` | web_performance.rs |
+| `web_check_capacity` | web_checks.rs |
+| `web_check_concurrency` | web_checks.rs |
+| `web_check_conflict` | web_checks.rs |
+| `web_check_not_found_or_instance_paused` | web_checks.rs |
+| `web_command_conflict` | web_checks.rs |
+| `web_run_lease_expired` | web_checks.rs |
+| `web_run_not_found` | web_checks.rs |
+| `web_runner_not_configured` | web_checks.rs |
+| `web_visit_capacity` | web_performance.rs |
 
 ## 401 hints
 

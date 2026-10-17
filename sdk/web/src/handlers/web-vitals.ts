@@ -1,18 +1,6 @@
-// Core Web Vitals, from the browser's own measurements.
-//
-// LCP, CLS and INP, read through `PerformanceObserver`. No polyfill
-// and no third-party library: every one of these is a browser-native
-// entry type, and pulling in `web-vitals` would double the package for
-// numbers the platform already hands over.
-//
-// They ride the signal ring rather than becoming events. A vitals
-// *event* per page view is a metrics product, and this is an error
-// reporter — what these are for is answering "was the page already
-// struggling when it broke", which is a question the ring answers.
-//
-// Each observer is registered separately and independently guarded:
-// INP needs `event` timing, which older Safari does not have, and one
-// unsupported type must not cost the other two.
+// Lightweight diagnostic signals. Standard Web Vitals are available from the optional /performance entry point.
+// Diagnostic observations are bounded by the signal ring. layoutShiftTotal and
+// worstInteraction are approximations, not standard CLS or INP measurements.
 
 import { pushSignal, reportInternal } from '@goliapkg/sentori-core'
 
@@ -74,7 +62,7 @@ export const installWebVitals = (): void => {
       for (const line of [0.1, 0.25]) {
         if (cls >= line && reported < line) {
           reported = line
-          pushSignal('vital', { name: 'CLS', value: Math.round(cls * 1000) / 1000 })
+          pushSignal('vital', { name: 'layoutShiftTotal', value: Math.round(cls * 1000) / 1000 })
         }
       }
     } catch (err) {
@@ -95,7 +83,7 @@ export const installWebVitals = (): void => {
         const ms = Math.round(e.duration)
         if (ms <= worst) continue
         worst = ms
-        pushSignal('vital', { name: 'INP', ms, event: e.name })
+        pushSignal('vital', { name: 'worstInteraction', ms, event: e.name })
       }
     } catch (err) {
       reportInternal('vital-inp', err)
