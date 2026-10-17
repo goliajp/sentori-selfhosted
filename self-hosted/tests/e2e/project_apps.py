@@ -56,6 +56,33 @@ def run(*, base, owner, sql, password, client, request):
     assert {a['id'] for a in call(path + '/releases?q=mobile%401.0')['releases'][0]['apps']} == {ios['id'], android['id']}
     assert call(path + '/releases?appId=' + str(uuid.uuid4()))['total'] == 0
 
+    # API tokens select one project; App filters must also constrain aggregates.
+    api_token = call(path + '/tokens', 'POST', {'name': 'Agent', 'scope': 'api'}, 201)['token']
+    def api(route, key=api_token, status=200):
+        req = urllib.request.Request(base + route, headers={'Authorization': 'Bearer ' + key})
+        try:
+            response = urllib.request.urlopen(req, timeout=15)
+        except urllib.error.HTTPError as error:
+            response = error
+        result = json.load(response)
+        assert response.code == status, (route, response.code, result)
+        return result
+    assert api('/api/project')['project']['id'] == project
+    assert {a['id'] for a in api('/api/apps')['apps']} == {a['id'] for a in rows}
+    assert ios['kind'] == 'ios' and storefront['kind'] == 'webapp'
+    for route in ['/api/project', '/api/apps', '/api/issues']:
+        api(route, token, 403)
+    scoped = api('/api/issues?appId=' + ios['id'])
+    assert scoped['total'] > 0 and sum(i['eventCount'] for i in scoped['issues']) == 2, scoped
+    assert sum(i['eventCount'] for i in api('/api/issues?appId=' + android['id'])['issues']) == 1
+    assert api('/api/issues?appId=' + ios['id'] + '&platform=android')['total'] == 0
+    assert api('/api/issues?appId=' + ios['id'] + '&release=mobile%401.0')['issues'][0]['eventCount'] == 1
+    api('/api/issues?appId=' + str(uuid.uuid4()), status=404)
+    api('/api/issues?status=bogus', status=400)
+    call(path + '/apps/' + console['id'], 'PATCH', {'expectedVersion': 1, 'kind': 'webapi'})
+    assert next(a for a in api('/api/apps')['apps'] if a['id'] == console['id'])['kind'] == 'webapi'
+    call(path + '/apps/' + console['id'], 'PATCH', {'expectedVersion': 2, 'kind': 'bogus'}, 400)
+
     ingest('/v1/events', event('ios', 'mobile@1.0'))
     assert next(app for app in call(path + '/apps')['apps'] if app['id'] == ios['id'])['latestRelease']['name'] == 'mobile@1.1'
 
@@ -132,6 +159,18 @@ def run(*, base, owner, sql, password, client, request):
     call('/admin/api/projects/' + other + '/apps/' + ios['id'], 'PATCH', {'expectedVersion': 3, 'name': 'Cross project'}, 404)
     assert call('/admin/api/projects/' + other + '/releases?appId=' + ios['id'])['total'] == 0
     assert call('/admin/api/projects/' + other + '/releases?names=' + urllib.parse.quote(json.dumps(['mobile@1.0'])))['total'] == 0
+    other_token = call('/admin/api/projects/' + other + '/tokens', 'POST', {'name': 'Other agent', 'scope': 'api'}, 201)['token']
+    assert api('/api/apps', other_token)['apps'] == []
+    assert api('/api/issues', other_token)['total'] == 0
+    api('/api/issues?appId=' + ios['id'], other_token, 404)
+    # Configured apps exist before telemetry and ingest reuses their identity.
+    configured = {'platform': 'web', 'identifier': 'admin-panel', 'kind': 'webapp', 'name': 'Admin panel'}
+    created = call(path + '/apps', 'POST', configured, 201)
+    call(path + '/apps', 'POST', configured, 409)
+    call(path + '/apps', 'POST', {**configured, 'identifier': 'x', 'kind': 'bogus'}, 400)
+    ingest('/v1/events', event('web', 'admin@1', payload={'app': {'identifier': 'admin-panel'}, 'error': {'message': 'Configured app'}}))
+    assert next(a for a in api('/api/apps')['apps'] if a['id'] == created['id'])['events24h'] == 1
+    assert api('/api/issues?appId=' + created['id'])['total'] == 1
     member = call('/admin/api/users', 'POST', {'email': 'app-member@example.test', 'password': password}, 201)
     http = client()
     call('/auth/login', 'POST', {'email': 'app-member@example.test', 'password': password}, http=http)
@@ -139,7 +178,20 @@ def run(*, base, owner, sql, password, client, request):
     call('/admin/api/users/' + member['id'] + '/projects/' + project, 'PUT', {})
     call(path + '/apps', http=http)
     call(app_path, 'PATCH', {'expectedVersion': 3, 'name': 'Member write'}, 403, http)
+    call(path + '/apps', 'POST', {**configured, 'identifier': 'member-app'}, 403, http)
     call('/admin/api/projects/' + other + '/apps', status=403, http=http)
+
+    # Discovering a stable identifier preserves an operator-configured role.
+    ingest('/v1/events', event('javascript', 'role-api@1'))
+    alias = next(a for a in api('/api/apps')['apps'] if a['identifier'] == 'role-api')
+    call(path + '/apps/' + alias['id'], 'PATCH', {'expectedVersion': 1, 'kind': 'webapi'})
+    ingest('/v1/events', event('javascript', 'different@1', payload={'app': {'identifier': 'stable-api'}}))
+    target = next(a for a in api('/api/apps')['apps'] if a['identifier'] == 'stable-api')
+    ingest('/v1/events', event('javascript', 'role-api@1', payload={'app': {'identifier': 'stable-api'}}))
+    roles = api('/api/apps')['apps']
+    assert not any(a['id'] == alias['id'] for a in roles)
+    merged = next(a for a in roles if a['id'] == target['id'])
+    assert merged['kind'] == 'webapi' and merged['version'] > 2
 
     # Native uploads establish platform evidence before a device connects.
     # A sourcemap alone cannot tell whether JavaScript runs in RN or the web.

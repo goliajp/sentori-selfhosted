@@ -39,11 +39,15 @@ async function apiFetch<T>(c: ApiConfig, path: string, init?: RequestInit): Prom
 
 export async function listIssues(
   c: ApiConfig,
-  opts: { status?: string; kind?: string } = {},
+  opts: { status?: string; kind?: string; app?: string; platform?: string; environment?: string; release?: string } = {},
 ): Promise<Issue[]> {
   const q = new URLSearchParams()
   if (opts.status) q.set('status', opts.status)
   if (opts.kind) q.set('kind', opts.kind)
+  if (opts.app) q.set('app_id', opts.app)
+  if (opts.platform) q.set('platform', opts.platform)
+  if (opts.environment) q.set('environment', opts.environment)
+  if (opts.release) q.set('release', opts.release)
   const qs = q.toString()
   const body = await apiFetch<{ issues: Issue[] }>(c, `/api/issues${qs ? `?${qs}` : ''}`)
   return body.issues

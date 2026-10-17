@@ -1,6 +1,6 @@
 {
   "name": "@goliapkg/sentori-core",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Sentori SDK core — wire-format types (incl. Span), uuid v7, breadcrumb + span ring buffers, trace context, stack parsers shared across @goliapkg/sentori-* SDKs.",
   "license": "Apache-2.0 OR MIT",
   "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",

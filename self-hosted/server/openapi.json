@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sentori",
-    "version": "5.1.16",
+    "version": "5.1.17",
     "summary": "Self-hosted crash and error reporting for mobile apps.",
     "description": "Its own wire protocol — not Sentry-compatible, and there is no DSN. Generated from the router by scripts/gen-openapi.mjs; the path list cannot drift from the server."
   },
@@ -160,6 +160,22 @@
     }
   },
   "paths": {
+    "/api/apps": {
+      "get": {
+        "summary": "GET /api/apps",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
+          }
+        }
+      }
+    },
     "/api/issues": {
       "get": {
         "summary": "GET /api/issues",
@@ -311,6 +327,22 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/project": {
+      "get": {
+        "summary": "GET /api/project",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "See docs/protocol.md"
           }
         }
       }

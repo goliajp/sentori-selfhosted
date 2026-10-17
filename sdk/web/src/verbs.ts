@@ -59,6 +59,7 @@ const emit = (kind: EventKind, opts: EmitOptions): string => {
     context: currentContext(),
     signals: opts.withSignals ? snapshotSignals() : undefined,
     device: collectDevice(),
+    app: config.app,
   })
 
   const kept = applyBeforeSend(event, config.beforeSend)

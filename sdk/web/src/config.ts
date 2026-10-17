@@ -4,9 +4,10 @@
 // verb called before `init` must be a no-op rather than a throw — the
 // iron rule — and that is only true if there is one place that knows.
 
-import type { InitConfig, WireEvent } from '@goliapkg/sentori-core'
+import type { App, InitConfig, WireEvent } from '@goliapkg/sentori-core'
 
 export type ResolvedConfig = {
+  app?: App
   token: string
   ingestUrl: string
   release: string
@@ -34,6 +35,8 @@ export type ResolvedConfig = {
 }
 
 export type WebInitConfig = InitConfig & {
+  /** Stable identity, e.g. admin-panel; independent of the release name. */
+  app?: { identifier: string; version?: string }
   detect?: {
     uncaught?: boolean
     webVitals?: boolean

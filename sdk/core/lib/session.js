@@ -50,6 +50,7 @@ export class SessionTracker {
             startedAt,
             status,
             userId: this.active.ctx.userId,
+            ...(this.active.ctx.app ? { app: this.active.ctx.app } : {}),
         };
         this.active = null;
         try {

@@ -948,9 +948,12 @@ absent identity falls back to the release prefix, then a default app for that
 platform. Existing clients and release strings remain supported.
 
 The dashboard API exposes `GET /admin/api/projects/{project_id}/apps` and
-`PATCH /admin/api/projects/{project_id}/apps/{app_id}`. Metadata writes require
-an owner and `expectedVersion`; optional `name` and `repositoryUrl` strings can
-be cleared with an empty string. The platform is determined from observations.
+`PATCH /admin/api/projects/{project_id}/apps/{app_id}`. An owner may preconfigure
+an app with `POST /admin/api/projects/{project_id}/apps`, passing `platform`,
+`identifier`, `name`, and `kind`; duplicate project/platform/identifier returns 409.
+Metadata updates require an owner and `expectedVersion`; optional `name` and `repositoryUrl` strings can
+be cleared with an empty string. An optional `kind` update accepts `ios`, `android`, `webapi`, `webapp`, `weapp`, or `unknown`.
+Kind describes the product role independently of its telemetry platform.
 Repository URLs must be HTTP(S) without embedded credentials, query or fragment.
 
 Project health includes `apps` and `artifactSummary`. Release listing accepts
@@ -959,3 +962,8 @@ Project health includes `apps` and `artifactSummary`. Release listing accepts
 App membership, metadata and release associations are included in backups and
 project transfers. Legacy project platform and release fields remain available
 for API compatibility; a project platform value does not establish an app.
+
+API-scope tokens can inspect their selected project through `GET /api/project`
+and its apps through `GET /api/apps`. `GET /api/issues` accepts `appId`,
+`platform`, `environment`, and `release`; aggregates use matching events, and
+foreign App IDs are rejected. Ingest tokens cannot use these read endpoints.

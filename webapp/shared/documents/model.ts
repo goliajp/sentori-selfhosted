@@ -83,6 +83,6 @@ export const SECTIONS: { key: string; slugs: string[] }[] = [
   { key: 'docs.section.wire', slugs: ['protocol', 'errors', 'replay-encoding-v2'] },
   { key: 'docs.section.run', slugs: ['self-hosting', 'teams', 'operator/ingest-project-split', 'runbook/scaling', 'runbook/cli-auth'] },
   { key: 'docs.section.recipes', slugs: ['recipes/sourcemap-upload', 'recipes/release-versioning'] },
-  { key: 'docs.section.help', slugs: ['troubleshooting'] },
+  { key: 'docs.section.help', slugs: ['troubleshooting', 'web-observability-design'] },
 ]
 

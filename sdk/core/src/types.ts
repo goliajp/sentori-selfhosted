@@ -72,6 +72,8 @@ export type Device = {
 }
 
 export type App = {
+  /** Stable application identity within a project and runtime platform. */
+  identifier?: string
   version: string
   build?: string
   framework?: { name: string; version: string }

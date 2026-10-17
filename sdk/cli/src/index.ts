@@ -2,6 +2,7 @@
 import { parseArgs } from 'node:util'
 import { runWorkflow, runSourcesPack, WORKFLOW_HELP } from './workflow.js'
 import { checkCompatibility, CLI_VERSION } from './compatibility.js'
+import { listApps, showProject } from './apps.js'
 
 import {
   fetchBundle,
@@ -53,7 +54,10 @@ Regression tripwires (design: probes):
       registers them, so a silent probe is visibly alive.
 
 CI triage (the same /api surface an AI agent uses):
-  sentori issue list [--status open] [--kind error]
+  sentori project show [--json]       project selected by the API token
+  sentori app list [--json]           apps within that project
+  sentori issue list [--status open] [--kind error] [--app <uuid>]
+      [--platform <platform>] [--environment <env>] [--release <release>] [--json]
   sentori issue resolve <issue-id> [--in-release <r>]
   sentori issue note <issue-id> --body "fixed in abc123"
   sentori issue bundle <issue-id>
@@ -66,7 +70,7 @@ Push (carried):
 
 Common options:
   --version     installed CLI package version
-  --token       api-scope token (or $SENTORI_TOKEN)
+  --token       api-scope token (or $SENTORI_API_TOKEN; legacy $SENTORI_TOKEN)
   --api-url     instance URL (or $SENTORI_API_URL; default https://sentori.golia.jp)
   --strict      upload commands: exit non-zero on failure
 `
@@ -80,7 +84,7 @@ function parseCommon(values: Record<string, unknown>): Common | null {
     return null
   }
   const token =
-    (typeof values.token === 'string' ? values.token : undefined) ?? process.env.SENTORI_TOKEN
+    (typeof values.token === 'string' ? values.token : undefined) ?? process.env.SENTORI_API_TOKEN ?? process.env.SENTORI_TOKEN
   if (!token) {
     console.error('error: --token (or $SENTORI_TOKEN) is required')
     return null
@@ -98,6 +102,7 @@ type ApiOnly = { apiUrl: string; token: string }
 function parseApiCfg(values: Record<string, unknown>): ApiOnly | null {
   const token =
     (typeof values.token === 'string' ? values.token : undefined) ??
+    process.env.SENTORI_API_TOKEN ??
     process.env.SENTORI_ADMIN_TOKEN ??
     process.env.SENTORI_TOKEN
   if (!token) {
@@ -430,12 +435,37 @@ const ISSUE_OPTS = {
   token: { type: 'string' },
 } as const
 
+async function cmdProjectApps(argv: string[], apps: boolean): Promise<number> {
+  try {
+    const { values } = parseArgs({ args: argv, options: { ...ISSUE_OPTS, json: { type: 'boolean' } } })
+    if (values.help) { console.log(HELP); return 0 }
+    const config = parseApiCfg(values)
+    if (!config) return 2
+    if (apps) {
+      const body = await listApps(config)
+      if (values.json) console.log(JSON.stringify(body, null, 2))
+      else {
+        console.log(`Project: ${body.projectId}`)
+        for (const app of body.apps) console.log(`${app.id}  ${app.kind}  ${(app.name ?? app.identifier) || '(unidentified)'}  platform=${app.platform}  identifier=${app.identifier || '(unknown)'}`)
+        if (!body.apps.length) console.log('(no apps)')
+      }
+    } else {
+      const body = await showProject(config)
+      console.log(values.json ? JSON.stringify(body, null, 2) : `${body.project.id}  ${body.project.name}`)
+    }
+    return 0
+  } catch (error) {
+    console.error(`${apps ? 'app list' : 'project show'} failed: ${(error as Error).message}`)
+    return 1
+  }
+}
+
 async function cmdIssueList(argv: string[]): Promise<number> {
   let parsed
   try {
     parsed = parseArgs({
       args: argv,
-      options: { ...ISSUE_OPTS, kind: { type: 'string' }, status: { type: 'string' } },
+      options: { ...ISSUE_OPTS, kind: { type: 'string' }, status: { type: 'string' }, app: { type: 'string' }, platform: { type: 'string' }, environment: { type: 'string' }, release: { type: 'string' }, json: { type: 'boolean' } },
     })
   } catch (e) {
     console.error(`error: ${(e as Error).message}\n${HELP}`)
@@ -451,7 +481,12 @@ async function cmdIssueList(argv: string[]): Promise<number> {
     const rows = await listIssues(cfg, {
       kind: parsed.values.kind as string | undefined,
       status: (parsed.values.status as string | undefined) ?? 'open',
+      app: parsed.values.app,
+      platform: parsed.values.platform,
+      environment: parsed.values.environment,
+      release: parsed.values.release,
     })
+    if (parsed.values.json) { console.log(JSON.stringify({ issues: rows }, null, 2)); return 0 }
     if (rows.length === 0) {
       console.log('(no matching issues)')
       return 0
@@ -686,6 +721,8 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
   const [a, b, ...rest] = argv
+  if (a === 'project' && b === 'show') return cmdProjectApps(rest, false)
+  if (a === 'app' && b === 'list') return cmdProjectApps(rest, true)
   if (a === 'init') return runWorkflow('init', argv.slice(1))
   if (a === 'doctor') return runWorkflow('doctor', argv.slice(1))
   if (a === 'verify') return runWorkflow('verify', argv.slice(1))

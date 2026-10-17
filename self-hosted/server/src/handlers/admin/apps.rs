@@ -30,6 +30,7 @@ pub async fn summaries(pool: &PgPool, project_id: Uuid) -> Result<Vec<Value>, sq
         "SELECT jsonb_build_object(
            'id',a.id,'projectId',a.project_id,'platform',a.platform,'identifier',a.identifier,
            'name',a.name,'repositoryUrl',a.repository_url,'version',a.version,
+           'kind',coalesce(a.kind,CASE a.platform WHEN 'web' THEN 'webapp' WHEN 'javascript' THEN 'unknown' ELSE a.platform END),
            'identitySource',CASE WHEN a.name IS NOT NULL THEN 'configured'
              WHEN a.has_explicit_identifier THEN 'reported' WHEN a.identifier<>'' THEN 'release' ELSE 'unknown' END,
            'createdAt',a.created_at,'lastEventAt',a.last_event_at,'lastSessionAt',a.last_session_at,
@@ -79,10 +80,82 @@ pub async fn list(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CreateBody {
+    platform: String,
+    identifier: String,
+    name: String,
+    kind: String,
+}
+
+pub async fn create(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<SessionContext>,
+    Path(project_id): Path<Uuid>,
+    Json(body): Json<CreateBody>,
+) -> Result<Reply, Reply> {
+    if !ctx.role.is_superadmin() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error":"superadmin_only"})),
+        ));
+    }
+    super::tokens::ensure_project_access(&state, &ctx, project_id).await?;
+    let identifier = body.identifier.trim();
+    let name = body.name.trim();
+    if !valid_kind(&body.kind)
+        || !matches!(
+            body.platform.as_str(),
+            "ios" | "android" | "javascript" | "web" | "weapp" | "unknown"
+        )
+        || identifier.is_empty()
+        || identifier.len() > 200
+        || identifier.chars().any(char::is_control)
+        || name.is_empty()
+        || name.chars().count() > 200
+        || name.chars().any(char::is_control)
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid_app"})),
+        ));
+    }
+    let mut tx = state.pool.begin().await.map_err(|error| internal(&error))?;
+    crate::apps::lock_apps(&mut tx, project_id, &body.platform)
+        .await
+        .map_err(|error| internal(&error))?;
+    let id: Option<Uuid> = sqlx::query_scalar(
+        "INSERT INTO apps(project_id,platform,identifier,name,kind,has_explicit_identifier)
+         VALUES($1,$2,$3,$4,$5,true) ON CONFLICT(project_id,platform,identifier) DO NOTHING RETURNING id",
+    ).bind(project_id).bind(&body.platform).bind(identifier).bind(name).bind(&body.kind)
+        .fetch_optional(&mut *tx).await.map_err(|error| internal(&error))?;
+    let Some(id) = id else {
+        return Err((StatusCode::CONFLICT, Json(json!({"error":"app_exists"}))));
+    };
+    crate::audit::record_in_transaction(
+        &mut tx,
+        Some(project_id),
+        ctx.user_id,
+        "app.create",
+        "app",
+        &id.to_string(),
+        json!({"platform":body.platform,"identifier":identifier,"name":name,"kind":body.kind}),
+    )
+    .await
+    .map_err(|error| internal(&error))?;
+    tx.commit().await.map_err(|error| internal(&error))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({"id":id,"projectId":project_id,"version":1})),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateBody {
     expected_version: i64,
     name: Option<String>,
     repository_url: Option<String>,
+    kind: Option<String>,
 }
 
 pub async fn update(
@@ -98,6 +171,12 @@ pub async fn update(
         ));
     }
     super::tokens::ensure_project_access(&state, &ctx, project_id).await?;
+    if body.kind.as_deref().is_some_and(|kind| !valid_kind(kind)) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid_app_kind"})),
+        ));
+    }
     if body.expected_version < 1
         || body
             .name
@@ -135,13 +214,14 @@ pub async fn update(
     let version: Option<i64> = sqlx::query_scalar(
         "UPDATE apps SET name=CASE WHEN $4::text IS NULL THEN name ELSE nullif($4,'') END,
            repository_url=CASE WHEN $5::text IS NULL THEN repository_url ELSE nullif($5,'') END,
-           version=version+1 WHERE id=$1 AND project_id=$2 AND version=$3 RETURNING version",
+           kind=coalesce($6,kind),version=version+1 WHERE id=$1 AND project_id=$2 AND version=$3 RETURNING version",
     )
     .bind(app_id)
     .bind(project_id)
     .bind(body.expected_version)
     .bind(body.name.as_deref().map(str::trim))
     .bind(body.repository_url.as_deref().map(str::trim))
+    .bind(body.kind.as_deref())
     .fetch_optional(&mut *tx)
     .await
     .map_err(|error| internal(&error))?;
@@ -169,10 +249,17 @@ pub async fn update(
         "app.update",
         "app",
         &app_id.to_string(),
-        json!({"name":body.name,"repositoryUrl":body.repository_url,"version":version}),
+        json!({"name":body.name,"repositoryUrl":body.repository_url,"kind":body.kind,"version":version}),
     )
     .await
     .map_err(|error| internal(&error))?;
     tx.commit().await.map_err(|error| internal(&error))?;
     Ok(Json(json!({"ok":true,"version":version})))
+}
+
+fn valid_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "ios" | "android" | "webapi" | "webapp" | "weapp" | "unknown"
+    )
 }

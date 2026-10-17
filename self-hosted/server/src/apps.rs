@@ -21,7 +21,7 @@ struct Identity {
 // Discovery can refine an inferred identity while another request reports a
 // session or uploads another build. Keep those decisions in one order. Normal
 // observations already update the app row in their accepting transaction.
-async fn lock_apps(
+pub(crate) async fn lock_apps(
     tx: &mut Transaction<'_, Postgres>,
     project: Uuid,
     platform: &str,
@@ -193,6 +193,7 @@ async fn merge_inferred_app(
            AND ($3<>'' OR (SELECT count(*) FROM app_releases ar WHERE ar.app_id=a.id)=1) \
            AND (a.name IS NULL OR target.name IS NULL OR a.name=target.name) \
            AND (a.repository_url IS NULL OR target.repository_url IS NULL OR a.repository_url=target.repository_url) \
+           AND (nullif(a.kind,'unknown') IS NULL OR nullif(target.kind,'unknown') IS NULL OR a.kind=target.kind) \
            AND EXISTS(SELECT 1 FROM app_releases ar WHERE ar.app_id=a.id AND ar.release_id=$5) \
            AND NOT EXISTS(SELECT 1 FROM apps known JOIN app_releases ar ON ar.app_id=known.id \
              JOIN releases r ON r.id=ar.release_id WHERE known.project_id=$1 AND known.platform=$2 \
@@ -203,10 +204,11 @@ async fn merge_inferred_app(
         .fetch_optional(&mut **tx).await?;
     let Some(alias) = alias else { return Ok(()) };
     sqlx::query(
-        "UPDATE apps t SET name=coalesce(t.name,a.name),repository_url=coalesce(t.repository_url,a.repository_url), \
+        "UPDATE apps t SET name=coalesce(t.name,a.name),repository_url=coalesce(t.repository_url,a.repository_url),kind=coalesce(nullif(t.kind,'unknown'),a.kind), \
            created_at=least(t.created_at,a.created_at), \
            last_event_at=greatest(t.last_event_at,a.last_event_at),last_session_at=greatest(t.last_session_at,a.last_session_at),version=CASE \
              WHEN t.name IS NULL AND a.name IS NOT NULL OR t.repository_url IS NULL AND a.repository_url IS NOT NULL \
+               OR nullif(t.kind,'unknown') IS NULL AND nullif(a.kind,'unknown') IS NOT NULL \
              THEN greatest(t.version,a.version)+1 ELSE t.version END FROM apps a WHERE t.id=$1 AND a.id=$2",
     ).bind(app).bind(alias).execute(&mut **tx).await?;
     sqlx::query(

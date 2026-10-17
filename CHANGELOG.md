@@ -1,5 +1,12 @@
 # Sentori CHANGELOG
 
+## 5.1.17
+
+- Configure project apps before telemetry arrives and distinguish Web API from Web App.
+- Expose token-scoped project/app discovery and filter API issue totals by app, platform, environment and release.
+- Carry explicit browser app identity through events and sessions; document project-scoped CLI and integration requirements.
+
+
 > v0.1 + v0.2 已完成 phase 的详细记录（含每条 sub 的中文 summary）。
 
 > 每条记录的真实落地凭证以 git log + commit message 为准。

@@ -96,3 +96,5 @@ Each page is the API surface that ships with its package:
 
 Pages describing versions that no longer exist are not kept. The
 CHANGELOG is the history.
+
+- [Web monitoring design](web-observability-design.md) — planned real-user performance, browser checks and SEO capabilities; not a release availability statement.

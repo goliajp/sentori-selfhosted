@@ -1,6 +1,6 @@
 {
   "name": "@goliapkg/sentori-cli",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Sentori CLI \u2014 configure, upload and verify release debug files and source archives.",
   "license": "Apache-2.0 OR MIT",
   "author": "GOLIA K.K. <takagi@golia.jp> (https://golia.jp)",

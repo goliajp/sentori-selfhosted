@@ -44,6 +44,8 @@ export function buildWireEvent(i) {
         payload.signals = i.signals;
     if (i.device)
         payload.device = i.device;
+    if (i.app)
+        payload.app = i.app;
     return {
         id: i.id,
         kind: i.kind,

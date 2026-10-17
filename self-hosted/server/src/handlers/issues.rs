@@ -50,7 +50,7 @@ pub struct ListQuery {
     pub filters: crate::event_filter::EventFilter,
 }
 
-fn issue_row_json(r: &sqlx::postgres::PgRow) -> Value {
+pub(super) fn issue_row_json(r: &sqlx::postgres::PgRow) -> Value {
     json!({
         "id": r.get::<Uuid, _>("id"),
         "projectId": r.get::<Uuid, _>("project_id"),
@@ -186,7 +186,7 @@ fn list_window(q: &ListQuery) -> Result<ListWindow<'_>, (StatusCode, Json<Value>
     })
 }
 
-const ISSUE_LIST_SQL: &str = "WITH matching AS MATERIALIZED (
+pub(super) const ISSUE_LIST_SQL: &str = "WITH matching AS MATERIALIZED (
            SELECT e.id,e.issue_id,e.user_key,e.occurred_at,e.received_at,e.release,
                   count(*) OVER (PARTITION BY e.issue_id,e.user_key) AS per_user
            FROM events e WHERE $11 AND ($2::uuid IS NULL OR e.project_id=$2)

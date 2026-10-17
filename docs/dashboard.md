@@ -147,7 +147,9 @@ a fleet is not configuration.
 ## Projects
 
 One card per project aggregates health and replay coverage across its apps.
-Platforms are discovered from received data and uploaded files. Each app shows
+Platforms are discovered from received data and uploaded files. An owner can also
+add an App before its first event, using the exact identifier the SDK will report.
+App types distinguish Web API from Web App, independently of the runtime platform. Each app shows
 its own latest release and optional Git repository; tasks stay at project level.
 This is the layer above everything else — the switcher in the sidebar picks which project the
 other screens are about.

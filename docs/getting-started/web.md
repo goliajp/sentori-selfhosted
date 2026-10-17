@@ -17,6 +17,8 @@ to pick.
   headers, so a browser refuses the request before it is made and
   reports it only to the page's console.
 
+Stable `app.identifier` configuration requires browser SDK **1.1.0 or later**.
+
 ## 1. Install
 
 ```bash
@@ -37,9 +39,15 @@ sentori.init({
   token: import.meta.env.VITE_SENTORI_TOKEN,
   ingestUrl: import.meta.env.VITE_SENTORI_INGEST_URL,
   release: `web@${__APP_VERSION__}`,
+  app: { identifier: 'admin-panel' },
   environment: import.meta.env.MODE,
 })
 ```
+
+`app.identifier` is the stable browser app identity within the project; keep it
+unchanged across releases. For a project containing both an API and a web UI,
+use separate identifiers such as `api` and `admin-panel`. The configured App type
+is Web API or Web App; browser telemetry still uses platform `web`.
 
 The token belongs in the bundle. It only grants ingest, and every
 browser SDK works this way — there is nothing to hide, and hiding it
@@ -51,7 +59,7 @@ behind a proxy costs you the origin of the report.
   `addEventListener` so whatever you already had keeps working
 - click, navigation and request breadcrumbs, into a sixty-second ring
   that ships only when something goes wrong
-- LCP, CLS and INP from the browser's own measurements
+- browser timing context in the error signal ring (LCP candidates, cumulative layout shifts and slow interactions); this is not a standards-compliant Core Web Vitals dashboard
 - a session per page view, ended when the page is hidden
 
 ## 3. Report something

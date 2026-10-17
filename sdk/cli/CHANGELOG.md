@@ -1,5 +1,11 @@
 # @goliapkg/sentori-cli
 
+## 1.7.0
+
+### Minor Changes
+
+- Carry stable browser app identity in events and sessions. Inspect the token-selected project and its apps, and filter issue aggregates by app, platform, environment and release. Accept SENTORI_API_TOKEN for inspection and direct uploads.
+
 ## 1.6.0
 
 ### Minor Changes

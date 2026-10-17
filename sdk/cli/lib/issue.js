@@ -21,6 +21,14 @@ export async function listIssues(c, opts = {}) {
         q.set('status', opts.status);
     if (opts.kind)
         q.set('kind', opts.kind);
+    if (opts.app)
+        q.set('app_id', opts.app);
+    if (opts.platform)
+        q.set('platform', opts.platform);
+    if (opts.environment)
+        q.set('environment', opts.environment);
+    if (opts.release)
+        q.set('release', opts.release);
     const qs = q.toString();
     const body = await apiFetch(c, `/api/issues${qs ? `?${qs}` : ''}`);
     return body.issues;

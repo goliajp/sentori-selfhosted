@@ -27,6 +27,7 @@ export default function ProjectsPage() {
   const [editing, setEditing] = useState<Project | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Project | null>(null);
   const [name, setName] = useState('');
+  const [creatingApp, setCreatingApp] = useState<Project | null>(null);
   const [editingApp, setEditingApp] = useState<ProjectApp | null>(null);
   const [confirmation, setConfirmation] = useState('');
   const [conflict, setConflict] = useState(false);
@@ -83,12 +84,13 @@ export default function ProjectsPage() {
     </div>
     <div className="grid gap-5 xl:grid-cols-2" aria-busy={loading}>
       {visible.map(row => <Surface key={row.id} title={row.name} className="project-card" action={owner && <div className="flex flex-wrap gap-2"><Button small variant="ghost" onClick={() => edit(row)}>{t('projects.edit')}</Button><Button small variant="ghost" onClick={() => { setDeleting(row); setConfirmation(''); setFailure(null); setConflict(false); }}>{t('common.delete')}</Button></div>} footer={<><Button disabled={!row.health && !row.failure} onClick={() => open(row, row.health && !row.health.lastEventAt ? 'setup' : 'issues')}>{t(row.health && !row.health.lastEventAt ? 'setup.title' : 'projects.open')}<ArrowUpRight size={15}/></Button><Button variant="ghost" onClick={() => open(row, 'releases')}>{t('nav.releases')}</Button></>}>
+        <div className="flex justify-between gap-3">{owner && <Button small onClick={() => setCreatingApp(row)}><Plus size={14}/>{t('apps.create')}</Button>}</div>
         <PlatformConnections health={row.health} onSetup={platform => setActiveProjectId(row.id,{pathname:'/setup',params:{platform}})}/>
         <div className="grid grid-cols-2 gap-6 mt-5"><div><p className="text-xs subtle">{t('projects.errors24h')}</p><p className="text-3xl tabular mt-2">{row.health?.counts24h.error ?? '—'}</p></div><div><p className="text-xs subtle">{t('apps.title')}</p><p className="text-3xl tabular mt-2" data-app-count>{row.health?.apps?.filter(isIdentifiedApp).length ?? '—'}</p></div></div>
         <div className="flex flex-wrap gap-x-6 gap-y-3 mt-5 text-sm tabular muted"><span>{t('projects.warnings24h')} · {row.health?.counts24h.warn ?? '—'}</span><span title={t('health.usersTitle')}>{t('projects.users24h')} · {row.health?.users24h ?? '—'}</span>{row.health && row.health.replay24h.eligible > 0 && <span>{t('health.replay')} · {row.health.replay24h.withScreens}/{row.health.replay24h.eligible}</span>}</div>
         {row.health?.backend && <div className="flex flex-wrap items-center gap-3 mt-4 text-sm muted" title={row.health.backend.url}><StatusLabel marker={<span className="h-2 w-2 rounded-full" style={{background: row.health.backend.lastOk === null ? 'var(--ui-muted)' : row.health.backend.lastOk ? 'var(--ui-success)' : 'var(--ui-danger)'}}/>}>{t('health.backend')}</StatusLabel>{row.health.backend.checks24h > 0 && <span>{((row.health.backend.ok24h / row.health.backend.checks24h) * 100).toFixed(1)}%</span>}{row.health.backend.lastLatencyMs !== null && <span>{row.health.backend.lastLatencyMs}ms</span>}</div>}
         <div className="project-app-list">{row.health?.apps?.filter(isIdentifiedApp).map(app => <div key={app.id} className="project-app" data-app-id={app.id}>
-          <div className="flex flex-wrap items-center justify-between gap-3"><strong className="break-all">{appDisplayName(app,t)}</strong><div className="project-app-actions"><Badge>{platformLabel(app.platform,t)}</Badge><Badge tone={app.lastEventAt || app.lastSessionAt ? 'success' : 'neutral'}>{t(app.lastEventAt || app.lastSessionAt ? 'projects.connected' : 'apps.filesOnly')}</Badge>{owner && <Button small variant="ghost" onClick={() => setEditingApp(app)}>{t('apps.edit')}</Button>}</div></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><strong className="break-all">{appDisplayName(app,t)}</strong><div className="project-app-actions"><Badge>{app.kind === 'webapi' ? 'Web API' : app.kind === 'webapp' ? 'Web App' : platformLabel(app.platform,t)}</Badge><Badge tone={app.lastEventAt || app.lastSessionAt ? 'success' : 'neutral'}>{t(app.lastEventAt || app.lastSessionAt ? 'projects.connected' : app.releaseCount ? 'apps.filesOnly' : 'projects.waiting')}</Badge>{owner && <Button small variant="ghost" onClick={() => setEditingApp(app)}>{t('apps.edit')}</Button>}</div></div>
           {app.identitySource==='release' && <p className="text-xs subtle">{t('apps.inferredName')}</p>}
           <p className="text-sm muted">{t('projects.latestRelease')} · {app.latestRelease ? <Action className="text-link" onClick={() => setActiveProjectId(row.id,{pathname:'/releases',params:{app:app.id}})}>{releaseDisplayName({name:app.latestRelease.name,apps:[app]},t)}</Action> : '—'}</p>
           {app.repositoryUrl && <a className="text-link text-sm break-all" href={app.repositoryUrl} target="_blank" rel="noreferrer">{app.repositoryUrl}<ArrowUpRight size={14}/></a>}
@@ -111,6 +113,7 @@ export default function ProjectsPage() {
         {problem}
       </form>
     </Dialog>
+    {creatingApp && <CreateApp project={creatingApp} onClose={()=>setCreatingApp(null)} onSaved={()=>{setCreatingApp(null);reload();}}/>}
     {editingApp && <EditApp app={editingApp} onClose={() => setEditingApp(null)} onSaved={() => {setEditingApp(null); reload();}}/>}
     <Dialog open={!!deleting} onClose={() => { if (!busy) setDeleting(null); }} closeLabel={t('common.close')} title={t('settings.deleteProjectConfirm', {name: deleting?.name ?? ''})} footer={<Button variant="danger" busy={busy} disabled={confirmation !== deleting?.name} onClick={remove}>{t('common.delete')}</Button>}>
       <Field label={t('projects.confirmName')} hint={deleting?.name}><Input value={confirmation} onChange={e => setConfirmation(e.target.value)} autoComplete="off" disabled={busy} data-autofocus /></Field>
@@ -136,22 +139,45 @@ function PlatformConnections({health,onSetup}:{health:ProjectHealth|null;onSetup
 function EditApp({app,onClose,onSaved}:{app:ProjectApp;onClose:()=>void;onSaved:()=>void}) {
   const t=useT(), appForm=useId();
   const [name,setName]=useState(app.name??''),[repositoryUrl,setRepositoryUrl]=useState(app.repositoryUrl??'');
+  const [kind,setKind]=useState(app.kind ?? 'unknown');
   const [busy,setBusy]=useState(false),[failure,setFailure]=useState<string|null>(null);
   async function save(event:React.FormEvent) {
     event.preventDefault();if(busy)return;setBusy(true);setFailure(null);
-    try {await api.updateApp(app.projectId,app.id,{name:name.trim(),repositoryUrl:repositoryUrl.trim(),expectedVersion:app.version});onSaved();}
+    try {await api.updateApp(app.projectId,app.id,{name:name.trim(),repositoryUrl:repositoryUrl.trim(),kind,expectedVersion:app.version});onSaved();}
     catch(error){setFailure(error instanceof ApiError && error.status===409?t('apps.conflict'):formatApiError(error));}
     finally{setBusy(false);}
   }
   return <Dialog open onClose={()=>{if(!busy)onClose();}} title={t('apps.edit')} closeLabel={t('common.close')} footer={<Button type="submit" form={appForm} variant="primary" busy={busy}>{t('settings.save')}</Button>}>
     <form id={appForm} className="form-stack" onSubmit={save}>
-      <Badge>{platformLabel(app.platform,t)}</Badge>
+      <Badge>{app.kind === 'webapi' ? 'Web API' : app.kind === 'webapp' ? 'Web App' : platformLabel(app.platform,t)}</Badge>
+      <Field label={t('apps.kind')}><Select value={kind} onChange={event=>setKind(event.target.value)} disabled={busy}>{['ios','android','webapi','webapp','weapp','unknown'].map(value=><option key={value} value={value}>{value === 'webapi' ? 'Web API' : value === 'webapp' ? 'Web App' : platformLabel(value,t)}</option>)}</Select></Field>
       <Field label={t('apps.name')}><Input maxLength={200} value={name} onChange={event=>setName(event.target.value)} disabled={busy} data-autofocus/></Field>
       <dl className="app-identity">
         <div><dt>{t('apps.nameSource')}</dt><dd>{t(app.identitySource==='configured'?'apps.sourceConfigured':app.identitySource==='reported'?'apps.sourceReported':app.identitySource==='release'?'apps.sourceRelease':'apps.sourceUnknown')}</dd></div>
         <div><dt>{t('apps.identifier')}</dt><dd>{app.identifier || '—'}</dd></div>
       </dl>
       <Field label={t('apps.repository')} hint={t('apps.repositoryHint')}><Input type="url" maxLength={2048} value={repositoryUrl} onChange={event=>setRepositoryUrl(event.target.value)} disabled={busy}/></Field>
+      {failure && <ErrorBanner reason={failure}>{t('projects.actionFailed')}</ErrorBanner>}
+    </form>
+  </Dialog>;
+}
+
+function CreateApp({project,onClose,onSaved}:{project:Project;onClose:()=>void;onSaved:()=>void}) {
+  const t=useT(), formId=useId();
+  const [name,setName]=useState(''), [identifier,setIdentifier]=useState(''), [kind,setKind]=useState('ios');
+  const [busy,setBusy]=useState(false), [failure,setFailure]=useState<string|null>(null);
+  async function save(event:React.FormEvent) {
+    event.preventDefault(); if(busy)return; setBusy(true);setFailure(null);
+    const platform=kind==='webapi'?'javascript':kind==='webapp'?'web':kind;
+    try {await api.createApp(project.id,{name:name.trim(),identifier:identifier.trim(),kind,platform});onSaved();}
+    catch(error){setFailure(formatApiError(error));}finally{setBusy(false);}
+  }
+  return <Dialog open title={t('apps.create')} closeLabel={t('common.close')} onClose={()=>{if(!busy)onClose();}} footer={<Button type="submit" form={formId} variant="primary" busy={busy}>{t('settings.save')}</Button>}>
+    <form id={formId} className="form-stack" onSubmit={save}>
+      <p>{project.name}</p>
+      <Field label={t('apps.name')}><Input required maxLength={200} value={name} onChange={e=>setName(e.target.value)} disabled={busy} data-autofocus/></Field>
+      <Field label={t('apps.kind')}><Select value={kind} onChange={e=>setKind(e.target.value)} disabled={busy}>{['ios','android','webapi','webapp','weapp'].map(value=><option key={value} value={value}>{value==='webapi'?'Web API':value==='webapp'?'Web App':platformLabel(value,t)}</option>)}</Select></Field>
+      <Field label={t('apps.identifier')} hint={t('apps.identifierHint')}><Input required maxLength={200} value={identifier} onChange={e=>setIdentifier(e.target.value)} disabled={busy}/></Field>
       {failure && <ErrorBanner reason={failure}>{t('projects.actionFailed')}</ErrorBanner>}
     </form>
   </Dialog>;

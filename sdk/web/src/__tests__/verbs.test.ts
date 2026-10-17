@@ -41,6 +41,13 @@ describe('verbs', () => {
     expect(__peekQueue()[0]?.platform).toBe('web')
   })
 
+  it('preserves configured app identity independently of the release namespace', () => {
+    setConfig({ ...config, app: { identifier: 'admin-panel', version: '2.0' } })
+    verbs.error(new Error('render failed'))
+    expect(__peekQueue()[0]?.payload.app).toEqual({ identifier: 'admin-panel', version: '2.0' })
+    expect(__peekQueue()[0]?.release).toBe('site@1.0.0')
+  })
+
   it('carries the signal ring on an error and not on a trace', () => {
     verbs.trace('cart.opened')
     verbs.error(new Error('boom'))

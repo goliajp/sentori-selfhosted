@@ -130,7 +130,7 @@ export type EventDetail = {
 
 export type ArtifactSummary = {kind: string; count: number; usable: boolean; broken: boolean; unchecked: boolean}[];
 export type ProjectApp = {
-  id: string; projectId: string; platform: string; identifier: string; name: string | null;
+  id: string; projectId: string; platform: string; kind: string; identifier: string; name: string | null;
   identitySource: 'configured' | 'reported' | 'release' | 'unknown';
   repositoryUrl: string | null; version: number; createdAt: string;
   lastEventAt: string | null; lastSessionAt: string | null; events24h: number; errors24h: number;
@@ -648,10 +648,13 @@ class Api {
   ) {
     return this.send<{ ok: boolean }>('PATCH', `/admin/api/projects/${id}`, patch);
   }
+  createApp(projectId: string, app: {name: string; identifier: string; platform: string; kind: string}) {
+    return this.send<{id: string}>('POST', `/admin/api/projects/${projectId}/apps`, app);
+  }
   listApps(projectId: string) {
     return this.get<{apps: ProjectApp[]}>(`/admin/api/projects/${projectId}/apps`);
   }
-  updateApp(projectId: string, appId: string, patch: {name?: string; repositoryUrl?: string; expectedVersion: number}) {
+  updateApp(projectId: string, appId: string, patch: {name?: string; repositoryUrl?: string; kind?: string; expectedVersion: number}) {
     return this.send<{ok: boolean; version: number}>('PATCH', `/admin/api/projects/${projectId}/apps/${appId}`, patch);
   }
   deleteProject(id: string, expectedVersion?: number) {

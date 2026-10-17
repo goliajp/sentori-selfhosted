@@ -354,7 +354,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/admin/api/projects/{project_id}/apps",
-            get(admin::apps::list),
+            get(admin::apps::list).post(admin::apps::create),
         )
         .route(
             "/admin/api/projects/{project_id}/apps/{app_id}",
@@ -633,6 +633,8 @@ pub fn router(state: Arc<AppState>) -> Router {
     // ── AI closed loop — Bearer api-scope token ──
     let api_token_store = TokenStore::new(state.pool.clone());
     let api_routes = Router::new()
+        .route("/api/project", get(api::project))
+        .route("/api/apps", get(api::apps))
         .route("/api/issues", get(api::list))
         .route("/api/issues/{issue_id}/bundle", get(api::bundle))
         .route("/api/issues/{issue_id}/notes", post(api::add_note))

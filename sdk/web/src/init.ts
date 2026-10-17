@@ -27,9 +27,12 @@ export const init = safeFn('init', (config: WebInitConfig): void => {
   if (_initialized) return
   if (!config || typeof config.token !== 'string' || !config.token
     || typeof config.ingestUrl !== 'string' || !config.ingestUrl) return
+  const identifier = config.app?.identifier?.trim()
+  if (config.app && (!identifier || [...identifier].length > 200 || /[\u0000-\u001f\u007f]/.test(identifier))) return
   _initialized = true
 
   setConfig({
+    app: identifier ? { identifier, version: config.app?.version ?? config.release ?? '' } : undefined,
     token: config.token,
     ingestUrl: config.ingestUrl.replace(/\/+$/, ''),
     release: config.release ?? '',
@@ -79,6 +82,7 @@ export const init = safeFn('init', (config: WebInitConfig): void => {
   }
 
   startSession({
+    app: resolved.app,
     environment: resolved.environment,
     platform: 'web',
     release: resolved.release,

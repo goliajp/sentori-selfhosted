@@ -33,6 +33,7 @@ export type WireEventInputs = {
      *  do not), and that decision belongs to the verb, not here. */
     signals?: WirePayload['signals'];
     device?: WirePayload['device'];
+    app?: WirePayload['app'];
     /** Injected only so a test can pin it. */
     occurredAt?: string;
 };

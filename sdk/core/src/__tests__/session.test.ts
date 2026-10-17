@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { type SessionPing, SessionTracker } from '../session.js'
 
-const ctx = { environment: 'prod', release: 'myapp@1.0.0', userId: 'u_abc' }
+const ctx = { platform: 'web' as const, environment: 'prod', release: 'myapp@1.0.0', userId: 'u_abc' }
 
 describe('SessionTracker', () => {
   it('start → end produces a single ping with positive duration', () => {
@@ -19,6 +19,15 @@ describe('SessionTracker', () => {
     expect(p.release).toBe('myapp@1.0.0')
     expect(p.userId).toBe('u_abc')
     expect(p.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+  })
+
+  it('keeps explicit app identity when a release has a different namespace', () => {
+    const sent: SessionPing[] = []
+    const tracker = new SessionTracker(p => sent.push(p))
+    tracker.start({ ...ctx, app: { identifier: 'admin-panel', version: '2' } })
+    tracker.end()
+    expect(sent[0]!.app).toEqual({ identifier: 'admin-panel', version: '2' })
+    expect(sent[0]!.release).toBe(ctx.release)
   })
 
   it('markErrored upgrades ok → errored', () => {

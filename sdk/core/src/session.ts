@@ -17,12 +17,13 @@
  * one without sending — that lifecycle is owned by the platform's
  * foreground/background plumbing and dual-active never makes sense.
  */
-import type { Platform } from './types.js'
+import type { App, Platform } from './types.js'
 import { uuidV7 } from './uuid.js'
 
 export type SessionStatus = 'crashed' | 'errored' | 'exited' | 'ok'
 
 export type SessionPing = {
+  app?: App
   durationMs: number
   environment: string
   id: string
@@ -45,6 +46,7 @@ export type SessionPing = {
 }
 
 export type SessionContext = {
+  app?: App
   environment: string
   platform: Platform
   release: string
@@ -108,6 +110,7 @@ export class SessionTracker {
       startedAt,
       status,
       userId: this.active.ctx.userId,
+      ...(this.active.ctx.app ? { app: this.active.ctx.app } : {}),
     }
     this.active = null
     try {

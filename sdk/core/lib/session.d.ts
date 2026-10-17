@@ -17,9 +17,10 @@
  * one without sending — that lifecycle is owned by the platform's
  * foreground/background plumbing and dual-active never makes sense.
  */
-import type { Platform } from './types.js';
+import type { App, Platform } from './types.js';
 export type SessionStatus = 'crashed' | 'errored' | 'exited' | 'ok';
 export type SessionPing = {
+    app?: App;
     durationMs: number;
     environment: string;
     id: string;
@@ -41,6 +42,7 @@ export type SessionPing = {
     userKey?: null | string;
 };
 export type SessionContext = {
+    app?: App;
     environment: string;
     platform: Platform;
     release: string;

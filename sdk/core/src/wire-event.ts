@@ -52,6 +52,7 @@ export type WireEventInputs = {
    *  do not), and that decision belongs to the verb, not here. */
   signals?: WirePayload['signals']
   device?: WirePayload['device']
+  app?: WirePayload['app']
   /** Injected only so a test can pin it. */
   occurredAt?: string
 }
@@ -64,6 +65,7 @@ export function buildWireEvent(i: WireEventInputs): WireEvent {
   if (i.context) payload.context = i.context
   if (i.signals && i.signals.length > 0) payload.signals = i.signals
   if (i.device) payload.device = i.device
+  if (i.app) payload.app = i.app
 
   return {
     id: i.id,

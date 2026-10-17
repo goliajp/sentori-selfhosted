@@ -41,6 +41,41 @@ fn require_api_scope(ctx: &IngestContext) -> Result<(), (StatusCode, Json<Value>
     }
 }
 
+pub async fn project(
+    Extension(ctx): Extension<IngestContext>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_api_scope(&ctx)?;
+    let project: Option<Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object('id',id,'name',name,'createdAt',created_at) FROM projects WHERE id=$1",
+    ).bind(ctx.project_id).fetch_optional(&state.pool).await.map_err(|error| api_internal(&error))?;
+    project
+        .map(|project| Json(json!({"project":project})))
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"project_not_found"})),
+        ))
+}
+
+pub async fn apps(
+    Extension(ctx): Extension<IngestContext>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    require_api_scope(&ctx)?;
+    let apps = super::admin::apps::summaries(&state.pool, ctx.project_id)
+        .await
+        .map_err(|error| api_internal(&error))?;
+    Ok(Json(json!({"projectId":ctx.project_id,"apps":apps})))
+}
+
+fn api_internal(error: &sqlx::Error) -> (StatusCode, Json<Value>) {
+    warn!(%error, "project API query failed");
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({"error":"internal"})),
+    )
+}
+
 /// Load an issue and require it to belong to the token's project.
 async fn load_scoped(
     state: &Arc<AppState>,
@@ -63,12 +98,11 @@ async fn load_scoped(
 
 #[derive(Deserialize)]
 pub struct ListQuery {
-    #[serde(default)]
     pub status: Option<String>,
-    #[serde(default)]
     pub kind: Option<String>,
-    #[serde(default)]
     pub limit: Option<i64>,
+    #[serde(flatten)]
+    pub filters: crate::event_filter::EventFilter,
 }
 
 pub async fn list(
@@ -79,42 +113,78 @@ pub async fn list(
     if let Err(e) = require_api_scope(&ctx) {
         return e;
     }
-    let status = q.status.unwrap_or_else(|| "open".to_string());
-    let limit = q.limit.unwrap_or(50).clamp(1, 200);
-    let rows = sqlx::query(
-        "SELECT id, kind, group_title, message_sample, status, event_count, users_count, \
-                max_per_user, last_seen, last_release, regressed_at \
-         FROM issues WHERE project_id = $1 AND status = $2 \
-           AND ($3::text IS NULL OR kind = $3) \
-         ORDER BY (regressed_at IS NOT NULL) DESC, users_count DESC, max_per_user DESC \
-         LIMIT $4",
-    )
-    .bind(ctx.project_id)
-    .bind(&status)
-    .bind(q.kind.as_deref())
-    .bind(limit)
-    .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    let status = q.status.as_deref().unwrap_or("open");
+    if !["open", "resolved", "ignored", "all"].contains(&status)
+        || q.kind
+            .as_deref()
+            .is_some_and(|kind| !["error", "warn", "trace", "assert", "probe"].contains(&kind))
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid_issue_filter"})),
+        );
+    }
+    let filters = match q.filters.validated() {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    if let Some(app_id) = q.filters.app_id {
+        let exists: Result<bool, _> =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM apps WHERE id=$1 AND project_id=$2)")
+                .bind(app_id)
+                .bind(ctx.project_id)
+                .fetch_one(&state.pool)
+                .await;
+        match exists {
+            Ok(true) => (),
+            Ok(false) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error":"app_not_found"})),
+                );
+            }
+            Err(error) => return api_internal(&error),
+        }
+    }
+    let filtered = filters["appId"] != Value::Null
+        || filters["platform"] != Value::Null
+        || filters["environment"] != Value::Null
+        || filters["release"] != Value::Null
+        || filters["tags"] != json!([]);
+    let sql = super::issues::ISSUE_LIST_SQL
+        .replace("{event_predicate}", &crate::event_filter::predicate(6));
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
+        .bind(status)
+        .bind(ctx.project_id)
+        .bind(q.kind.as_deref())
+        .bind(vec![ctx.project_id])
+        .bind(q.limit.unwrap_or(50).clamp(1, 200))
+        .bind(filters)
+        .bind(None::<String>)
+        .bind("impact")
+        .bind("all")
+        .bind(0_i64)
+        .bind(filtered)
+        .fetch_all(&state.pool)
+        .await;
+    let rows = match rows {
+        Ok(rows) => rows,
+        Err(error) => return api_internal(&error),
+    };
+    let total = rows.first().map_or(0, |row| row.get::<i64, _>("total"));
     let out: Vec<Value> = rows
         .iter()
-        .map(|r| {
-            json!({
-                "id": r.get::<Uuid, _>("id"),
-                "kind": r.get::<String, _>("kind"),
-                "title": r.get::<String, _>("group_title"),
-                "messageSample": r.get::<String, _>("message_sample"),
-                "status": r.get::<String, _>("status"),
-                "eventCount": r.get::<i64, _>("event_count"),
-                "usersCount": r.get::<i64, _>("users_count"),
-                "maxPerUser": r.get::<i64, _>("max_per_user"),
-                "lastSeen": crate::wire_time::rfc3339(r.get("last_seen")),
-                "lastRelease": r.get::<String, _>("last_release"),
-                "regressed": r.get::<Option<time::OffsetDateTime>, _>("regressed_at").is_some(),
-            })
+        .filter(|row| row.get::<Option<Uuid>, _>("id").is_some())
+        .map(|row| {
+            let mut value = super::issues::issue_row_json(row);
+            value["regressed"] = json!(
+                row.get::<Option<time::OffsetDateTime>, _>("regressed_at")
+                    .is_some()
+            );
+            value
         })
         .collect();
-    (StatusCode::OK, Json(json!({ "issues": out })))
+    (StatusCode::OK, Json(json!({"issues":out,"total":total})))
 }
 
 pub async fn bundle(

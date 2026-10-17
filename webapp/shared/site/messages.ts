@@ -1264,9 +1264,9 @@ export const siteMessages = {
     "Handle missing data and failure"
   ],
   "docs.setupBody": [
-    "选择平台、创建项目和接入密钥，按示例初始化 SDK；收到测试事件后，单独核对版本与源码是否可读",
-    "プラットフォームを選び、プロジェクトと取り込みキーを作成して SDK を初期化します。受信後、リリースとソース参照可否を別々に確認します",
-    "Choose a platform, create a project and ingest key, and initialize the SDK. After receiving a test event, separately verify its release and readable source."
+    "为产品创建项目，在项目下区分 iOS、Android、Web API 和 Web App；按 App 标识接入 SDK，再核对测试事件的归属、版本与源码",
+    "製品のプロジェクトを作成し、iOS・Android・Web API・Web App を区別します。SDK にアプリ識別子を設定し、イベントの所属、リリース、ソースを確認します",
+    "Create a project for the product and identify its iOS, Android, Web API and Web Apps. Initialize the SDK, then verify the test event’s app, release and readable source."
   ],
   "docs.issueBody": [
     "先确认环境、版本和受影响用户，再选择一条事件查看源码、上下文与回放；处理决定应附有说明，并可追溯到负责人",

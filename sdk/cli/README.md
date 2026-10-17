@@ -7,7 +7,7 @@ machine and does not add runtime work to the application.
 
 ## Install the correct version
 
-This guide requires **CLI 1.6.0**. Check registry availability before updating
+This guide requires **CLI 1.7.0**. Check registry availability before updating
 your build pipeline. The older 1.5.0 package has only the
 `sentori-cli` executable and does not have `init`, `doctor`, `upload all`, ZIP
 packaging or exact-file `verify`. Do not install 1.5.0 and run this guide's commands.
@@ -16,17 +16,17 @@ Use Node **18.17 or newer**; use a maintained Node release for CI. Pin the CLI a
 development dependency and commit the package lock:
 
 ```sh
-npm view @goliapkg/sentori-cli@1.6.0 version
-npm install --save-dev --save-exact @goliapkg/sentori-cli@1.6.0
+npm view @goliapkg/sentori-cli@1.7.0 version
+npm install --save-dev --save-exact @goliapkg/sentori-cli@1.7.0
 npx --no-install sentori --version
 ```
 
-The last command must print `sentori 1.6.0`. If npm cannot find that version, use
+The last command must print `sentori 1.7.0`. If npm cannot find that version, use
 the tested package supplied by the Sentori team, without assuming `latest` has
 these features:
 
 ```sh
-npm install --save-dev --save-exact /absolute/path/goliapkg-sentori-cli-1.6.0.tgz
+npm install --save-dev --save-exact /absolute/path/goliapkg-sentori-cli-1.7.0.tgz
 npx --no-install sentori --version
 ```
 
@@ -49,7 +49,7 @@ package if the local executable is missing. The server maintenance binary
 
 | Value | Meaning |
 | --- | --- |
-| CLI `1.6.0` | Build-tool package version, shown by `sentori --version` |
+| CLI `1.7.0` | Build-tool package version, shown by `sentori --version` |
 | Server version | Running server binary, reported by `sentori doctor` |
 | SDK version | Independently versioned app library; it need not equal the CLI or server |
 | Config `version: 1` | Upload configuration schema, not a product version |
@@ -277,7 +277,7 @@ Native tooling. A Metro map alone does not resolve Hermes bytecode offsets.
 
 | Result | Action |
 | --- | --- |
-| No `sentori` binary / unknown `init` | Check the installed package version; use 1.6.0 or its supplied tarball, with `npx --no-install` |
+| No `sentori` binary / unknown `init` | Check the installed package version; use 1.7.0 or its supplied tarball, with `npx --no-install` |
 | `doctor` rejects ZIP capability | Upgrade/deploy the compatible server; CLI installation cannot enable server support |
 | 401 / `admin_token_required` | Use an API-scope token for the correct project and instance |
 | Local file missing | Build first; resolve paths relative to the configuration file |
@@ -291,3 +291,32 @@ Use `npx --no-install sentori --help` for issue, probe, MCP and push commands.
 
 Dual-licensed under [Apache-2.0](../../LICENSE-APACHE) OR
 [MIT](../../LICENSE-MIT).
+
+## Projects and apps
+
+A token selects one project. Use that project's API token for inspection and
+build uploads; an ingest token embedded in an app cannot read issues. Never put
+an API token into browser or mobile bundles.
+
+```sh
+export SENTORI_API_TOKEN=st_...
+npx --no-install sentori project show --json
+npx --no-install sentori app list --json
+npx --no-install sentori issue list --app <app-uuid> --environment production --json
+```
+
+These project/app commands require the CLI release shipped with server 5.1.17;
+they are not part of CLI 1.6.0. The API equivalents are `GET /api/project`,
+`GET /api/apps` and `GET /api/issues?appId=<uuid>`. Switching projects requires
+switching tokens. A foreign App UUID returns 404. Issue counts use only events
+matching the selected app, platform, environment and exact release together.
+
+`--app` takes the UUID from `app list`, while the SDK reports a stable identifier
+such as a bundle ID or `admin-panel`. App kind (`webapi`/`webapp`) describes the
+product role; platform (`javascript`/`web`) describes the runtime. Releases and
+debug files remain project scoped; select the destination project token when
+uploading and preserve the exact release reported by the app.
+
+`SENTORI_API_TOKEN` is accepted by inspection and direct upload commands. The
+configured upload workflow uses its `tokenEnv` setting (default `SENTORI_TOKEN`);
+set `tokenEnv` to `SENTORI_API_TOKEN` if using that variable consistently.

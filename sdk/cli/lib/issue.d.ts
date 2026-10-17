@@ -17,6 +17,10 @@ export type ApiConfig = {
 export declare function listIssues(c: ApiConfig, opts?: {
     status?: string;
     kind?: string;
+    app?: string;
+    platform?: string;
+    environment?: string;
+    release?: string;
 }): Promise<Issue[]>;
 export declare function resolveIssue(c: ApiConfig, issueId: string, release?: string): Promise<void>;
 export declare function noteIssue(c: ApiConfig, issueId: string, body: string): Promise<void>;
