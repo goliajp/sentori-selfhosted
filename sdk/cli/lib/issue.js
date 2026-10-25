@@ -16,6 +16,13 @@ async function apiFetch(c, path, init) {
     return (await resp.json());
 }
 export async function listIssues(c, opts = {}) {
+    return (await listIssuesPage(c, opts)).issues;
+}
+export async function listIssuesPage(c, opts = {}) {
+    if (opts.limit !== undefined && (!Number.isSafeInteger(opts.limit) || opts.limit < 1 || opts.limit > 200))
+        throw new Error('--limit must be an integer from 1 to 200');
+    if (opts.offset !== undefined && (!Number.isSafeInteger(opts.offset) || opts.offset < 0))
+        throw new Error('--offset must be a non-negative safe integer');
     const q = new URLSearchParams();
     if (opts.status)
         q.set('status', opts.status);
@@ -29,9 +36,13 @@ export async function listIssues(c, opts = {}) {
         q.set('environment', opts.environment);
     if (opts.release)
         q.set('release', opts.release);
+    if (opts.limit !== undefined)
+        q.set('limit', String(opts.limit));
+    if (opts.offset !== undefined)
+        q.set('offset', String(opts.offset));
     const qs = q.toString();
     const body = await apiFetch(c, `/api/issues${qs ? `?${qs}` : ''}`);
-    return body.issues;
+    return body;
 }
 export async function resolveIssue(c, issueId, release) {
     await apiFetch(c, `/api/issues/${encodeURIComponent(issueId)}/resolve`, {

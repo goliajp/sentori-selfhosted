@@ -95,9 +95,9 @@ async fn audit(
     action: &str,
     payload: Value,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT INTO audit_logs (id, actor_user_id, action, target_type, target_id, payload) VALUES ($1, $2, $3, 'instance', $4, $5)")
+    sqlx::query("INSERT INTO audit_logs (id, actor_user_id, action, target_type, target_id, payload,ip) VALUES ($1, $2, $3, 'instance', $4, $5,$6)")
         .bind(Uuid::now_v7()).bind(ctx.user_id).bind(action).bind(id.to_string()).bind(payload)
-        .execute(&mut **tx).await?;
+        .bind(sentori_request_origin::current()).execute(&mut **tx).await?;
     Ok(())
 }
 

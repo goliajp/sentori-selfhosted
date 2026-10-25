@@ -63,14 +63,8 @@ mod web_performance;
 
 /// Refuse an IP that is hammering a credentialed auth endpoint.
 ///
-/// A password login has no bearer token to key on, so the bucket is
-/// keyed on the client's address instead. `X-Forwarded-For` is
-/// trusted here because Caddy rewrites it — a deployment that puts
-/// the server on the open internet has to change that.
-///
-/// Absent an IP the request is admitted rather than refused. A limiter
-/// silently DOS-ing traffic from callers whose IP header did not
-/// arrive is worse than the brute-force window it exists to close.
+/// The canonical request source comes from the shared trusted-proxy middleware.
+/// Socket-less router tests have no source and are admitted here.
 async fn auth_rate_limit_mw(
     State(state): State<Arc<AppState>>,
     req: axum::extract::Request,
@@ -84,6 +78,10 @@ async fn auth_rate_limit_mw(
 
     if admitted {
         return next.run(req).await;
+    }
+    if req.uri().path() == "/auth/login" {
+        crate::audit::auth_attempt(&state.pool, None, "auth.login_failed", "", "rate_limited")
+            .await;
     }
     (
         StatusCode::TOO_MANY_REQUESTS,

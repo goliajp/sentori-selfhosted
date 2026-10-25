@@ -32,7 +32,7 @@ pub async fn list(
     let limit = q.limit.unwrap_or(100).clamp(1, 500);
     let rows = sqlx::query(
         "SELECT a.id, a.project_id, a.actor_user_id, u.email AS actor_email, \
-                a.action, a.target_type, a.target_id, a.payload, a.created_at \
+                a.action, a.target_type, a.target_id, a.payload, a.ip, a.created_at \
          FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id \
          WHERE ($2::uuid IS NULL OR a.project_id = $2) \
          ORDER BY a.created_at DESC LIMIT $1",
@@ -55,6 +55,7 @@ pub async fn list(
                         "targetType": r.get::<Option<String>, _>("target_type"),
                         "targetId": r.get::<Option<String>, _>("target_id"),
                         "payload": r.get::<Value, _>("payload"),
+                        "ip": r.get::<Option<String>, _>("ip"),
                         "createdAt": crate::wire_time::rfc3339(r.get("created_at")),
                     })
                 })

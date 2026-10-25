@@ -175,8 +175,8 @@ pub async fn verify_upload(
         .map_err(internal)?;
     sqlx::query("INSERT INTO instance_operations (id,instance_id,generation,actor_user_id,command_id,request_hash,kind,key_blob,artifact_id,artifact_bytes,artifact_sha256) VALUES ($1,$2,$3,$4,$5,$6,'verify',$7,$1,$8,$9)")
         .bind(operation).bind(id).bind(generation).bind(ctx.user_id).bind(upload.command).bind(hash).bind(sealed).bind(upload.bytes).bind(&upload.sha).execute(&mut *tx).await.map_err(internal)?;
-    sqlx::query("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,payload) VALUES ($1,$2,'instance.backup.uploaded','instance_operation',$3,$4)")
-        .bind(Uuid::now_v7()).bind(ctx.user_id).bind(operation.to_string()).bind(json!({"bytes":upload.bytes,"sha256":upload.sha})).execute(&mut *tx).await.map_err(internal)?;
+    sqlx::query("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,payload,ip) VALUES ($1,$2,'instance.backup.uploaded','instance_operation',$3,$4,$5)")
+        .bind(Uuid::now_v7()).bind(ctx.user_id).bind(operation.to_string()).bind(json!({"bytes":upload.bytes,"sha256":upload.sha})).bind(sentori_request_origin::current()).execute(&mut *tx).await.map_err(internal)?;
     let (_, directory) = operations::directories()
         .ok_or_else(|| fail(StatusCode::CONFLICT, "backup_not_configured"))?;
     upload

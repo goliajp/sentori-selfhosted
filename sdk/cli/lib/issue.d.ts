@@ -14,14 +14,25 @@ export type ApiConfig = {
     apiUrl: string;
     token: string;
 };
-export declare function listIssues(c: ApiConfig, opts?: {
+export type IssueListOptions = {
     status?: string;
     kind?: string;
     app?: string;
     platform?: string;
     environment?: string;
     release?: string;
-}): Promise<Issue[]>;
+    limit?: number;
+    offset?: number;
+};
+export type IssuePage = {
+    issues: Issue[];
+    total?: number;
+    limit?: number;
+    offset?: number;
+    nextOffset?: number | null;
+};
+export declare function listIssues(c: ApiConfig, opts?: IssueListOptions): Promise<Issue[]>;
+export declare function listIssuesPage(c: ApiConfig, opts?: IssueListOptions): Promise<IssuePage>;
 export declare function resolveIssue(c: ApiConfig, issueId: string, release?: string): Promise<void>;
 export declare function noteIssue(c: ApiConfig, issueId: string, body: string): Promise<void>;
 export declare function fetchBundle(c: ApiConfig, issueId: string): Promise<string>;

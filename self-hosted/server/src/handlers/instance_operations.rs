@@ -110,8 +110,8 @@ pub async fn create(
         operations::seal_key(&state, operation, &hex::encode(key.as_bytes())).map_err(internal)?;
     sqlx::query("INSERT INTO instance_operations (id,instance_id,generation,actor_user_id,command_id,request_hash,kind,key_blob) VALUES ($1,$2,$3,$4,$5,$6,'backup',$7)")
         .bind(operation).bind(id).bind(generation).bind(ctx.user_id).bind(body.command_id).bind(hash).bind(sealed).execute(&mut *tx).await.map_err(internal)?;
-    sqlx::query("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,payload) VALUES ($1,$2,'instance.backup.requested','instance_operation',$3,$4)")
-        .bind(Uuid::now_v7()).bind(ctx.user_id).bind(operation.to_string()).bind(json!({"instanceId":id,"generation":generation})).execute(&mut *tx).await.map_err(internal)?;
+    sqlx::query("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,payload,ip) VALUES ($1,$2,'instance.backup.requested','instance_operation',$3,$4,$5)")
+        .bind(Uuid::now_v7()).bind(ctx.user_id).bind(operation.to_string()).bind(json!({"instanceId":id,"generation":generation})).bind(sentori_request_origin::current()).execute(&mut *tx).await.map_err(internal)?;
     tx.commit().await.map_err(internal)?;
     Ok(Json(
         json!({"operation":rows(&state,Some(operation)).await?.first()}),
@@ -128,8 +128,8 @@ pub async fn cancel(
     let changed=sqlx::query("UPDATE instance_operations SET cancel_requested=true,state=CASE WHEN state='queued' THEN 'cancelled' ELSE state END,key_blob=CASE WHEN state='queued' THEN NULL ELSE key_blob END,finished_at=CASE WHEN state='queued' THEN now() ELSE finished_at END WHERE id=$1 AND state IN ('queued','running') AND NOT cancel_requested")
         .bind(id).execute(&mut *tx).await.map_err(internal)?.rows_affected();
     if changed == 1 {
-        sqlx::query("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,payload) VALUES ($1,$2,'instance.backup.cancel','instance_operation',$3,'{}')")
-            .bind(Uuid::now_v7()).bind(ctx.user_id).bind(id.to_string()).execute(&mut *tx).await.map_err(internal)?;
+        sqlx::query("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,payload,ip) VALUES ($1,$2,'instance.backup.cancel','instance_operation',$3,'{}',$4)")
+            .bind(Uuid::now_v7()).bind(ctx.user_id).bind(id.to_string()).bind(sentori_request_origin::current()).execute(&mut *tx).await.map_err(internal)?;
     }
     tx.commit().await.map_err(internal)?;
     let row = rows(&state, Some(id))
@@ -158,8 +158,8 @@ pub async fn download(
     if file.metadata().await.map_err(internal)?.len() != u64::try_from(bytes).map_err(internal)? {
         return Err(fail(StatusCode::CONFLICT, "backup_corrupt"));
     }
-    sqlx::query("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,payload) VALUES ($1,$2,'instance.backup.download_started','instance_operation',$3,'{}')")
-        .bind(Uuid::now_v7()).bind(ctx.user_id).bind(id.to_string()).execute(&state.pool).await.map_err(internal)?;
+    sqlx::query("INSERT INTO audit_logs (id,actor_user_id,action,target_type,target_id,payload,ip) VALUES ($1,$2,'instance.backup.download_started','instance_operation',$3,'{}',$4)")
+        .bind(Uuid::now_v7()).bind(ctx.user_id).bind(id.to_string()).bind(sentori_request_origin::current()).execute(&state.pool).await.map_err(internal)?;
     let stream = futures::stream::try_unfold(file, |mut file| async move {
         use tokio::io::AsyncReadExt;
         let mut buffer = vec![0u8; 512 * 1024];

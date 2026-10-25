@@ -65,10 +65,12 @@ pub async fn login(
         // Burn comparable time so a timing probe cannot separate
         // unknown-email from wrong-password.
         let _ = sentori_argon2_password::PasswordHash::hash("timing-equalizer");
-        return unauthorized();
+        drop(tx);
+        return login_failed(&state.pool, None, &body.email).await;
     };
     if !ok {
-        return unauthorized();
+        drop(tx);
+        return login_failed(&state.pool, Some(user_id), &body.email).await;
     }
 
     let token = mint_session_token();
@@ -102,6 +104,20 @@ pub async fn login(
         warn!(%error, "login timestamp failed");
         return internal();
     }
+    if let Err(error) = crate::audit::record_in_transaction(
+        &mut tx,
+        None,
+        user_id,
+        "auth.login",
+        "user",
+        &user_id.to_string(),
+        json!({"account":body.email,"result":"ok"}),
+    )
+    .await
+    {
+        warn!(%error, "login audit failed");
+        return internal();
+    }
     if let Err(error) = tx.commit().await {
         warn!(%error, "login commit failed");
         return internal();
@@ -118,6 +134,22 @@ pub async fn login(
         Json(json!({ "userId": user_id, "role": role, "sessionToken": token })),
     )
         .into_response()
+}
+
+async fn login_failed(
+    pool: &sqlx::PgPool,
+    actor: Option<Uuid>,
+    account: &str,
+) -> axum::response::Response {
+    crate::audit::auth_attempt(
+        pool,
+        actor,
+        "auth.login_failed",
+        account,
+        "invalid_credentials",
+    )
+    .await;
+    unauthorized()
 }
 
 pub async fn logout(
@@ -199,6 +231,26 @@ fn password_rule(password: &str) -> Result<(), AuthReply> {
 }
 
 pub async fn change_password(
+    State(state): State<Arc<AppState>>,
+    Extension(ctx): Extension<SessionContext>,
+    Json(body): Json<ChangePasswordBody>,
+) -> Result<AuthReply, AuthReply> {
+    let actor = Some(ctx.user_id);
+    let result = change_password_inner(State(state.clone()), Extension(ctx), Json(body)).await;
+    if let Err((status, _)) = &result {
+        crate::audit::auth_attempt(
+            &state.pool,
+            actor,
+            "auth.password_change_failed",
+            "",
+            status.as_str(),
+        )
+        .await;
+    }
+    result
+}
+
+async fn change_password_inner(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,
     Json(body): Json<ChangePasswordBody>,
@@ -292,6 +344,14 @@ pub async fn forgot_password(
             .fetch_optional(&state.pool)
             .await
             .unwrap_or(None);
+    crate::audit::auth_attempt(
+        &state.pool,
+        row.map(|r| r.0),
+        "auth.reset_requested",
+        &body.email,
+        "ok",
+    )
+    .await;
     if let Some((user_id,)) = row {
         let token = mint_session_token();
         let hash = hash_token(&token);
@@ -321,6 +381,25 @@ pub struct ResetBody {
 }
 
 pub async fn reset_password(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<ResetBody>,
+) -> Result<AuthReply, AuthReply> {
+    let actor = None;
+    let result = reset_password_inner(State(state.clone()), Json(body)).await;
+    if let Err((status, _)) = &result {
+        crate::audit::auth_attempt(
+            &state.pool,
+            actor,
+            "auth.password_reset_failed",
+            "",
+            status.as_str(),
+        )
+        .await;
+    }
+    result
+}
+
+async fn reset_password_inner(
     State(state): State<Arc<AppState>>,
     Json(body): Json<ResetBody>,
 ) -> Result<AuthReply, AuthReply> {

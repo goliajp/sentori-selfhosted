@@ -21,7 +21,6 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
 use sentori_notifier::{
     Channel, DeliveryStatus, DispatchOutcome, MockInbox, MockTransport, Notification,
@@ -30,45 +29,28 @@ use sentori_notifier::{
 use sqlx::{Executor, PgPool};
 use testcontainers_modules::{
     postgres::Postgres,
-    testcontainers::{ContainerAsync, ImageExt, runners::AsyncRunner},
+    testcontainers::{ContainerAsync, ImageExt, core::Mount, runners::AsyncRunner},
 };
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
-// ── shared container ──────────────────────────────────────────
-
-struct PgRig {
+// The owning fixture is scoped to each test, never a static: ContainerAsync
+// must be dropped even when a test panics. tmpfs prevents anonymous PG volumes.
+struct TestPool {
+    pool: PgPool,
     _container: ContainerAsync<Postgres>,
-    base_url: String,
 }
-
-static PG_RIG: OnceLock<Mutex<Option<PgRig>>> = OnceLock::new();
-
-fn rig_cell() -> &'static Mutex<Option<PgRig>> {
-    PG_RIG.get_or_init(|| Mutex::new(None))
-}
-
-async fn ensure_rig() -> String {
-    let mut guard = rig_cell().lock().await;
-    if guard.is_none() {
-        let container = Postgres::default()
-            .with_tag("18")
-            .start()
-            .await
-            .expect("pg");
-        let host = container.get_host().await.expect("host");
-        let port = container.get_host_port_ipv4(5432).await.expect("port");
-        *guard = Some(PgRig {
-            _container: container,
-            base_url: format!("postgres://postgres:postgres@{host}:{port}"),
-        });
-    }
-    guard.as_ref().expect("rig").base_url.clone()
-}
-
-async fn fresh_pool() -> PgPool {
-    let base = ensure_rig().await;
+async fn fresh_pool() -> TestPool {
+    let container = Postgres::default()
+        .with_tag("18")
+        .with_label("jp.golia.sentori.test", "notifier")
+        .with_mount(Mount::tmpfs_mount("/var/lib/postgresql"))
+        .start()
+        .await
+        .expect("pg");
+    let host = container.get_host().await.expect("host");
+    let port = container.get_host_port_ipv4(5432).await.expect("port");
+    let base = format!("postgres://postgres:postgres@{host}:{port}");
     let admin = PgPool::connect(&format!("{base}/postgres"))
         .await
         .expect("admin");
@@ -89,7 +71,10 @@ async fn fresh_pool() -> PgPool {
     ] {
         pool.execute(sql).await.expect("migration");
     }
-    pool
+    TestPool {
+        pool,
+        _container: container,
+    }
 }
 
 async fn seed_project(pool: &PgPool, slug: &str) -> Uuid {
@@ -171,7 +156,8 @@ impl MockHttp {
 
 #[tokio::test]
 async fn dispatch_writes_delivery_log_and_routes_to_transport() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let (svc, inbox) = build_service_with_mock(pool);
     let n = Notification::new(Channel::Mock, "ops", "subj", "body").with_project(pid);
@@ -190,7 +176,8 @@ async fn dispatch_writes_delivery_log_and_routes_to_transport() {
 
 #[tokio::test]
 async fn dispatch_failed_transport_records_error() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let inbox = MockInbox::new();
     let transport = MockTransport::with_inbox(inbox.clone()).failing_for("bad");
@@ -212,7 +199,8 @@ async fn dispatch_failed_transport_records_error() {
 
 #[tokio::test]
 async fn dispatch_no_transport_for_channel() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let svc = NotifierService::new(pool); // no transports registered
     let n = Notification::new(Channel::Email, "a@b.com", "s", "b");
     let err = svc.dispatch(&n).await.unwrap_err();
@@ -221,7 +209,8 @@ async fn dispatch_no_transport_for_channel() {
 
 #[tokio::test]
 async fn dispatch_rejects_empty_subject() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let (svc, _) = build_service_with_mock(pool);
     let n = Notification::new(Channel::Mock, "ops", "", "body");
     assert!(matches!(
@@ -232,7 +221,8 @@ async fn dispatch_rejects_empty_subject() {
 
 #[tokio::test]
 async fn dispatch_rejects_empty_recipient() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let (svc, _) = build_service_with_mock(pool);
     let n = Notification::new(Channel::Mock, "", "s", "b");
     assert!(matches!(
@@ -243,7 +233,8 @@ async fn dispatch_rejects_empty_recipient() {
 
 #[tokio::test]
 async fn dispatch_unknown_project_fk() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let (svc, _) = build_service_with_mock(pool);
     let phantom = Uuid::now_v7();
     let n = Notification::new(Channel::Mock, "ops", "s", "b").with_project(phantom);
@@ -255,7 +246,8 @@ async fn dispatch_unknown_project_fk() {
 
 #[tokio::test]
 async fn dedup_short_circuits_second_dispatch() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let (svc, inbox) = build_service_with_mock(pool);
 
@@ -280,7 +272,8 @@ async fn dedup_short_circuits_second_dispatch() {
 
 #[tokio::test]
 async fn dedup_distinct_keys_dont_block() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let (svc, inbox) = build_service_with_mock(pool);
     for i in 0..3 {
@@ -294,7 +287,8 @@ async fn dedup_distinct_keys_dont_block() {
 
 #[tokio::test]
 async fn no_dedup_key_allows_repeats() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let (svc, inbox) = build_service_with_mock(pool);
     let n = Notification::new(Channel::Mock, "ops", "s", "b").with_project(pid);
@@ -308,7 +302,8 @@ async fn no_dedup_key_allows_repeats() {
 
 #[tokio::test]
 async fn retry_one_recovers_failed_dispatch() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
 
     // First service: failing transport. Second: succeeding
@@ -342,7 +337,8 @@ async fn retry_one_recovers_failed_dispatch() {
 
 #[tokio::test]
 async fn retry_one_delivered_is_noop() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let (svc, inbox) = build_service_with_mock(pool);
     let n = Notification::new(Channel::Mock, "ops", "s", "b").with_project(pid);
@@ -356,7 +352,8 @@ async fn retry_one_delivered_is_noop() {
 
 #[tokio::test]
 async fn retry_one_missing_log_errors() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let (svc, _) = build_service_with_mock(pool);
     let err = svc.retry_one(Uuid::now_v7()).await.unwrap_err();
     assert!(matches!(err, NotifierError::LogNotFound(_)));
@@ -366,7 +363,8 @@ async fn retry_one_missing_log_errors() {
 
 #[tokio::test]
 async fn list_recent_returns_ordered() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let (svc, _) = build_service_with_mock(pool);
     for i in 0..5 {
@@ -386,7 +384,8 @@ async fn list_recent_returns_ordered() {
 
 #[tokio::test]
 async fn list_recent_respects_since() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let (svc, _) = build_service_with_mock(pool);
     let n = Notification::new(Channel::Mock, "ops", "s", "b").with_project(pid);
@@ -404,7 +403,8 @@ async fn list_recent_respects_since() {
 
 #[tokio::test]
 async fn webhook_transport_sends_payload() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let server = MockHttp::start().await;
     let mut svc = NotifierService::new(pool);
@@ -423,7 +423,8 @@ async fn webhook_transport_sends_payload() {
 
 #[tokio::test]
 async fn webhook_transport_records_502() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let server = MockHttp::start().await;
     server.fail_with(502);

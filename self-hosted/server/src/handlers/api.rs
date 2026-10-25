@@ -101,6 +101,7 @@ pub struct ListQuery {
     pub status: Option<String>,
     pub kind: Option<String>,
     pub limit: Option<i64>,
+    pub offset: Option<i64>,
     #[serde(flatten)]
     pub filters: crate::event_filter::EventFilter,
 }
@@ -112,6 +113,14 @@ pub async fn list(
 ) -> (StatusCode, Json<Value>) {
     if let Err(e) = require_api_scope(&ctx) {
         return e;
+    }
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let offset = q.offset.unwrap_or(0);
+    if offset < 0 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error":"invalid_issue_filter"})),
+        );
     }
     let status = q.status.as_deref().unwrap_or("open");
     if !["open", "resolved", "ignored", "all"].contains(&status)
@@ -158,12 +167,12 @@ pub async fn list(
         .bind(ctx.project_id)
         .bind(q.kind.as_deref())
         .bind(vec![ctx.project_id])
-        .bind(q.limit.unwrap_or(50).clamp(1, 200))
+        .bind(limit)
         .bind(filters)
         .bind(None::<String>)
         .bind("impact")
         .bind("all")
-        .bind(0_i64)
+        .bind(offset)
         .bind(filtered)
         .fetch_all(&state.pool)
         .await;
@@ -184,7 +193,14 @@ pub async fn list(
             value
         })
         .collect();
-    (StatusCode::OK, Json(json!({"issues":out,"total":total})))
+    let next = offset.saturating_add(i64::try_from(out.len()).unwrap_or(i64::MAX));
+    let next_offset = (next < total).then_some(next);
+    (
+        StatusCode::OK,
+        Json(
+            json!({"issues":out,"total":total,"limit":limit,"offset":offset,"nextOffset":next_offset}),
+        ),
+    )
 }
 
 pub async fn bundle(

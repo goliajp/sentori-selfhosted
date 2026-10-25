@@ -3,7 +3,10 @@ import { Action, ControlRow } from '../shared/design/controls';
 import { currentSearchParams } from './lib/search-params';
 import { WorkspaceLayout } from "../shared/design/WorkspaceLayout";
 import {
-  Activity,
+  ChartNoAxesCombined,
+  PanelsTopLeft,
+  Radar,
+  SquareTerminal,
   FolderKanban,
   Inbox,
   ListTodo,
@@ -212,11 +215,11 @@ export function App() {
                   <span className="control-label-text">{t('nav.inbox')}</span>
                 </NavigationLink>
                 <NavigationLink to={scopedLink("/tasks")} className={navCls} aria-label={t('team.title')} title={t('team.title')}><ListTodo className={navIcon} aria-hidden/><span className="control-label-text">{t('team.title')}</span></NavigationLink>
-                <NavigationLink to={scopedLink("/web")} className={navCls} aria-label={t('web.title')} title={t('web.title')}><Activity className={navIcon} aria-hidden/><span className="control-label-text">{t('web.title')}</span></NavigationLink>
-                <NavigationLink to={scopedLink("/status")} className={navCls} aria-label={t('monitor.title')} title={t('monitor.title')}><Activity className={navIcon} aria-hidden/><span className="control-label-text">{t('monitor.title')}</span></NavigationLink>
+                <NavigationLink to={scopedLink("/web")} className={navCls} aria-label={t('web.title')} title={t('web.title')}><PanelsTopLeft className={navIcon} aria-hidden/><span className="control-label-text">{t('web.title')}</span></NavigationLink>
+                <NavigationLink to={scopedLink("/status")} className={navCls} aria-label={t('monitor.title')} title={t('monitor.title')}><Radar className={navIcon} aria-hidden/><span className="control-label-text">{t('monitor.title')}</span></NavigationLink>
                 <NavigationLink to={scopedLink("/integrations")} className={navCls} aria-label={t('integration.title')} title={t('integration.title')}><Plug className={navIcon} aria-hidden/><span className="control-label-text">{t('integration.title')}</span></NavigationLink>
                 <NavigationLink to={scopedLink("/instruments")}  className={navCls} aria-label={t('nav.instruments')} title={t('nav.instruments')}>
-                  <Activity className={navIcon} aria-hidden />
+                  <ChartNoAxesCombined className={navIcon} aria-hidden />
                   <span className="control-label-text">{t('nav.instruments')}</span>
                 </NavigationLink>
                 <NavigationLink to={scopedLink("/releases")}  className={navCls} aria-label={t('nav.releases')} title={t('nav.releases')}>
@@ -224,7 +227,7 @@ export function App() {
                   <span className="control-label-text">{t('nav.releases')}</span>
                 </NavigationLink>
                 <NavigationLink to={scopedLink("/setup")}  className={navCls} aria-label={t('nav.setup')} title={t('nav.setup')}>
-                  <Plug className={navIcon} aria-hidden />
+                  <SquareTerminal className={navIcon} aria-hidden />
                   <span className="control-label-text">{t('nav.setup')}</span>
                 </NavigationLink>
                 {/* Its own entry, not a settings tab. Whether last

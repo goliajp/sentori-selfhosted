@@ -37,6 +37,7 @@ class SentoriPendingCrashTest {
           "environment": "production",
           "device": { "os": "android", "osVersion": "15", "model": "Google Pixel 9" },
           "app": { "version": "1.4.0" },
+          "context": { "app": "insight-native", "nested": ["first", {"enabled":true}, null] },
           "error": {
             "type": "java.lang.IllegalStateException",
             "message": "boom",
@@ -57,7 +58,8 @@ class SentoriPendingCrashTest {
         // test in the process, and `SentoriCrashHandlerTest` writes
         // there too. Without this one test drains another's crash and
         // asserts on the wrong exception.
-        SentoriCrashHandler.register(context)
+        SentoriCrashHandler.resetForTests()
+        SentoriCrashHandler.installForTesting(context)
         SentoriCrashHandler.consumePending()
     }
 
@@ -65,6 +67,7 @@ class SentoriPendingCrashTest {
     fun tearDown() {
         SentoriTransport.resetForTests()
         SentoriConfig.resetForTests()
+        SentoriCrashHandler.resetForTests()
     }
 
     @Test
@@ -100,6 +103,10 @@ class SentoriPendingCrashTest {
         @Suppress("UNCHECKED_CAST") val device = payload["device"] as Map<String, Any?>
         assertEquals("Google Pixel 9", device["model"])
         assertEquals(true, payload["nativeCrash"])
+        assertEquals(
+            mapOf("app" to "insight-native", "nested" to listOf("first", mapOf("enabled" to true), null)),
+            payload["context"],
+        )
     }
 
     @Test
@@ -141,6 +148,9 @@ class SentoriPendingCrashTest {
         val json = SentoriTransport.toJson(SentoriPendingCrash.toWire(onDisk)).toString()
         assertTrue(json.contains("nativeCrash"))
         assertTrue(json.contains("com.example.Foo.bar"))
+        val nested = JSONObject(json).getJSONObject("payload").getJSONObject("context").getJSONArray("nested")
+        assertEquals(true, nested.getJSONObject(1).getBoolean("enabled"))
+        assertTrue(nested.isNull(2))
     }
 
     @Test

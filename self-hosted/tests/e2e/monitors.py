@@ -197,6 +197,6 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
             print('PASS DNS re-resolution blocks private answers and scheduler bounds concurrency to four',flush=True)
 
         finally:
-            subprocess.run(['docker','rm','-f',fixture],capture_output=True)
+            subprocess.run(['docker','rm','-f','-v',fixture],capture_output=True)
             subprocess.run(['docker','network','disconnect','-f',network,app],capture_output=True)
             subprocess.run(['docker','network','rm',network],capture_output=True)

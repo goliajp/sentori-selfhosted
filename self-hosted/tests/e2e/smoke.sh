@@ -7,7 +7,7 @@
 #
 #   bash self-hosted/tests/e2e/smoke.sh
 #
-# Requires docker compose v2, jq, curl.
+# Requires docker compose v2, jq, curl, openssl.
 #
 # It asserts the things that have actually broken:
 #
@@ -31,7 +31,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "${ROOT}/docker"
 
-for cmd in docker jq curl; do
+for cmd in docker jq curl openssl; do
     command -v "$cmd" >/dev/null 2>&1 || { echo "missing required tool: $cmd" >&2; exit 1; }
 done
 
@@ -734,11 +734,7 @@ echo "$PH" | jq -e 'has("reasons") and has("quarantinedTokens")' >/dev/null \
 # needs `topic` and a PEM, and a test that checks the row exists
 # rather than that the thing works is how the form shipped for a year
 # unable to accept a private key.
-P8='-----BEGIN PRIVATE KEY-----
-MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgevZzL1gdAFr88hb2
-OF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r
-1RTwjmYSi9R/zpBnuQ4EiMnCqfMPWiZqB4QdbAd0E7oH50VpuZ1P087G
------END PRIVATE KEY-----'
+P8="$(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 2>/dev/null)"
 
 # A project with nothing set up has to say so, and say it in codes the
 # console can translate rather than sentences it cannot.

@@ -3,17 +3,20 @@ import {writeFileSync} from 'node:fs';
 import {withLiveBrowsers} from './live-browser.mjs';
 const results=[];
 await withLiveBrowsers('monitors',async({engine,page,origin,out,password,call})=>{
+  // Complete bootstrap reads before hard navigation. WebKit reports cancelled
+  // in-flight requests as access-control page errors, including same-origin reads.
+  async function visit(url){await page.waitForLoadState('networkidle');await page.goto(url);}
   page.on('requestfailed',request=>{if(request.resourceType()==='script')console.error('Failed script',engine,request.url(),request.failure());});
   await call('/auth/login',{email:'owner@example.test',password});
   const project=(await call('/admin/api/projects')).projects.find(p=>p.name==='Monitors browser '+engine);assert.ok(project);
   const path=`/admin/api/projects/${project.id}`,statusUrl=origin+`/status?project=${project.id}`,integrationsUrl=origin+`/integrations?project=${project.id}`;
   for(const locale of (process.env.VIS_TEST_WORKFLOW_ONLY?[]:['zh','ja','en']))for(const theme of ['light','dark'])for(const width of [320,768,1440,3840]){
-    await page.goto(statusUrl);await page.locator('[data-monitor-id]').first().waitFor();
+    await visit(statusUrl);await page.locator('[data-monitor-id]').first().waitFor();
     await page.evaluate(({locale,theme})=>{localStorage.setItem('sentori_locale',locale);localStorage.setItem('sentori-theme',theme);},{locale,theme});
     await page.setViewportSize({width,height:1100});
     for(const name of ['status','integrations','monitor-editor','integration-editor']){
       const monitor=name.startsWith('monitor')||name==='status';
-      await page.goto(monitor?statusUrl:integrationsUrl);await page.locator(monitor?'[data-monitor-id]':'[data-integration-kind]').first().waitFor();
+      await visit(monitor?statusUrl:integrationsUrl);await page.locator(monitor?'[data-monitor-id]':'[data-integration-kind]').first().waitFor();
       if(name==='monitor-editor')await page.locator('.page-heading button').click();
       if(name==='integration-editor')await page.locator('[data-integration-kind=jira] button').first().click();
       if(name.endsWith('editor'))await page.getByRole('dialog').waitFor();
@@ -28,9 +31,9 @@ await withLiveBrowsers('monitors',async({engine,page,origin,out,password,call})=
   }
   // Workflow-only mode skips the layout loop, so this page is still about:blank.
   // Enter the disposable origin before accessing its storage.
-  await page.goto(statusUrl);
+  await visit(statusUrl);
   await page.evaluate(()=>{localStorage.setItem('sentori_locale','en');localStorage.setItem('sentori-theme','light');});await page.setViewportSize({width:1440,height:1100});
-  await page.goto(statusUrl);await page.getByRole('button',{name:'New monitor',exact:true}).click();const dialog=page.getByRole('dialog');
+  await visit(statusUrl);await page.getByRole('button',{name:'New monitor',exact:true}).click();const dialog=page.getByRole('dialog');
   await dialog.getByLabel(/^Monitor name/).fill('Browser monitor '+engine);await dialog.getByLabel(/^Health check URL/).fill('https://health.example.com/ready');await dialog.getByLabel('Enabled',{exact:true}).uncheck();
   const endpoint='**'+path+'/monitors/commands',keys=[];let created;
   await page.route(endpoint,async route=>{keys.push(route.request().postDataJSON().commandId);const response=await route.fetch();assert.equal(response.status(),200);created=(await response.json()).id;await route.abort('failed');});
@@ -46,9 +49,9 @@ await withLiveBrowsers('monitors',async({engine,page,origin,out,password,call})=
   await card.getByRole('button',{name:'Edit monitor',exact:true}).click();await dialog.getByRole('button',{name:'Delete',exact:true}).click();await dialog.getByRole('button',{name:'Delete monitor',exact:true}).click();await dialog.waitFor({state:'hidden'});await card.waitFor({state:'detached'});
   // Read errors remove stale rows; persisted incident notifications link back to this project.
   const listRoute='**'+path+'/monitors';await page.route(listRoute,route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":"fixture_failure"}'}));await page.getByRole('button',{name:'Refresh',exact:true}).click();await page.getByRole('alert').waitFor();assert.equal(await page.locator('[data-monitor-id]').count(),0);await page.unroute(listRoute);
-  await page.goto(origin+'/inbox?filter=all');await page.locator('[data-inbox-id]').first().waitFor();await page.locator('.team-inbox-title').filter({hasText:'Release readiness'}).first().click();assert.equal(new URL(page.url()).pathname,'/status');await page.locator('[data-monitor-id]').first().waitFor();
+  await visit(origin+'/inbox?filter=all');await page.locator('[data-inbox-id]').first().waitFor();await page.locator('.team-inbox-title').filter({hasText:'Release readiness'}).first().click();assert.equal(new URL(page.url()).pathname,'/status');await page.locator('[data-monitor-id]').first().waitFor();
 
-  await page.goto(integrationsUrl);const github=page.locator('[data-integration-kind=github]');await github.getByRole('button',{name:'Configure',exact:true}).click();await dialog.getByLabel(/^Repository/).fill('fixture/updated');
+  await visit(integrationsUrl);const github=page.locator('[data-integration-kind=github]');await github.getByRole('button',{name:'Configure',exact:true}).click();await dialog.getByLabel(/^Repository/).fill('fixture/updated');
   await dialog.getByRole('button',{name:'Save',exact:true}).click();await dialog.waitFor({state:'hidden'});await github.getByText('fixture/updated',{exact:true}).waitFor();
   await github.getByRole('button',{name:'Configure',exact:true}).click();assert.equal(await dialog.getByLabel(/^Credential/).inputValue(),'');await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
   assert.equal(JSON.stringify(await call(path+'/integrations')).includes('browser-github-secret'),false);

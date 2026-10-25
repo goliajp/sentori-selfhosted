@@ -260,11 +260,11 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
 
         print('PASS mid-batch seal returns 503, final package binding, checksum reconciliation, activation and real target-event evidence before completion',flush=True)
     finally:
-        subprocess.run(['docker','rm','-f',proxy_name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        subprocess.run(['docker','rm','-f','-v',proxy_name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         subprocess.run(['docker','network','disconnect','-f',tail_network,runtime()[0]],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         subprocess.run(['docker','network','disconnect','-f',tail_network,target_name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         subprocess.run(['docker','network','rm',tail_network],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-        subprocess.run(['docker','rm','-f',target_name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+        subprocess.run(['docker','rm','-f','-v',target_name],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
         subprocess.run(['docker','volume','rm',volume],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
 

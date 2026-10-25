@@ -45,8 +45,8 @@ pub async fn audit(
     action: &str,
     payload: Value,
 ) -> anyhow::Result<()> {
-    sqlx::query("INSERT INTO audit_logs(id,actor_user_id,action,target_type,target_id,payload) VALUES($1,$2,$3,'project_transfer',$4,$5)")
-        .bind(Uuid::now_v7()).bind(actor).bind(action).bind(id.to_string()).bind(payload).execute(&mut **tx).await?;
+    sqlx::query("INSERT INTO audit_logs(id,actor_user_id,action,target_type,target_id,payload,ip) VALUES($1,$2,$3,'project_transfer',$4,$5,$6)")
+        .bind(Uuid::now_v7()).bind(actor).bind(action).bind(id.to_string()).bind(payload).bind(sentori_request_origin::current()).execute(&mut **tx).await?;
     Ok(())
 }
 #[derive(sqlx::FromRow, Clone)]

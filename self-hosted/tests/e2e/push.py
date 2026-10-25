@@ -183,7 +183,7 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
         assert [a['attempt'] for a in result['attempts']]==[2,1]
         print('PASS crash after provider receipt remains uncertain; explicit retry deduplicates',flush=True)
     finally:
-        subprocess.run(['docker','rm','-f',fixture],capture_output=True)
+        subprocess.run(['docker','rm','-f','-v',fixture],capture_output=True)
         subprocess.run(['docker','network','disconnect','-f',network,app],capture_output=True)
         subprocess.run(['docker','network','rm',network],capture_output=True)
 

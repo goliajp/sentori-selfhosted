@@ -205,7 +205,7 @@ def run(*,base,owner,sql,password,client,request,restart,login,runtime):
         assert sum({k.lower():v for k,v in p['headers'].items()}.get('x-sentori-delivery')==id for p in requests())==1
         print('PASS crash-after-send remains uncertain without duplicate external creation',flush=True)
     finally:
-        subprocess.run(['docker','rm','-f',fixture],capture_output=True)
+        subprocess.run(['docker','rm','-f','-v',fixture],capture_output=True)
         subprocess.run(['docker','network','disconnect','-f',network,app],capture_output=True)
         subprocess.run(['docker','network','rm',network],capture_output=True)
 
