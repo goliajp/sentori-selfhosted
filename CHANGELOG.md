@@ -1,6 +1,8 @@
 # Sentori CHANGELOG
 
-## 5.2.1 — 2026-10-25
+## 5.2.2 — 2026-10-25
+
+Security patch release based on production 5.2.0; unrelated development changes from 5.2.1 are excluded.
 
 - Record trusted request source IPs in Cloud and data-plane audit events, including successful and failed authentication, reset and password-change operations. Forwarded addresses are accepted only from explicitly configured proxy peers.
 - Generate push-signing test keys at runtime instead of committing fixed private keys.

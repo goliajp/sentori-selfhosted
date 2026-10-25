@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-import { runWeb, WEB_HELP } from './web.js';
 import { parseArgs } from 'node:util';
 import { runWorkflow, runSourcesPack, WORKFLOW_HELP } from './workflow.js';
 import { checkCompatibility, CLI_VERSION } from './compatibility.js';
 import { listApps, showProject } from './apps.js';
-import { fetchBundle, formatIssueLine, listIssuesPage, noteIssue, resolveIssue, } from './issue.js';
+import { fetchBundle, formatIssueLine, listIssues, noteIssue, resolveIssue, } from './issue.js';
 import { isStrict, lenientFail, stripStrict } from './lenient.js';
 import { runMcpServer } from './mcp.js';
 import { uploadDsym, uploadMapping } from './native-artifacts.js';
@@ -13,7 +12,7 @@ import { parseJsonArg, pushCredsDelete, pushCredsList, pushCredsSet, pushReceipt
 import { reactNativeUpload } from './react-native.js';
 import { fetchArtifacts } from './artifacts.js';
 import { expandSourcemapPaths, uploadArtifact } from './upload.js';
-const HELP = `${WEB_HELP}\n${WORKFLOW_HELP}\n\nsentori — Sentori command-line interface
+const HELP = `${WORKFLOW_HELP}\n\nsentori — Sentori command-line interface
 
 Symbolication artifacts (api-scope token; failures NEVER block your
 build — exit 0 with a friendly note unless --strict):
@@ -43,7 +42,7 @@ CI triage (the same /api surface an AI agent uses):
   sentori project show [--json]       project selected by the API token
   sentori app list [--json]           apps within that project
   sentori issue list [--status open] [--kind error] [--app <uuid>]
-      [--platform <platform>] [--environment <env>] [--release <release>] [--limit 50] [--offset 0] [--json]
+      [--platform <platform>] [--environment <env>] [--release <release>] [--json]
   sentori issue resolve <issue-id> [--in-release <r>]
   sentori issue note <issue-id> --body "fixed in abc123"
   sentori issue bundle <issue-id>
@@ -454,7 +453,7 @@ async function cmdIssueList(argv) {
     try {
         parsed = parseArgs({
             args: argv,
-            options: { ...ISSUE_OPTS, kind: { type: 'string' }, status: { type: 'string' }, app: { type: 'string' }, platform: { type: 'string' }, environment: { type: 'string' }, release: { type: 'string' }, limit: { type: 'string' }, offset: { type: 'string' }, json: { type: 'boolean' } },
+            options: { ...ISSUE_OPTS, kind: { type: 'string' }, status: { type: 'string' }, app: { type: 'string' }, platform: { type: 'string' }, environment: { type: 'string' }, release: { type: 'string' }, json: { type: 'boolean' } },
         });
     }
     catch (e) {
@@ -469,21 +468,18 @@ async function cmdIssueList(argv) {
     if (!cfg)
         return 2;
     try {
-        const page = await listIssuesPage(cfg, {
+        const rows = await listIssues(cfg, {
             kind: parsed.values.kind,
             status: parsed.values.status ?? 'open',
             app: parsed.values.app,
             platform: parsed.values.platform,
             environment: parsed.values.environment,
             release: parsed.values.release,
-            limit: parsed.values.limit === undefined ? undefined : Number(parsed.values.limit),
-            offset: parsed.values.offset === undefined ? undefined : Number(parsed.values.offset),
         });
         if (parsed.values.json) {
-            console.log(JSON.stringify(page, null, 2));
+            console.log(JSON.stringify({ issues: rows }, null, 2));
             return 0;
         }
-        const rows = page.issues;
         if (rows.length === 0) {
             console.log('(no matching issues)');
             return 0;
@@ -714,8 +710,6 @@ async function main(argv) {
         return 0;
     }
     const [a, b, ...rest] = argv;
-    if (a === 'web')
-        return runWeb(argv.slice(1));
     if (a === 'project' && b === 'show')
         return cmdProjectApps(rest, false);
     if (a === 'app' && b === 'list')

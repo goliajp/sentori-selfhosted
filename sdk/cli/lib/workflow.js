@@ -3,7 +3,6 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { basename, dirname, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { parseArgs } from 'node:util';
-import { showProject } from './apps.js';
 import { fetchArtifacts } from './artifacts.js';
 import { checkCompatibility } from './compatibility.js';
 import { dwarfBinariesIn } from './native-artifacts.js';
@@ -45,7 +44,7 @@ export function loadUploadConfig(path) {
         throw new Error('config requires version: 1, apiUrl, and artifacts; run sentori init');
     if (Object.hasOwn(value, 'token'))
         throw new Error('store the API token in the environment and set tokenEnv, not token in the config');
-    const allowed = new Set(['version', 'apiUrl', 'tokenEnv', 'projectId', 'release', 'artifacts', 'sources', 'sourceArchive']);
+    const allowed = new Set(['version', 'apiUrl', 'tokenEnv', 'release', 'artifacts', 'sources', 'sourceArchive']);
     for (const key of Object.keys(value))
         if (!allowed.has(key))
             throw new Error(`unknown config field: ${key}`);
@@ -54,8 +53,6 @@ export function loadUploadConfig(path) {
             throw new Error(`unknown artifact kind ${kind}; use sourcemap, dsym, or mapping`);
         strings(paths, `artifacts.${kind}`);
     }
-    if (value.projectId !== undefined && (typeof value.projectId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.projectId)))
-        throw new Error('projectId must be the expected Project UUID');
     if (value.release !== undefined && (typeof value.release !== 'string' || !value.release.trim()))
         throw new Error('release must be a non-empty string');
     if (value.sourceArchive !== undefined && typeof value.sourceArchive !== 'string')
@@ -105,7 +102,7 @@ export function prepareUploadPlan(configPath, overrides = {}) {
     const release = overrides.release ?? process.env.SENTORI_RELEASE ?? config.release;
     if (!release?.trim())
         throw new Error('set --release, SENTORI_RELEASE, or config.release to the exact SDK release');
-    const plan = { release, apiUrl: apiUrl(overrides.apiUrl ?? process.env.SENTORI_API_URL ?? config.apiUrl), tokenEnv: config.tokenEnv, ...(config.projectId ? { projectId: config.projectId } : {}), files: [] };
+    const plan = { release, apiUrl: apiUrl(overrides.apiUrl ?? process.env.SENTORI_API_URL ?? config.apiUrl), tokenEnv: config.tokenEnv, files: [] };
     const add = (kind, path, name = basename(path)) => {
         let bytes = readFileSync(path);
         if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
@@ -213,7 +210,6 @@ export async function runWorkflow(command, argv) {
             const token = process.env[config.tokenEnv];
             if (!token)
                 throw new Error(`set ${config.tokenEnv} to an API-scope token`);
-            await verifyProject({ apiUrl: apiUrl(parsed.values['api-url'] ?? process.env.SENTORI_API_URL ?? config.apiUrl), projectId: config.projectId }, token);
             const result = await fetchArtifacts({
                 apiUrl: apiUrl(parsed.values['api-url'] ?? process.env.SENTORI_API_URL ?? config.apiUrl), token,
                 release: parsed.values.release ?? process.env.SENTORI_RELEASE ?? config.release ?? '__sentori_compatibility_check__',
@@ -231,7 +227,6 @@ export async function runWorkflow(command, argv) {
         const token = process.env[plan.tokenEnv];
         if (!token)
             throw new Error(`set ${plan.tokenEnv} to an API-scope token`);
-        await verifyProject(plan, token);
         // Check credentials before the first write. An unknown release is allowed.
         console.log(checkCompatibility(await fetchArtifacts({ ...plan, token }), plan.files.some(file => file.kind === 'srcbundle')));
         const failures = [];
@@ -290,14 +285,5 @@ export async function runSourcesPack(argv) {
         console.error(`[sentori] ${error instanceof Error ? error.message : String(error)}`);
         return 1;
     }
-}
-async function verifyProject(config, token) {
-    if (!config.projectId)
-        return;
-    const { project } = await showProject({ apiUrl: config.apiUrl, token });
-    if (project.id.toLowerCase() !== config.projectId.toLowerCase()) {
-        throw new Error(`Project mismatch: expected ${config.projectId}, token belongs to ${project.id}. No files uploaded.`);
-    }
-    console.log(`Project verified: ${project.name} (${project.id})`);
 }
 //# sourceMappingURL=workflow.js.map

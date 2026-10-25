@@ -16,57 +16,6 @@
 > and a size-limit table of constraints nothing enforced. Someone
 > implementing against it built a client that 404s.
 
-## Direct backend clients
-
-Rust/Axum services can send the same v1 JSON as the SDKs; use this page and the
-instance's `/openapi.json` as the public contract. There is currently no shipped
-Rust SDK or committed release date. New optional fields do not require client
-changes; ignore unknown response fields and check each batch outcome, even
-when the HTTP status is 200.
-
-For each event, `kind`, RFC 3339 `occurredAt`, and string `platform` are required.
-`release` and `environment` default to empty strings; set both explicitly.
-`name` is required for warn/trace/assert/probe. Errors carry `payload.error`
-with `type`, `message`, and an optional array `stack`. `id` is an optional UUID;
-UUIDv4 and UUIDv7 are accepted. Mint one globally unique ID per occurrence and
-persist that same ID, timestamp and body across retries. Omitting the ID causes
-the server to mint one, so retries cannot be deduplicated. Reusing an ID does not
-update the stored event, and a duplicate in the same project does not increment
-issue counts. Never reuse an ID for another event or project.
-
-Recognized platforms are `javascript`, `ios`, `android`, `web`, and `weapp`.
-There is no `rust` or `server` platform: unrecognized strings are normalized to
-`unknown`. For an existing backend App registered with `javascript`, keep that
-platform and its configured `payload.app.identifier`; App kind `webapi` is
-separate from the wire platform. App identity is scoped by the token's project,
-platform and identifier, not the display name or release prefix.
-
-A backend batch can omit all session and other side channels:
-
-```json
-{
-  "events": [{
-    "id": "01920000-0000-7000-8000-000000000001",
-    "kind": "error",
-    "occurredAt": "2026-10-18T06:00:00Z",
-    "platform": "javascript",
-    "release": "my-api@1.0.0",
-    "environment": "staging",
-    "payload": {
-      "app": { "identifier": "my-api" },
-      "error": { "type": "Http500", "message": "database unavailable", "stack": [] }
-    }
-  }]
-}
-```
-
-Send this to `POST /v1/events:batch` with `Content-Type: application/json` and
-`Authorization: Bearer <ingest-token>`. Replace the sample ID for every new
-occurrence. Use a bounded background queue, bounded request timeout, and retry
-transient delivery failures with backoff; reporting failures must not change
-the service's response. This document describes the current v1 contract, not a
-promise of advance notifications through a subscription service.
-
 ## Design principles
 
 This protocol is intentionally **without legacy**. It does not maintain compatibility with Sentry, OpenTelemetry, or any other prior system. Notable choices:
@@ -1018,25 +967,6 @@ API-scope tokens can inspect their selected project through `GET /api/project`
 and its apps through `GET /api/apps`. `GET /api/issues` accepts `appId`,
 `platform`, `environment`, and `release`; aggregates use matching events, and
 foreign App IDs are rejected. Ingest tokens cannot use these read endpoints.
-The issue list also accepts `status` (`open`, `resolved`, `ignored`, `all`),
-`kind`, `limit` (default 50, clamped to 1–200) and `offset` (default 0,
-non-negative). Its response includes `issues`, `total`, `limit`, `offset`,
-and `nextOffset` (null at the end). `total` remains available past the last
-page. Ordering is by live impact; concurrent ingestion can move rows between
-pages, so pagination is not a snapshot export.
-
-## Error grouping
-
-Within a project, environment and platform always split issue groups. For an
-error the server hashes its type and the ordered `file:function` pairs of
-in-app frames. If none exist, it uses available function names from all frames.
-Only when that signature is empty does it use type plus message, replacing each
-ASCII digit run with `#`. For example, messages containing 404 and 503 otherwise
-identically are grouped together. Line/column, release and `payload.data.url`
-are not separate grouping inputs. Different call paths can create separate
-issues with identical titles. SDK-captured native stacks count even when the
-caller only supplied a message. App identifiers are event dimensions, not part
-of the current issue fingerprint.
 
 ## Web monitoring
 
@@ -1052,7 +982,7 @@ older than one day are rejected. The generated OpenAPI describes field types.
 An API token can read `GET /api/web/performance?app=<uuid>`, optionally filtering
 by `hours` (1–720), `route`, `release`, `environment` and `device`. Results include
 sample counts, inverse-sampling-weighted visit error rate, device-separated
-metric p75 (also returned below 20 samples, with `assessment: insufficient-data`), missing-value coverage, recent diagnostics and at most twenty issue
+metric p75, missing-value coverage, recent diagnostics and at most twenty issue
 groups from the latest 500 matching error events. At least twenty metric samples
 are required for an assessment. Retention is at most thirty days and can be
 shorter under the instance's Cloud entitlement.

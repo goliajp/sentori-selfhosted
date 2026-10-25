@@ -79,18 +79,6 @@ def run(*, base, owner, sql, password, client, request):
     assert api('/api/issues?appId=' + ios['id'] + '&release=mobile%401.0')['issues'][0]['eventCount'] == 1
     api('/api/issues?appId=' + str(uuid.uuid4()), status=404)
     api('/api/issues?status=bogus', status=400)
-    api('/api/issues?offset=-1', status=400)
-    whole = api('/api/issues')
-    assert whole['total'] >= 3
-    pages = [api('/api/issues?limit=1&offset=' + str(i)) for i in range(whole['total'])]
-    assert [p['issues'][0]['id'] for p in pages] == [i['id'] for i in whole['issues']]
-    for i, page in enumerate(pages):
-        assert page['total'] == whole['total'] and page['limit'] == 1 and page['offset'] == i
-        assert page['nextOffset'] == (i + 1 if i + 1 < whole['total'] else None)
-    beyond = api('/api/issues?limit=1&offset=10000')
-    assert beyond['issues'] == [] and beyond['total'] == whole['total'] and beyond['nextOffset'] is None
-    assert api('/api/issues?appId=' + ios['id'] + '&limit=1&offset=1')['total'] == scoped['total']
-
     call(path + '/apps/' + console['id'], 'PATCH', {'expectedVersion': 1, 'kind': 'webapi'})
     assert next(a for a in api('/api/apps')['apps'] if a['id'] == console['id'])['kind'] == 'webapi'
     call(path + '/apps/' + console['id'], 'PATCH', {'expectedVersion': 2, 'kind': 'bogus'}, 400)

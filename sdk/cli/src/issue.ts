@@ -37,19 +37,10 @@ async function apiFetch<T>(c: ApiConfig, path: string, init?: RequestInit): Prom
   return (await resp.json()) as T
 }
 
-export type IssueListOptions = { status?: string; kind?: string; app?: string; platform?: string; environment?: string; release?: string; limit?: number; offset?: number }
-export type IssuePage = { issues: Issue[]; total?: number; limit?: number; offset?: number; nextOffset?: number | null }
-
-export async function listIssues(c: ApiConfig, opts: IssueListOptions = {}): Promise<Issue[]> {
-  return (await listIssuesPage(c, opts)).issues
-}
-
-export async function listIssuesPage(
+export async function listIssues(
   c: ApiConfig,
-  opts: IssueListOptions = {},
-): Promise<IssuePage> {
-  if (opts.limit !== undefined && (!Number.isSafeInteger(opts.limit) || opts.limit < 1 || opts.limit > 200)) throw new Error('--limit must be an integer from 1 to 200')
-  if (opts.offset !== undefined && (!Number.isSafeInteger(opts.offset) || opts.offset < 0)) throw new Error('--offset must be a non-negative safe integer')
+  opts: { status?: string; kind?: string; app?: string; platform?: string; environment?: string; release?: string } = {},
+): Promise<Issue[]> {
   const q = new URLSearchParams()
   if (opts.status) q.set('status', opts.status)
   if (opts.kind) q.set('kind', opts.kind)
@@ -57,11 +48,9 @@ export async function listIssuesPage(
   if (opts.platform) q.set('platform', opts.platform)
   if (opts.environment) q.set('environment', opts.environment)
   if (opts.release) q.set('release', opts.release)
-  if (opts.limit !== undefined) q.set('limit', String(opts.limit))
-  if (opts.offset !== undefined) q.set('offset', String(opts.offset))
   const qs = q.toString()
-  const body = await apiFetch<IssuePage>(c, `/api/issues${qs ? `?${qs}` : ''}`)
-  return body
+  const body = await apiFetch<{ issues: Issue[] }>(c, `/api/issues${qs ? `?${qs}` : ''}`)
+  return body.issues
 }
 
 export async function resolveIssue(

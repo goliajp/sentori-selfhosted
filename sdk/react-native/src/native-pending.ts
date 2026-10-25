@@ -20,7 +20,6 @@ type LegacyNativeEvent = {
   environment?: string;
   device?: Record<string, unknown>;
   app?: Record<string, unknown>;
-  context?: Record<string, unknown>;
   error?: {
     type?: string;
     message?: string;
@@ -58,7 +57,6 @@ const toWire = (raw: LegacyNativeEvent): WireEvent => {
       error,
       device: raw.device as WireEvent['payload']['device'],
       app: raw.app as WireEvent['payload']['app'],
-      ...(raw.context ? { context: raw.context } : {}),
       nativeCrash: true,
     },
   };
