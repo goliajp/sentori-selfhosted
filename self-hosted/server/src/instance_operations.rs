@@ -87,8 +87,8 @@ async fn terminal(
     let changed=sqlx::query("UPDATE instance_operations SET state=$3,error_code=$4,key_blob=NULL,artifact_id=NULL,artifact_bytes=NULL,artifact_sha256=NULL,lease_owner=NULL,lease_until=NULL,finished_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running'")
         .bind(id).bind(lease).bind(state).bind(code).execute(&mut *tx).await?.rows_affected();
     if changed == 1 {
-        sqlx::query("INSERT INTO audit_logs (id,action,target_type,target_id,payload) VALUES ($1,'instance.backup.finished','instance_operation',$2,$3)")
-            .bind(Uuid::now_v7()).bind(id.to_string()).bind(json!({"state":state,"errorCode":code})).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO audit_logs (id,action,target_type,target_id,payload,ip) VALUES ($1,'instance.backup.finished','instance_operation',$2,$3,$4)")
+            .bind(Uuid::now_v7()).bind(id.to_string()).bind(json!({"state":state,"errorCode":code})).bind(sentori_request_origin::current()).execute(&mut *tx).await?;
     }
     tx.commit().await?;
     Ok(())
@@ -159,8 +159,8 @@ async fn tick(state: &Arc<AppState>) -> anyhow::Result<()> {
             let changed=sqlx::query("UPDATE instance_operations SET state='ready',key_blob=NULL,lease_owner=NULL,lease_until=NULL,artifact_id=$3,artifact_bytes=$4,artifact_sha256=$5,manifest=$6,finished_at=now() WHERE id=$1 AND lease_owner=$2 AND state='running' AND NOT cancel_requested AND EXISTS(SELECT 1 FROM instance_settings WHERE singleton AND id=instance_operations.instance_id AND generation=instance_operations.generation AND operating_mode='normal')")
                 .bind(work.id).bind(lease).bind(artifact_id).bind(bytes).bind(&sha).bind(manifest).execute(&mut *tx).await?.rows_affected();
             if changed == 1 {
-                sqlx::query("INSERT INTO audit_logs (id,action,target_type,target_id,payload) VALUES ($1,'instance.backup.ready','instance_operation',$2,$3)")
-                    .bind(Uuid::now_v7()).bind(work.id.to_string()).bind(json!({"bytes":bytes,"sha256":sha})).execute(&mut *tx).await?;
+                sqlx::query("INSERT INTO audit_logs (id,action,target_type,target_id,payload,ip) VALUES ($1,'instance.backup.ready','instance_operation',$2,$3,$4)")
+                    .bind(Uuid::now_v7()).bind(work.id.to_string()).bind(json!({"bytes":bytes,"sha256":sha})).bind(sentori_request_origin::current()).execute(&mut *tx).await?;
             }
             tx.commit().await?;
             if changed == 0 {

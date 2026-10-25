@@ -400,6 +400,25 @@ pub async fn complete(
     headers: HeaderMap,
     Json(body): Json<Complete>,
 ) -> Result<Response, Error> {
+    let result = complete_inner(State(state.clone()), headers, Json(body)).await;
+    if result.is_err() {
+        crate::audit::auth_attempt(
+            &state.pool,
+            None,
+            "auth.login_failed",
+            "",
+            "cloud_exchange_failed",
+        )
+        .await;
+    }
+    result
+}
+
+async fn complete_inner(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(body): Json<Complete>,
+) -> Result<Response, Error> {
     let cloud = state.cloud.as_ref().ok_or_else(unauthorized)?;
     let verifier = cookie(&headers, cloud.verifier_name()).ok_or_else(unauthorized)?;
     if !valid_secret(&body.ticket) || !valid_secret(&verifier) {
@@ -434,8 +453,18 @@ pub async fn complete(
         .map_err(|_| unavailable())?;
     let mut tx = state.pool.begin().await?;
     let user = reconcile_user(&mut tx, &identity).await?;
-    sqlx::query("INSERT INTO auth_sessions(id_hash,user_id,expires_at,sealed_cloud_grant,cloud_generation) VALUES($1,$2,$3,$4,$5)")
-        .bind(hash.as_slice()).bind(user).bind(identity.expires_at).bind(encrypted).bind(cloud.generation).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO auth_sessions(id_hash,user_id,expires_at,sealed_cloud_grant,cloud_generation,ip) VALUES($1,$2,$3,$4,$5,$6)")
+        .bind(hash.as_slice()).bind(user).bind(identity.expires_at).bind(encrypted).bind(cloud.generation).bind(sentori_request_origin::current()).execute(&mut *tx).await?;
+    crate::audit::record_in_transaction(
+        &mut tx,
+        None,
+        user,
+        "auth.login",
+        "user",
+        &user.to_string(),
+        json!({"channel":"cloud","result":"ok"}),
+    )
+    .await?;
     tx.commit().await?;
     let ttl = (identity.expires_at - OffsetDateTime::now_utc())
         .whole_seconds()

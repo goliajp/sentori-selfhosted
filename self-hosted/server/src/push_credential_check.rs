@@ -145,13 +145,24 @@ pub fn check(provider: &str, config: &mut Value, secret: &str) -> Result<(), Rej
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
 
-    /// A real EC key, so the APNs path is checked against something
-    /// that actually signs rather than something that merely looks
-    /// like a key.
-    const EC_PEM: &str = "-----BEGIN PRIVATE KEY-----\nMIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgevZzL1gdAFr88hb2\nOF/2NxApJCzGCEDdfSp6VQO30hyhRANCAAQRWz+jn65BtOMvdyHKcvjBeBSDZH2r\n1RTwjmYSi9R/zpBnuQ4EiMnCqfMPWiZqB4QdbAd0E7oH50VpuZ1P087G\n-----END PRIVATE KEY-----";
+    fn ec_pem() -> String {
+        use p256::pkcs8::EncodePrivateKey;
+        use rand::Rng;
+        let mut bytes = [0u8; 32];
+        let key = loop {
+            rand::rng().fill_bytes(&mut bytes);
+            if let Ok(key) = p256::SecretKey::from_slice(&bytes) {
+                break key;
+            }
+        };
+        key.to_pkcs8_pem(p256::pkcs8::LineEnding::LF)
+            .expect("encode test key")
+            .to_string()
+    }
 
     fn apns_config() -> Value {
         json!({ "keyId": "ABC1234567", "teamId": "DEF7654321", "topic": "com.example.app" })
@@ -161,7 +172,7 @@ mod tests {
     fn a_key_flattened_by_a_single_line_field_is_refused() {
         // Exactly what the browser produces: same characters, no line
         // breaks. This is the paste the whole module was failing on.
-        let flattened = EC_PEM.replace('\n', "");
+        let flattened = ec_pem().replace('\n', "");
         let mut config = apns_config();
         let rejection = check("apns", &mut config, &flattened).err();
         assert!(
@@ -175,7 +186,7 @@ mod tests {
     #[test]
     fn a_whole_key_is_accepted() {
         let mut config = apns_config();
-        assert!(check("apns", &mut config, EC_PEM).is_ok());
+        assert!(check("apns", &mut config, &ec_pem()).is_ok());
     }
 
     /// The placeholder said `bundleId` and the worker reads `topic`.
@@ -186,7 +197,7 @@ mod tests {
         let mut config = json!({
             "keyId": "ABC1234567", "teamId": "DEF7654321", "bundleId": "com.example.app"
         });
-        let rejection = check("apns", &mut config, EC_PEM).err();
+        let rejection = check("apns", &mut config, &ec_pem()).err();
         assert!(
             rejection
                 .as_ref()

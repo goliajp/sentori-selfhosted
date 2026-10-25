@@ -64,8 +64,8 @@ pub async fn enqueue(
         .bind(id)
         .execute(&mut **tx)
         .await?;
-    sqlx::query("INSERT INTO audit_logs(id,project_id,actor_user_id,action,target_type,target_id,payload) VALUES($1,$2,$3,'job.queued','job',$4,$5)")
-        .bind(Uuid::now_v7()).bind(project).bind(actor).bind(id.to_string()).bind(json!({"kind":"resymbolicate","releaseId":release})).execute(&mut **tx).await?;
+    sqlx::query("INSERT INTO audit_logs(id,project_id,actor_user_id,action,target_type,target_id,payload,ip) VALUES($1,$2,$3,'job.queued','job',$4,$5,$6)")
+        .bind(Uuid::now_v7()).bind(project).bind(actor).bind(id.to_string()).bind(json!({"kind":"resymbolicate","releaseId":release})).bind(sentori_request_origin::current()).execute(&mut **tx).await?;
     Ok(id)
 }
 

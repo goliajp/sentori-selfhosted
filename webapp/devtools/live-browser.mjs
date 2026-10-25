@@ -37,7 +37,16 @@ export async function withLiveBrowsers(name, run) {
     ? resolve(process.env.SENTORI_TEST_OUTPUT)
     : fileURLToPath(new URL(`../../output/v5-validation/${name}/`, import.meta.url))) + sep;
   mkdirSync(out, { recursive: true });
-  const proxy = Object.fromEntries(['/hooks', '/auth', '/admin/api', '/v1', '/healthz'].map(path => [path, { target: api, changeOrigin: true }]));
+  // The disposable server explicitly trusts this local proxy. Give each
+  // browser scenario its own client address, while preserving one auth bucket
+  // throughout that scenario; never forward a browser-supplied source header.
+  let clientAddress;
+  const proxy = Object.fromEntries(['/hooks', '/auth', '/admin/api', '/v1', '/healthz'].map(path => [path, {
+    target: api, changeOrigin: true,
+    configure(upstream) {
+      upstream.on('proxyReq', request => request.setHeader('X-Forwarded-For', clientAddress));
+    },
+  }]));
   const production = process.env.SENTORI_TEST_PRODUCTION === '1';
   const config = { root, configFile: root + 'vite.config.ts', envDir: '/tmp/sentori-v5-no-env' };
   const options = { host: '127.0.0.1', port: 0, strictPort: true, proxy };
@@ -47,7 +56,8 @@ export async function withLiveBrowsers(name, run) {
   if (!production) await server.listen();
   const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
   try {
-    for (const engine of ['chromium', 'webkit']) {
+    for (const [index, engine] of ['chromium', 'webkit'].entries()) {
+      clientAddress = `198.19.0.${index + 1}`;
       let browser, running;
       try {
         if (engine === 'chromium') { running = await launchChrome(); browser = await engines.chromium.connectOverCDP(running.wsUrl); }

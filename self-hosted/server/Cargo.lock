@@ -2543,6 +2543,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sentori-request-origin"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "tokio",
+]
+
+[[package]]
 name = "sentori-secrets-vault"
 version = "0.1.0"
 dependencies = [
@@ -2558,7 +2566,7 @@ dependencies = [
 
 [[package]]
 name = "sentori-server"
-version = "5.2.0"
+version = "5.2.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2586,6 +2594,7 @@ dependencies = [
  "sentori-notifier",
  "sentori-proguard-resolver",
  "sentori-push-provider",
+ "sentori-request-origin",
  "sentori-secrets-vault",
  "sentori-snapshot",
  "sentori-sourcemap-resolver",

@@ -173,6 +173,9 @@ async fn main() -> anyhow::Result<()> {
     state.ingest_policy = crate::ingest_policy::Policy::load(&pool).await?;
     let state = Arc::new(state);
 
+    let proxies = std::sync::Arc::new(sentori_request_origin::TrustedProxies::parse(
+        &std::env::var("SENTORI_TRUSTED_PROXIES").unwrap_or_default(),
+    )?);
     start_workers(&state).await?;
 
     // Baseline HSTS / X-Content-Type-Options / X-Frame-Options /
@@ -185,8 +188,12 @@ async fn main() -> anyhow::Result<()> {
 
     let listener = TcpListener::bind(&bind).await.context("bind")?;
     info!(%bind, "ready");
+    let app = app.layer(axum::middleware::from_fn_with_state(
+        proxies,
+        sentori_request_origin::middleware,
+    ));
     tokio::select! {
-        result = axum::serve(listener, app) => result.context("serve")?,
+        result = axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()) => result.context("serve")?,
         result = async {
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;

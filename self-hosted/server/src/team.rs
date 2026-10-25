@@ -59,8 +59,8 @@ pub async fn regress(tx: &mut Transaction<'_, Postgres>, issue: Uuid) -> Result<
             "task",
         )
         .await?;
-        sqlx::query("INSERT INTO audit_logs(id,project_id,action,target_type,target_id,payload) VALUES($1,$2,'task.regressed','task',$3,$4)")
-            .bind(Uuid::now_v7()).bind(row.get::<Uuid,_>("project_id")).bind(id.to_string()).bind(json!({"issueId":issue})).execute(&mut **tx).await?;
+        sqlx::query("INSERT INTO audit_logs(id,project_id,action,target_type,target_id,payload,ip) VALUES($1,$2,'task.regressed','task',$3,$4,$5)")
+            .bind(Uuid::now_v7()).bind(row.get::<Uuid,_>("project_id")).bind(id.to_string()).bind(json!({"issueId":issue})).bind(sentori_request_origin::current()).execute(&mut **tx).await?;
     }
     Ok(())
 }

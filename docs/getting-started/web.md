@@ -75,6 +75,33 @@ try {
 Uncaught errors need no call at all. The explicit verb is for the ones
 you catch and still want to know about.
 
+### Filter expected permission failures
+
+`init({ beforeSend })` can return `null` to drop an event. For an application
+that intentionally treats a denied clipboard permission as an expected outcome:
+
+```ts
+sentori.init({
+  token: import.meta.env.VITE_SENTORI_TOKEN,
+  ingestUrl: import.meta.env.VITE_SENTORI_INGEST_URL,
+  release: `web@${__APP_VERSION__}`,
+  beforeSend(event) {
+    const error = event.payload.error
+    if (event.kind === 'error' && error && !error.stack?.length &&
+        error.type === 'NotAllowedError' && /clipboard/i.test(error.message)) {
+      return null
+    }
+    return event
+  },
+})
+```
+
+Match the actual type and message your browser reports. Keep the filter narrow:
+a TypeError caused by missing `navigator.clipboard` is a separate application
+error. The hook is synchronous; throwing or returning a Promise does not drop
+the event. Handle expected permission denial at the clipboard call site when
+possible so the application can show useful feedback.
+
 ## 4. Identify the person
 
 ```ts

@@ -3,6 +3,7 @@ export type UploadConfig = {
     version: 1;
     apiUrl: string;
     tokenEnv: string;
+    projectId?: string;
     release?: string;
     artifacts: {
         sourcemap?: string[];
@@ -21,6 +22,7 @@ export type UploadPlan = {
     release: string;
     apiUrl: string;
     tokenEnv: string;
+    projectId?: string;
     files: {
         kind: UploadOpts['kind'];
         name: string;

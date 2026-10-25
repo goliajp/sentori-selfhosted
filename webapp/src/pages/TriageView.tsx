@@ -46,7 +46,7 @@ function IssueQueue({projectId}: {projectId: string}) {
   const group = params.get('group') ?? 'all', kind = params.get('kind') ?? '';
   let eventFilters: Filters = {}, filterError = false;
   try { eventFilters = readEventFilters(params); } catch { filterError = true; }
-  const sort = params.get('sort') ?? 'impact';
+  const sort = params.get('sort') ?? 'newest';
   const rawOffset = Number(params.get('offset') ?? 0);
   const offset = Number.isSafeInteger(rawOffset) && rawOffset >= 0 ? rawOffset : 0;
   const scope = JSON.stringify([projectId,q,status,group,kind,eventFilters,filterError,sort,offset]);
@@ -61,6 +61,12 @@ function IssueQueue({projectId}: {projectId: string}) {
     for (const [key,value] of Object.entries(changes)) { if (value) next.set(key,value); else next.delete(key); }
     if (!page) next.delete('offset');
     setParams(next,{replace:!page});
+  }
+  function sortable(ascending: string, descending: string) {
+    return {
+      onSort: () => filter({sort: sort === descending ? ascending : descending}),
+      sortDirection: sort === ascending ? 'ascending' as const : sort === descending ? 'descending' as const : undefined,
+    };
   }
   function toggle(id:string) { setSelection({scope,ids:checked.includes(id)?checked.filter(value=>value!==id):[...checked,id]}); }
   function open(id:string) { const next=currentSearchParams();for(const key of ['occurrence','occurrenceOffset','tab'])next.delete(key);navigate({pathname:'/issues/'+id,search:next.toString()}); }
@@ -103,7 +109,7 @@ function IssueQueue({projectId}: {projectId: string}) {
           <Field label={t('queue.search')}><Input type="search" maxLength={200} value={q} onChange={event=>filter({q:event.target.value})}/></Field>
           <Field label={t('queue.status')}><Select value={status} onChange={event=>filter({status:event.target.value})}><option value="all">{t('queue.all')}</option>{(['open','resolved','ignored'] as const).map(value=><option key={value} value={value}>{t(`inbox.group.${value}`)}</option>)}</Select></Field>
           <Field label={t('queue.kind')}><Select value={kind} onChange={event=>filter({kind:event.target.value})}><option value="">{t('queue.all')}</option>{KINDS.map(value=><option key={value} value={value}>{value}</option>)}</Select></Field>
-          <Field label={t('queue.sort')}><Select value={sort} onChange={event=>filter({sort:event.target.value})}><option value="impact">{t('queue.impact')}</option><option value="newest">{t('queue.newest')}</option></Select></Field>
+          <Field label={t('queue.sort')}><Select value={sort} onChange={event=>filter({sort:event.target.value})}><option value="impact">{t('queue.impact')}</option><option value="newest">{t('queue.newest')}</option><option value="oldest">{t('queue.oldest')}</option>{(['title','kind','status','events','users'] as const).flatMap(column => (['asc','desc'] as const).map(direction => <option key={`${column}_${direction}`} value={`${column}_${direction}`}>{t(column === 'title' ? 'queue.issue' : `queue.${column}`)} · {t(direction === 'asc' ? 'queue.ascending' : 'queue.descending')}</option>))}</Select></Field>
           <Button small onClick={clear}>{t('projects.clearFilters')}</Button>
         </div>
         <EventFilters projectId={projectId} value={eventFilters} onChange={filter}/>
@@ -124,12 +130,12 @@ function IssueQueue({projectId}: {projectId: string}) {
           {health.data?.lastEventAt===null?<Link className="text-link" to={'/setup?project='+projectId}>{t('setup.title')}</Link>:<Button onClick={clear}>{t('projects.clearFilters')}</Button>}
         </div>} columns={[
           {key:'select',label:t('queue.select'),render:row=><CheckboxInput aria-label={t('queue.selectIssue',{title:issueHeadline(row).headline})} checked={checked.includes(row.id)} disabled={busy||loading} onChange={()=>toggle(row.id)}/>},
-          {key:'title',label:t('queue.issue'),render:row=><Action className="text-left issue-list-title" data-issue-id={row.id} onClick={()=>open(row.id)}><span className="text-action font-semibold">{issueHeadline(row).headline}</span><span className="block subtle text-xs mt-1">{row.id}</span></Action>},
-          {key:'kind',label:t('queue.kind'),render:row=><KindBadge kind={row.kind}/>},
-          {key:'status',label:t('queue.status'),render:row=><div className="flex flex-wrap gap-1"><Badge tone={row.status==='resolved'?'success':'neutral'}>{t(`inbox.group.${row.status}`)}</Badge>{row.status==='open'&&row.regressedAt&&<Badge tone="danger">{t('inbox.groupRegressed')}</Badge>}</div>},
-          {key:'eventCount',label:t('queue.events'),align:'right',render:row=>number(row.eventCount)},
-          {key:'usersCount',label:t('queue.users'),align:'right',render:row=>row.usersCount?number(row.usersCount):<span title={t('queue.usersUnknown')}>—</span>},
-          {key:'lastSeen',label:t('queue.lastSeen'),render:row=><TimeAgo iso={row.lastSeen}/>},
+          {key:'title',...sortable('title_asc','title_desc'),label:t('queue.issue'),render:row=><Action className="text-left issue-list-title" data-issue-id={row.id} onClick={()=>open(row.id)}><span className="text-action font-semibold">{issueHeadline(row).headline}</span><span className="block subtle text-xs mt-1">{row.id}</span></Action>},
+          {key:'kind',...sortable('kind_asc','kind_desc'),label:t('queue.kind'),render:row=><KindBadge kind={row.kind}/>},
+          {key:'status',...sortable('status_asc','status_desc'),label:t('queue.status'),render:row=><div className="flex flex-wrap gap-1"><Badge tone={row.status==='resolved'?'success':'neutral'}>{t(`inbox.group.${row.status}`)}</Badge>{row.status==='open'&&row.regressedAt&&<Badge tone="danger">{t('inbox.groupRegressed')}</Badge>}</div>},
+          {key:'eventCount',...sortable('events_asc','events_desc'),label:t('queue.events'),align:'right',render:row=>number(row.eventCount)},
+          {key:'usersCount',...sortable('users_asc','users_desc'),label:t('queue.users'),align:'right',render:row=>row.usersCount?number(row.usersCount):<span title={t('queue.usersUnknown')}>—</span>},
+          {key:'lastSeen',...sortable('oldest','newest'),label:t('queue.lastSeen'),render:row=><TimeAgo iso={row.lastSeen}/>},
         ]}/>
         <div className="table-pagination"><span aria-live="polite">{data?t('queue.pageCount',{first:String(rows.length?offset+1:0),last:String(rows.length?offset+rows.length:0),total:number(data.total)}):'—'}</span><div className="flex gap-2"><Button small disabled={loading||offset===0} onClick={()=>filter({offset:String(Math.max(0,offset-PAGE_SIZE))},true)}>{t('queue.previous')}</Button><Button small disabled={loading||data?.nextOffset==null} onClick={()=>filter({offset:String(data!.nextOffset)},true)}>{t('queue.next')}</Button></div></div>
       </div>

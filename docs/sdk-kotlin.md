@@ -4,7 +4,7 @@ Error, warning and push capture for Android apps, with no React Native.
 
 ```kotlin
 dependencies {
-    implementation("jp.golia.sentori:sentori:2.1.0")
+    implementation("jp.golia.sentori:sentori:2.1.1")
 }
 ```
 

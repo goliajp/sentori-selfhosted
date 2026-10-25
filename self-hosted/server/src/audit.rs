@@ -19,8 +19,8 @@ pub async fn record(
     payload: Value,
 ) {
     let r = sqlx::query(
-        "INSERT INTO audit_logs (id, project_id, actor_user_id, action, target_type, target_id, payload) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO audit_logs (id, project_id, actor_user_id, action, target_type, target_id, payload, ip) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(Uuid::now_v7())
     .bind(project_id)
@@ -29,6 +29,7 @@ pub async fn record(
     .bind(target_type)
     .bind(target_id)
     .bind(payload)
+    .bind(sentori_request_origin::current())
     .execute(pool)
     .await;
     if let Err(e) = r {
@@ -47,8 +48,8 @@ pub async fn record_in_transaction(
     payload: Value,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "INSERT INTO audit_logs (id, project_id, actor_user_id, action, target_type, target_id, payload) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        "INSERT INTO audit_logs (id, project_id, actor_user_id, action, target_type, target_id, payload, ip) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
     )
     .bind(Uuid::now_v7())
     .bind(project_id)
@@ -57,7 +58,25 @@ pub async fn record_in_transaction(
     .bind(target_type)
     .bind(target_id)
     .bind(payload)
+    .bind(sentori_request_origin::current())
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+/// Authentication attempts may refer to an unknown account, so no user FK is required.
+pub async fn auth_attempt(
+    pool: &PgPool,
+    actor: Option<Uuid>,
+    action: &str,
+    email: &str,
+    result: &str,
+) {
+    let outcome = sqlx::query("INSERT INTO audit_logs(id,actor_user_id,action,target_type,payload,ip) VALUES($1,$2,$3,'user',$4,$5)")
+        .bind(Uuid::now_v7()).bind(actor).bind(action)
+        .bind(serde_json::json!({"account": email, "result": result}))
+        .bind(sentori_request_origin::current()).execute(pool).await;
+    if let Err(error) = outcome {
+        warn!(%error, action, "audit write failed");
+    }
 }

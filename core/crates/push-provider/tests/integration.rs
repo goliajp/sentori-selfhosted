@@ -9,7 +9,7 @@
     clippy::missing_panics_doc
 )]
 
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use sentori_push_provider::{
     DispatchTarget, MockProvider, NativeMessage, PerTokenOutcome, ProviderKind, ProviderRegistry,
@@ -19,44 +19,27 @@ use sentori_secrets_vault::{KeyId, MasterKey, Vault};
 use sqlx::{Executor, PgPool};
 use testcontainers_modules::{
     postgres::Postgres,
-    testcontainers::{ContainerAsync, ImageExt, runners::AsyncRunner},
+    testcontainers::{ContainerAsync, ImageExt, core::Mount, runners::AsyncRunner},
 };
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
-// ── shared container ──────────────────────────────────────────
-
-struct PgRig {
+// The owning fixture is scoped to each test, never a static: ContainerAsync
+// must be dropped even when a test panics. tmpfs prevents anonymous PG volumes.
+struct TestPool {
+    pool: PgPool,
     _container: ContainerAsync<Postgres>,
-    base_url: String,
 }
-
-static PG_RIG: OnceLock<Mutex<Option<PgRig>>> = OnceLock::new();
-
-fn rig_cell() -> &'static Mutex<Option<PgRig>> {
-    PG_RIG.get_or_init(|| Mutex::new(None))
-}
-
-async fn ensure_rig() -> String {
-    let mut guard = rig_cell().lock().await;
-    if guard.is_none() {
-        let container = Postgres::default()
-            .with_tag("18")
-            .start()
-            .await
-            .expect("pg");
-        let host = container.get_host().await.expect("host");
-        let port = container.get_host_port_ipv4(5432).await.expect("port");
-        *guard = Some(PgRig {
-            _container: container,
-            base_url: format!("postgres://postgres:postgres@{host}:{port}"),
-        });
-    }
-    guard.as_ref().expect("rig").base_url.clone()
-}
-
-async fn fresh_pool() -> PgPool {
-    let base = ensure_rig().await;
+async fn fresh_pool() -> TestPool {
+    let container = Postgres::default()
+        .with_tag("18")
+        .with_label("jp.golia.sentori.test", "push-provider")
+        .with_mount(Mount::tmpfs_mount("/var/lib/postgresql"))
+        .start()
+        .await
+        .expect("pg");
+    let host = container.get_host().await.expect("host");
+    let port = container.get_host_port_ipv4(5432).await.expect("port");
+    let base = format!("postgres://postgres:postgres@{host}:{port}");
     let admin = PgPool::connect(&format!("{base}/postgres"))
         .await
         .expect("admin");
@@ -77,7 +60,10 @@ async fn fresh_pool() -> PgPool {
     ] {
         pool.execute(sql).await.expect("migration");
     }
-    pool
+    TestPool {
+        pool,
+        _container: container,
+    }
 }
 
 async fn seed_project(pool: &PgPool, slug: &str) -> Uuid {
@@ -134,7 +120,8 @@ async fn seed_token(
 
 #[tokio::test]
 async fn token_upsert_idempotent() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let disp = build_dispatcher(
         pool,
@@ -170,7 +157,8 @@ async fn token_upsert_idempotent() {
 
 #[tokio::test]
 async fn token_upsert_rejects_empty() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let disp = build_dispatcher(
         pool,
@@ -187,7 +175,8 @@ async fn token_upsert_rejects_empty() {
 
 #[tokio::test]
 async fn token_upsert_unknown_project_fk() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let disp = build_dispatcher(
         pool,
         Arc::new(MockProvider::always(SendOutcome::Sent)),
@@ -203,7 +192,8 @@ async fn token_upsert_unknown_project_fk() {
 
 #[tokio::test]
 async fn token_quarantine_skips_from_live_list() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let disp = build_dispatcher(
         pool,
@@ -225,7 +215,8 @@ async fn token_quarantine_skips_from_live_list() {
 
 #[tokio::test]
 async fn token_upsert_clears_quarantine() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let disp = build_dispatcher(
         pool,
@@ -246,7 +237,8 @@ async fn token_upsert_clears_quarantine() {
 
 #[tokio::test]
 async fn list_for_user_returns_only_user_tokens() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let disp = build_dispatcher(
         pool,
@@ -267,7 +259,8 @@ async fn list_for_user_returns_only_user_tokens() {
 
 #[tokio::test]
 async fn credentials_round_trip_seal_unseal() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let disp = build_dispatcher(
         pool,
@@ -295,7 +288,8 @@ async fn credentials_round_trip_seal_unseal() {
 
 #[tokio::test]
 async fn credentials_missing_returns_none() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let disp = build_dispatcher(
         pool,
@@ -315,7 +309,8 @@ async fn credentials_missing_returns_none() {
 
 #[tokio::test]
 async fn dispatch_single_token_calls_provider_once() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let mock = Arc::new(MockProvider::always(SendOutcome::Sent));
     let disp = build_dispatcher(pool, mock.clone(), ProviderKind::Apns);
@@ -335,7 +330,8 @@ async fn dispatch_single_token_calls_provider_once() {
 
 #[tokio::test]
 async fn dispatch_project_kind_fans_out() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let mock = Arc::new(MockProvider::always(SendOutcome::Sent));
     let disp = build_dispatcher(pool, mock.clone(), ProviderKind::Apns);
@@ -360,7 +356,8 @@ async fn dispatch_project_kind_fans_out() {
 
 #[tokio::test]
 async fn dispatch_project_user_fans_across_providers() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let apns = Arc::new(MockProvider::new(
         ProviderKind::Apns,
@@ -401,7 +398,8 @@ async fn dispatch_project_user_fans_across_providers() {
 
 #[tokio::test]
 async fn dispatch_missing_credentials_errors() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let mock = Arc::new(MockProvider::always(SendOutcome::Sent));
     let disp = build_dispatcher(pool, mock, ProviderKind::Apns);
@@ -418,7 +416,8 @@ async fn dispatch_missing_credentials_errors() {
 
 #[tokio::test]
 async fn dispatch_unregistered_provider_errors() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     // Register APNs but seed a Fcm token.
     let mock = Arc::new(MockProvider::always(SendOutcome::Sent));
@@ -437,7 +436,8 @@ async fn dispatch_unregistered_provider_errors() {
 
 #[tokio::test]
 async fn dispatch_single_token_quarantined_errors() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let mock = Arc::new(MockProvider::always(SendOutcome::Sent));
     let disp = build_dispatcher(pool, mock, ProviderKind::Apns);
@@ -458,7 +458,8 @@ async fn dispatch_single_token_quarantined_errors() {
 
 #[tokio::test]
 async fn permanently_invalid_quarantines_row() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let mock = Arc::new(MockProvider::always(SendOutcome::PermanentlyInvalidToken));
     let disp = build_dispatcher(pool, mock.clone(), ProviderKind::Apns);
@@ -494,7 +495,8 @@ async fn permanently_invalid_quarantines_row() {
 
 #[tokio::test]
 async fn transient_outcome_does_not_quarantine() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let mock = Arc::new(MockProvider::always(SendOutcome::Transient {
         retry_after_secs: Some(30),
@@ -517,7 +519,8 @@ async fn transient_outcome_does_not_quarantine() {
 
 #[tokio::test]
 async fn rate_limit_skips_after_burst() {
-    let pool = fresh_pool().await;
+    let rig = fresh_pool().await;
+    let pool = rig.pool.clone();
     let pid = seed_project(&pool, "p1").await;
     let mock = Arc::new(MockProvider::always(SendOutcome::Sent));
     let mut reg = ProviderRegistry::new();

@@ -109,6 +109,33 @@ await withLiveBrowsers('issues',async({engine,browser,context,page,origin,out,pa
   await page.evaluate(()=>localStorage.setItem('sentori_locale','en'));await page.setViewportSize({width:1440,height:1100});
   await visit(queue);await page.locator('.workbench-document[data-active=true] [data-issue-id]').first().waitFor();
   assert.equal(await page.locator('.workbench-document[data-active=true] [data-issue-id]').count(),50);
+  const active = page.locator('.workbench-document[data-active=true]');
+  const timeHeader = active.locator('th').last();
+  assert.equal(await timeHeader.getAttribute('aria-sort'), 'descending');
+  const expectOrder = async sort => {
+    // Equal sort keys can leave the row sequence unchanged while React is
+    // still committing the requested sort. Wait for the control as well.
+    await page.waitForFunction(value => [...document.querySelectorAll('.workbench-document[data-active=true] select')].some(select=>select.value===value), sort);
+    const expected = (await call(`/admin/api/issues?project_id=${project.id}&status=all&limit=50&sort=${sort}`)).issues.map(row=>row.id);
+    await page.waitForFunction(ids => JSON.stringify([...document.querySelectorAll('.workbench-document[data-active=true] [data-issue-id]')].map(el=>el.dataset.issueId)) === JSON.stringify(ids), expected);
+    assert.equal(await page.getByLabel('Sort',{exact:true}).inputValue(), sort);
+  };
+  await expectOrder('newest');
+  for (const [column, first, second] of [[1,'title_desc','title_asc'],[2,'kind_desc','kind_asc'],[3,'status_desc','status_asc'],[4,'events_desc','events_asc'],[5,'users_desc','users_asc'],[6,'newest','oldest']]) {
+    const header = active.locator('th').nth(column);
+    await header.getByRole('button').click();
+    await expectOrder(first);
+    assert.equal(await header.getAttribute('aria-sort'),'descending');
+    await header.getByRole('button').focus(); await page.keyboard.press('Enter');
+    await expectOrder(second);
+    assert.equal(await header.getAttribute('aria-sort'),'ascending');
+  }
+  await page.getByRole('button',{name:'Next',exact:true}).click();
+  await page.waitForFunction(()=>new URL(location.href).searchParams.get('offset')==='50');
+  await timeHeader.getByRole('button').click(); await expectOrder('newest');
+  assert.equal(new URL(page.url()).searchParams.has('offset'),false);
+  await page.screenshot({path:out+`${engine}-sortable-queue.png`});
+  console.log('PASS',engine,'sortable column headers, keyboard toggles, aria-sort, default occurrence recency and pagination reset');
   const firstIds=await page.locator('.workbench-document[data-active=true] [data-issue-id]').evaluateAll(elements=>elements.map(el=>el.dataset.issueId));
   const selectPage=page.getByRole('checkbox',{name:'Select this page',exact:true});
   const rowChoice=page.locator('.workbench-document[data-active=true] .data-table tbody input[type=checkbox]').first();

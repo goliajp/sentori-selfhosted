@@ -8,7 +8,7 @@ import { listApps, showProject } from './apps.js'
 import {
   fetchBundle,
   formatIssueLine,
-  listIssues,
+  listIssuesPage,
   noteIssue,
   resolveIssue,
 } from './issue.js'
@@ -58,7 +58,7 @@ CI triage (the same /api surface an AI agent uses):
   sentori project show [--json]       project selected by the API token
   sentori app list [--json]           apps within that project
   sentori issue list [--status open] [--kind error] [--app <uuid>]
-      [--platform <platform>] [--environment <env>] [--release <release>] [--json]
+      [--platform <platform>] [--environment <env>] [--release <release>] [--limit 50] [--offset 0] [--json]
   sentori issue resolve <issue-id> [--in-release <r>]
   sentori issue note <issue-id> --body "fixed in abc123"
   sentori issue bundle <issue-id>
@@ -466,7 +466,7 @@ async function cmdIssueList(argv: string[]): Promise<number> {
   try {
     parsed = parseArgs({
       args: argv,
-      options: { ...ISSUE_OPTS, kind: { type: 'string' }, status: { type: 'string' }, app: { type: 'string' }, platform: { type: 'string' }, environment: { type: 'string' }, release: { type: 'string' }, json: { type: 'boolean' } },
+      options: { ...ISSUE_OPTS, kind: { type: 'string' }, status: { type: 'string' }, app: { type: 'string' }, platform: { type: 'string' }, environment: { type: 'string' }, release: { type: 'string' }, limit: { type: 'string' }, offset: { type: 'string' }, json: { type: 'boolean' } },
     })
   } catch (e) {
     console.error(`error: ${(e as Error).message}\n${HELP}`)
@@ -479,15 +479,18 @@ async function cmdIssueList(argv: string[]): Promise<number> {
   const cfg = parseApiCfg(parsed.values)
   if (!cfg) return 2
   try {
-    const rows = await listIssues(cfg, {
+    const page = await listIssuesPage(cfg, {
       kind: parsed.values.kind as string | undefined,
       status: (parsed.values.status as string | undefined) ?? 'open',
       app: parsed.values.app,
       platform: parsed.values.platform,
       environment: parsed.values.environment,
       release: parsed.values.release,
+      limit: parsed.values.limit === undefined ? undefined : Number(parsed.values.limit),
+      offset: parsed.values.offset === undefined ? undefined : Number(parsed.values.offset),
     })
-    if (parsed.values.json) { console.log(JSON.stringify({ issues: rows }, null, 2)); return 0 }
+    if (parsed.values.json) { console.log(JSON.stringify(page, null, 2)); return 0 }
+    const rows = page.issues
     if (rows.length === 0) {
       console.log('(no matching issues)')
       return 0

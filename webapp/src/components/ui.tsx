@@ -14,7 +14,7 @@ export { Input, Textarea, Field } from "../../shared/design/controls";
 //   · a card's contents sit at one inset (`px-5`), header and body
 //     and table cells alike, so the left edge is a single line.
 
-import { ChevronRight, Monitor, Moon, Sun } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronRight, Monitor, Moon, Sun } from 'lucide-react';
 import { isValidElement, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -337,6 +337,8 @@ export type Column<T> = {
   width?: string;
   /** Numeric columns read right-aligned, tabular. */
   align?: 'left' | 'right';
+  onSort?: () => void;
+  sortDirection?: 'ascending' | 'descending';
 };
 
 export function DataTable<T>({
@@ -383,10 +385,13 @@ export function DataTable<T>({
             {columns.map((c) => (
               <th
                 key={String(c.key)}
+                aria-sort={c.onSort ? c.sortDirection ?? 'none' : undefined}
                 className={`whitespace-nowrap ${appearance === 'legacy' ? 'px-4 py-2 text-xs font-medium text-fg-muted' : ''} ${alignCls(c)}`}
                 style={c.width ? { width: c.width } : undefined}
               >
-                {c.label}
+                {c.onSort ? <Action className="inline-flex items-center gap-1" onClick={c.onSort}>
+                  {c.label}{c.sortDirection === 'ascending' ? <ArrowUp size={13} aria-hidden/> : c.sortDirection === 'descending' ? <ArrowDown size={13} aria-hidden/> : <ArrowUpDown size={13} aria-hidden/>}
+                </Action> : c.label}
               </th>
             ))}
           </tr>

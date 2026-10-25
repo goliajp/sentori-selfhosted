@@ -680,3 +680,22 @@ Private and link-local destinations remain blocked even when explicitly listed
 as allowed origins. Public policy inspects indexing prerequisites only; neither
 it nor private policy confirms Google indexing. No checks or schedules are
 created merely by installing the runner.
+
+
+### Trusted reverse proxies and audit source IPs
+
+By default Sentori uses the TCP peer address and ignores forwarded headers.
+When deployed behind a reverse proxy, set `SENTORI_TRUSTED_PROXIES` to a
+comma-separated list of that proxy's exact IPv4 or IPv6 addresses as observed
+by the server. Hostnames, CIDRs and wildcard trust are not accepted. For those
+peers only, the last `X-Forwarded-For` entry is used; malformed or missing values
+fall back to the TCP peer. Do not trust an entire container or tailnet network.
+The proxy must replace or append the actual peer address at the end of the
+header.
+If container networking maps every connection to one gateway address, first
+restrict backend access to the trusted proxy. Trusting that shared gateway
+without an access restriction would also trust direct clients' forged headers.
+
+New audit records contain `ip`; historical records and background operations
+without an originating request retain `null`. Authentication failures include
+the attempted account but never the submitted password or reset token.

@@ -84,9 +84,9 @@ pub async fn prepare(
         .bind(operation).bind(id).bind(generation).bind(&name).bind(ctx.user_id).bind(ctx.session_id_hash.as_slice())
         .bind(hex::encode(Sha256::digest(password_hash.as_bytes()))).bind(hex::encode(Sha256::digest(permit.as_bytes())))
         .fetch_one(&mut *tx).await.map_err(internal)?;
-    sqlx::query("INSERT INTO audit_logs(id,actor_user_id,action,target_type,target_id,payload) VALUES($1,$2,'instance.reset.prepared','instance',$3,$4)")
+    sqlx::query("INSERT INTO audit_logs(id,actor_user_id,action,target_type,target_id,payload,ip) VALUES($1,$2,'instance.reset.prepared','instance',$3,$4,$5)")
         .bind(Uuid::now_v7()).bind(ctx.user_id).bind(id.to_string()).bind(json!({"operationId":operation,"generation":generation,"expiresAt":crate::wire_time::rfc3339(expires)}))
-        .execute(&mut *tx).await.map_err(internal)?;
+        .bind(sentori_request_origin::current()).execute(&mut *tx).await.map_err(internal)?;
     tx.commit().await.map_err(internal)?;
     Ok(Json(
         json!({"operationId":operation,"permit":permit,"expiresAt":crate::wire_time::rfc3339(expires)}),

@@ -302,7 +302,7 @@ an API token into browser or mobile bundles.
 export SENTORI_API_TOKEN=st_...
 npx --no-install sentori project show --json
 npx --no-install sentori app list --json
-npx --no-install sentori issue list --app <app-uuid> --environment production --json
+npx --no-install sentori issue list --app <app-uuid> --environment production --json --limit 50 --offset 0
 ```
 
 These project/app commands require the CLI release shipped with server 5.1.17;
@@ -349,3 +349,10 @@ or `runs --id` returns zero for passed, one for site failed and two for monitori
 errors, unfinished/cancelled runs or transport errors. `--wait` requires `--app`
 and waits up to 330 seconds. API and invalid-command errors always return two.
 The configuration contract is documented in [the protocol](../../docs/protocol.md#web-monitoring).
+
+Issue lists use offset pagination: `--limit` accepts 1–200 (default 50), and
+`--offset` is a non-negative integer (default 0). JSON output includes `issues`,
+`total`, `limit`, `offset`, and `nextOffset`; request the returned `nextOffset`
+until it is null. These metadata fields and offset support require a server
+with API pagination support. Ordering reflects live impact, so rows can move
+between pages while new events arrive; this is not a snapshot export.

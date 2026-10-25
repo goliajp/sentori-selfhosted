@@ -24,6 +24,7 @@ resolver = "3"
 # rate limiter with no `mod` declaration. Swept 2026-08-10; the
 # history has them.
 members = [
+    "crates/request-origin",
     "crates/privacy-salt",
     "crates/issue-fingerprint",
     "crates/identity-fingerprint",

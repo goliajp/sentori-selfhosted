@@ -135,4 +135,15 @@ def run(*, base, owner, sql, password, client, request):
     assert known == unknown == {'ok': True}
     assert sql(f"SELECT count(*) FROM password_resets WHERE user_id='{account['id']}' AND used_at IS NULL AND expires_at > now();") == '1'
     assert sql(f"SELECT count(*) FROM audit_logs WHERE actor_user_id='{account['id']}' AND action='auth.password_reset';") == '1'
+    # The suite's host is an explicitly configured proxy. A forged leftmost
+    # hop must never become the audit origin, including failed login attempts.
+    audited = client()
+    audited.addheaders = [('X-Forwarded-For', '203.0.113.99, 198.51.100.77')]
+    call(audited, '/auth/login', 'POST', {'email': 'recovery@example.test', 'password': recovered})
+    call(audited, '/auth/login', 'POST', {'email': 'absent-audit@example.test', 'password': recovered}, 401)
+    assert sql("SELECT ip FROM audit_logs WHERE action='auth.login_failed' AND payload->>'account'='absent-audit@example.test' ORDER BY created_at DESC LIMIT 1;") == '198.51.100.77'
+    assert sql("SELECT ip FROM audit_logs WHERE action='auth.login' ORDER BY created_at DESC LIMIT 1;") == '198.51.100.77'
+    for action in ['auth.login', 'auth.login_failed', 'auth.password_reset', 'auth.password_changed', 'auth.password_reset_failed', 'auth.password_change_failed', 'auth.reset_requested']:
+        assert int(sql("SELECT count(*) FROM audit_logs WHERE action='"+action+"' AND ip IS NOT NULL;")) > 0, action
+    assert sql("SELECT count(*) FROM audit_logs WHERE ip='203.0.113.99';") == '0'
     print('PASS: nullable project platform, real CRUD, stale update/delete, member object isolation, token revoke isolation, project/audit rollback, password change revocation, reset expiry/reuse/concurrency/audit rollback, logout and non-enumerating recovery')

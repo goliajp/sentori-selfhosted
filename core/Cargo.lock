@@ -3249,6 +3249,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sentori-request-origin"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "tokio",
+]
+
+[[package]]
 name = "sentori-secrets-vault"
 version = "0.1.0"
 dependencies = [

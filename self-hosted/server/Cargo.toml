@@ -13,7 +13,7 @@
 
 [package]
 name = "sentori-server"
-version = "5.2.0"
+version = "5.2.1"
 edition = "2024"
 authors = ["GOLIA K.K. <takagi@golia.jp>"]
 license = "Apache-2.0 OR MIT"
@@ -37,6 +37,7 @@ expect_used = "warn"
 panic = "warn"
 
 [dependencies]
+sentori-request-origin = { path = "../../core/crates/request-origin" }
 sentori-snapshot = { path = "../snapshot" }
 # gzip-transparent artifact uploads: dSYMs for RN apps run hundreds
 # of MB raw but ~3:1 compressed; the CLI gzips, we inflate.

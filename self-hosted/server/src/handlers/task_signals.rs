@@ -333,7 +333,7 @@ async fn apply_evidence(
             )
             .await
             .map_err(database_error)?;
-            sqlx::query("INSERT INTO audit_logs(id,project_id,action,target_type,target_id,payload) VALUES($1,$2,'task.automated','task',$3,$4)").bind(Uuid::now_v7()).bind(project).bind(signal.task_id.to_string()).bind(json!({"deliveryId":signal.delivery_id,"stage":next_stage,"commit":commit})).execute(&mut **tx).await.map_err(database_error)?;
+            sqlx::query("INSERT INTO audit_logs(id,project_id,action,target_type,target_id,payload,ip) VALUES($1,$2,'task.automated','task',$3,$4,$5)").bind(Uuid::now_v7()).bind(project).bind(signal.task_id.to_string()).bind(json!({"deliveryId":signal.delivery_id,"stage":next_stage,"commit":commit})).bind(sentori_request_origin::current()).execute(&mut **tx).await.map_err(database_error)?;
             if let Some(issue) = issue {
                 if !verified && task.stage == "done" {
                     sqlx::query("UPDATE issues SET status='open',resolved_at=NULL,resolved_in_release=NULL WHERE id=$1 AND status='resolved'").bind(issue).execute(&mut **tx).await.map_err(database_error)?;

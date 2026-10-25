@@ -331,8 +331,8 @@ async fn command(
         };
     }
     let result = apply_command(&mut tx, project, body).await?;
-    sqlx::query("INSERT INTO audit_logs(id,project_id,actor_user_id,action,target_type,target_id,payload) VALUES($1,$2,$3,$4,'web_check',$5,$6)")
-        .bind(Uuid::now_v7()).bind(project).bind(actor).bind(action).bind(result["id"].as_str().unwrap_or("")).bind(json!({"tokenId":token,"result":result})).execute(&mut *tx).await.map_err(database_error)?;
+    sqlx::query("INSERT INTO audit_logs(id,project_id,actor_user_id,action,target_type,target_id,payload,ip) VALUES($1,$2,$3,$4,'web_check',$5,$6,$7)")
+        .bind(Uuid::now_v7()).bind(project).bind(actor).bind(action).bind(result["id"].as_str().unwrap_or("")).bind(json!({"tokenId":token,"result":result})).bind(sentori_request_origin::current()).execute(&mut *tx).await.map_err(database_error)?;
     sqlx::query(
         "INSERT INTO web_check_commands(project_id,id,request_hash,result) VALUES($1,$2,$3,$4)",
     )

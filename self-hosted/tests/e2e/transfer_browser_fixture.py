@@ -57,7 +57,7 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
         else:
             raise AssertionError('browser driver timeout')
     finally:
-        subprocess.run(['docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, check=False)
+        subprocess.run(['docker', 'rm', '-f','-v', name], stdout=subprocess.DEVNULL, check=False)
         subprocess.run(['docker', 'volume', 'rm', '-f', volume], stdout=subprocess.DEVNULL, check=False)
         state.unlink(missing_ok=True)
         pathlib.Path(str(state)+'.done').unlink(missing_ok=True)

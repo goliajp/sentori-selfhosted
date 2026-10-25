@@ -1,5 +1,12 @@
 # Sentori CHANGELOG
 
+## 5.2.1 — 2026-10-25
+
+- Record trusted request source IPs in Cloud and data-plane audit events, including successful and failed authentication, reset and password-change operations. Forwarded addresses are accepted only from explicitly configured proxy peers.
+- Generate push-signing test keys at runtime instead of committing fixed private keys.
+- Scope notifier and push-provider test databases to their tests, use tmpfs for PostgreSQL test data, and prevent anonymous volume leaks in mobile CI.
+- Bound Cloud registration and reset emails with shared recipient cooldown/hour/day quotas and a global mail budget; preserve existing links when suppressed and keep anonymous mail requests out of the login budget.
+
 ## 5.2.0
 
 - Add opt-in sampled real-user Web performance with healthy-visit denominators, device-separated p75 and coverage.

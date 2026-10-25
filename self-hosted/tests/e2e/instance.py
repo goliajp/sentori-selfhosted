@@ -10,6 +10,7 @@ import hashlib
 import http.cookiejar
 import importlib.util
 import json
+import itertools
 import os
 import pathlib
 import subprocess
@@ -23,8 +24,14 @@ def docker(*args, input=None):
     return subprocess.check_output(['docker', *args], input=input, text=True).strip()
 
 
+_client_ids = itertools.count(1)
+
 def client():
-    return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    # Explicit trusted fixture proxy: independent simulated browsers get independent budgets.
+    index = next(_client_ids)
+    browser.addheaders = [('X-Forwarded-For', f'198.18.{index // 250}.{index % 250 + 1}')]
+    return browser
 
 
 def request(http, base, path, method='GET', data=None, status=200):
@@ -76,13 +83,14 @@ def main():
     def start(database='fresh', storage=None, secret_files=False, ingest_policy=None, web_runner_token=None):
         nonlocal base
         if app in containers:
-            docker('rm', '-f', app)
+            docker('rm', '-f','-v', app)
             containers.remove(app)
         docker('run', '-d', '--platform', runtime_platform, '--name', app, '--network', prefix, '-p', '127.0.0.1::8080',
             '-v', str(binary) + ':/sentori:ro', '-v', volume + ':/data',
             '-e', 'DATABASE_URL=postgres://sentori:test@' + db + '/' + database,
             '-e', 'SENTORI_OWNER_EMAIL=owner@example.test', '-e', 'SENTORI_OWNER_PASSWORD=' + password,
             '-e', 'SENTORI_BASE_URL=http://localhost:8080',
+            '-e', 'SENTORI_TRUSTED_PROXIES=' + docker('network','inspect',prefix,'--format','{{(index .IPAM.Config 0).Gateway}}'),
             *(['-e', 'SENTORI_WEB_RUNNER_TOKEN=' + web_runner_token] if web_runner_token else []),
             *(['-e', 'SENTORI_INGEST_POLICY=' + json.dumps(ingest_policy)] if ingest_policy is not None else []),
             *(['-e', 'SENTORI_OPERATOR_NAME=' + operator_name] if operator_name else []),
@@ -242,7 +250,7 @@ def main():
         if mailbox:
             mailbox.close()
         for container in reversed(containers):
-            subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(['docker', 'rm', '-f','-v', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(['docker', 'volume', 'rm', volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(['docker', 'network', 'rm', prefix], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 

@@ -206,5 +206,5 @@ def run(*, base, owner, sql, password, client, request, restart, login, runtime)
     finally:
         if holder and holder.poll() is None:
             holder.stdin.write('ROLLBACK;\n'); holder.stdin.flush(); holder.stdin.close(); holder.wait(timeout=10)
-        subprocess.run(['docker', 'rm', '-f', cli_container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(['docker', 'rm', '-f','-v', cli_container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         subprocess.run(['docker', 'volume', 'rm', recovery_volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

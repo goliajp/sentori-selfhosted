@@ -56,7 +56,7 @@ def main():
 
     def stop():
         if app in containers:
-            docker('rm', '-f', app)
+            docker('rm', '-f','-v', app)
             containers.remove(app)
 
     def start(binary, database='live', volume=live_volume, blob_dir='/data/blobs', expected=None):
@@ -215,7 +215,7 @@ def main():
             print('PASS actual v4 rollback from paired database/blob backup: exact v4 schema, login, replay bytes and new SDK event; v5-only data remains in quarantine', flush=True)
     finally:
         for name in reversed(containers):
-            subprocess.run(['docker','rm','-f',name],capture_output=True)
+            subprocess.run(['docker','rm','-f','-v',name],capture_output=True)
         for name in volumes:
             subprocess.run(['docker','volume','rm','-f',name],capture_output=True)
         subprocess.run(['docker','network','rm',prefix],capture_output=True)
