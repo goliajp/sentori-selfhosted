@@ -32,7 +32,7 @@ use addr2line::Context;
 use addr2line::FrameIter;
 use addr2line::LookupResult;
 use gimli::{EndianSlice, RunTimeEndian, Section, SectionId};
-use object::{Object, ObjectSection};
+use object::{Object, ObjectSection, ObjectSegment};
 use ouroboros::self_referencing;
 
 use crate::error::{ParseError, ParseResult, ResolveError, ResolveResult};
@@ -64,6 +64,7 @@ struct ModuleInner {
 pub struct DwarfModule {
     inner: Mutex<ModuleInner>,
     byte_len: usize,
+    preferred_image_base: u64,
 }
 
 impl DwarfModule {
@@ -87,16 +88,29 @@ impl DwarfModule {
     ///   malformed; `gimli` refused to parse it.
     pub fn from_bytes(bytes: Vec<u8>) -> ParseResult<Self> {
         let byte_len = bytes.len();
+        // DWARF records linked virtual addresses. Main Mach-O executables
+        // commonly have a nonzero __TEXT vmaddr; frameworks can use zero.
+        // Do not use __PAGEZERO or a section address (which includes its offset).
+        let object = object::File::parse(bytes.as_slice())?;
+        let preferred_image_base = object
+            .segments()
+            .find_map(|segment| {
+                (segment.name().ok().flatten() == Some("__TEXT")).then_some(segment.address())
+            })
+            .unwrap_or(0);
         let inner = ModuleInner::try_new(bytes, |b| build_context(b.as_slice()))?;
         Ok(Self {
             inner: Mutex::new(inner),
             byte_len,
+            preferred_image_base,
         })
     }
 
-    /// Resolve a static offset (program counter minus image base —
-    /// i.e. with the ASLR slide already subtracted) to the inlined
-    /// frame chain at that address.
+    /// Resolve an image-relative offset (`runtime PC - runtime image base`)
+    /// to its inlined frame chain. For Mach-O, the module adds the linked
+    /// `__TEXT.vmaddr` before querying DWARF; this is not the ASLR slide.
+    /// Formats without a named `__TEXT` segment retain zero-base lookup.
+    /// An overflowing address is treated as outside the module.
     ///
     /// The returned `Vec` is ordered **innermost-first**: index 0
     /// is the deepest-inlined call, and ancestors (caller chain)
@@ -118,8 +132,16 @@ impl DwarfModule {
     ///   caller should evict it from any surrounding cache and
     ///   re-parse the bytes if needed.
     pub fn resolve(&self, offset: u64) -> ResolveResult<Vec<Frame>> {
+        let Some(address) = offset.checked_add(self.preferred_image_base) else {
+            return Ok(Vec::new());
+        };
+        // addr2line constructs a one-byte lookup range (address..address + 1).
+        // Even a zero-based image must reject an unrepresentable end address.
+        if address == u64::MAX {
+            return Ok(Vec::new());
+        }
         let guard = self.inner.lock().map_err(|_| ResolveError::Poisoned)?;
-        guard.with_context(|ctx| resolve_with(ctx, offset))
+        guard.with_context(|ctx| resolve_with(ctx, address))
     }
 
     /// The size (in bytes) of the backing Mach-O buffer. Useful
@@ -303,6 +325,38 @@ mod tests {
         );
         assert_eq!(leaf.line, Some(fx.known_line));
         assert!(!frames.last().expect("last frame").is_inlined);
+    }
+
+    #[test]
+    fn resolves_linked_executables_and_zero_based_frameworks() {
+        for base in [0, 0x1_0000_0000, 0x2_3000_0000] {
+            let fx = crate::test_fixtures::synthetic_macho_with_image_base(base);
+            let module = DwarfModule::from_bytes(fx.bytes).expect("parse linked image");
+            let frames = module
+                .resolve(fx.known_offset)
+                .expect("resolve image offset");
+            assert_eq!(frames[0].function.as_deref(), Some(fx.known_function));
+            assert_eq!(frames[0].line, Some(fx.known_line));
+            assert!(
+                frames[0]
+                    .file
+                    .as_deref()
+                    .expect("file")
+                    .ends_with(fx.known_file)
+            );
+            if base != 0 {
+                assert_eq!(
+                    module
+                        .resolve(base + fx.known_offset)
+                        .expect("already rebased"),
+                    Vec::<Frame>::new()
+                );
+            }
+            assert_eq!(
+                module.resolve(u64::MAX).expect("overflow"),
+                Vec::<Frame>::new()
+            );
+        }
     }
 
     #[test]

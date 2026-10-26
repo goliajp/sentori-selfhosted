@@ -121,16 +121,12 @@ impl EmailTransport {
     /// [`TransportError::Email`] when the `From` / `To`
     /// address fails to parse, or the body fails to encode.
     pub fn build_message(&self, n: &Notification) -> Result<Message, TransportError> {
-        let from: lettre::message::Mailbox = self
-            .from
-            .parse()
-            .map_err(|e| TransportError::Email(format!("from parse: {e}")))?;
-        // Use the parsed sender domain, including when From has a display name.
-        // lettre does not generate a Message-ID unless explicitly requested.
-        let message_id = format!("<{}@{}>", uuid::Uuid::new_v4(), from.email.domain());
         Message::builder()
-            .message_id(Some(message_id))
-            .from(from)
+            .from(
+                self.from
+                    .parse()
+                    .map_err(|e| TransportError::Email(format!("from parse: {e}")))?,
+            )
             .to(n
                 .recipient
                 .parse()
@@ -204,53 +200,6 @@ mod tests {
     fn build_message_rejects_bad_recipient() {
         let t = EmailTransport::new(cfg()).unwrap();
         let n = Notification::new(Channel::Email, "not-an-email", "x", "y");
-        assert!(matches!(t.build_message(&n), Err(TransportError::Email(_))));
-    }
-
-    #[test]
-    fn build_message_has_unique_message_id_with_sender_domain() {
-        let n = Notification::new(Channel::Email, "alice@example.com", "hello", "body");
-        for sender in [
-            "sentori@golia.jp",
-            "\"Sentori @ alerts\" <sentori@golia.jp>",
-            "Alerts <alerts@notify.example.org>",
-        ] {
-            let mut config = cfg();
-            config.from = sender.into();
-            let t = EmailTransport::new(config).unwrap();
-            let domain = if sender.contains("notify.example.org") {
-                "notify.example.org"
-            } else {
-                "golia.jp"
-            };
-            let mut ids = Vec::new();
-            for _ in 0..2 {
-                let raw = String::from_utf8(t.build_message(&n).unwrap().formatted()).unwrap();
-                let headers = raw.split("\r\n\r\n").next().unwrap();
-                let ids_in_message: Vec<_> = headers
-                    .lines()
-                    .filter_map(|line| line.strip_prefix("Message-ID: "))
-                    .collect();
-                assert_eq!(ids_in_message.len(), 1, "{raw}");
-                let id = ids_in_message[0];
-                let uuid = id
-                    .strip_prefix('<')
-                    .unwrap()
-                    .strip_suffix(&format!("@{domain}>"))
-                    .unwrap();
-                assert_eq!(uuid::Uuid::parse_str(uuid).unwrap().get_version_num(), 4);
-                ids.push(id.to_owned());
-            }
-            assert_ne!(ids[0], ids[1]);
-        }
-    }
-
-    #[test]
-    fn build_message_rejects_bad_sender() {
-        let mut config = cfg();
-        config.from = "not-an-email".into();
-        let t = EmailTransport::new(config).unwrap();
-        let n = Notification::new(Channel::Email, "alice@example.com", "x", "y");
         assert!(matches!(t.build_message(&n), Err(TransportError::Email(_))));
     }
 

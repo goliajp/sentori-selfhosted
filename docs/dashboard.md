@@ -26,16 +26,16 @@ thing to look at, not a canvas.
 The home screen is the issue queue. Open a row to inspect its case file;
 Back to issues retains your search, filters and pagination.
 
-The queue defaults to the most recent event first, using the device's
-occurrence time rather than the server's receive time. Click a column
-heading to sort by issue, kind, status, event count, user count or last
-event time; click again to reverse the order. The arrow shows the active
-direction. Sorting applies to all matching issues before pagination and
-returns you to the first page.
+**The order is the opinion.** Regressed first, then new, then open —
+not newest first. Something you already fixed and that came back is
+worse news than something you have never seen, and both are worse than
+the one you triaged yesterday and left open.
 
-Choose **Impact** in the sort selector to prioritize open regressions,
-then the number of affected users and the largest per-user event count.
-Search, filters and sorting are preserved when you return from an issue.
+Within that, rows carry the impact: how many people, and the worst
+single person's count. `312u×9` is three hundred and twelve people, and
+one of them hit it nine times. One user hitting something two hundred
+times is a different bug from two hundred users hitting it once, and
+the queue will not let you confuse them.
 
 ### Keyboard
 

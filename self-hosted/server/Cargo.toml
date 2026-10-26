@@ -13,7 +13,7 @@
 
 [package]
 name = "sentori-server"
-version = "5.2.1"
+version = "5.2.3"
 edition = "2024"
 authors = ["GOLIA K.K. <takagi@golia.jp>"]
 license = "Apache-2.0 OR MIT"
@@ -35,6 +35,10 @@ pedantic = { level = "warn", priority = -1 }
 unwrap_used = "deny"
 expect_used = "warn"
 panic = "warn"
+
+[features]
+# Operator regression checks requiring a private, matching dSYM fixture.
+real-dsym-tests = []
 
 [dependencies]
 sentori-request-origin = { path = "../../core/crates/request-origin" }

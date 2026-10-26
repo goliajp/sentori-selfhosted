@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Sentori",
-    "version": "5.2.1",
+    "version": "5.2.3",
     "summary": "Self-hosted crash and error reporting for mobile apps.",
     "description": "Its own wire protocol — not Sentry-compatible, and there is no DSN. Generated from the router by scripts/gen-openapi.mjs; the path list cannot drift from the server."
   },
@@ -178,146 +178,16 @@
     },
     "/api/issues": {
       "get": {
-        "summary": "List project-scoped issues with live offset pagination",
+        "summary": "GET /api/issues",
+        "description": "Listed for completeness; request and response shapes are in docs/protocol.md.",
         "security": [
           {
             "bearer": []
           }
         ],
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "open",
-                "resolved",
-                "ignored",
-                "all"
-              ],
-              "default": "open"
-            }
-          },
-          {
-            "name": "kind",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "error",
-                "warn",
-                "trace",
-                "assert",
-                "probe"
-              ]
-            }
-          },
-          {
-            "name": "appId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "platform",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "environment",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "release",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "default": 50
-            },
-            "description": "Clamped to 1–200."
-          },
-          {
-            "name": "offset",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 0
-            }
-          }
-        ],
         "responses": {
-          "200": {
-            "description": "Live impact ordering; concurrent events can move rows between pages.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": [
-                    "issues",
-                    "total",
-                    "limit",
-                    "offset",
-                    "nextOffset"
-                  ],
-                  "properties": {
-                    "issues": {
-                      "type": "array",
-                      "items": {
-                        "type": "object"
-                      }
-                    },
-                    "total": {
-                      "type": "integer"
-                    },
-                    "limit": {
-                      "type": "integer"
-                    },
-                    "offset": {
-                      "type": "integer"
-                    },
-                    "nextOffset": {
-                      "type": "integer",
-                      "nullable": true
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid filter or negative offset"
-          },
-          "401": {
-            "description": "Missing, malformed, unknown, or wrong-scope token. `hint` names which.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Requires an API-scope token"
-          },
-          "404": {
-            "description": "App not in token project"
+          "default": {
+            "description": "See docs/protocol.md"
           }
         }
       }
@@ -984,7 +854,7 @@
             "bearer": []
           }
         ],
-        "description": "API token. Percentiles and sample counts are returned even below 20 samples; assessment is insufficient-data until 20. Results are separated by device. SPA route readiness does not inflate document denominators. Error groups cover at most 500 recent error events; unknown metrics are not passing results.",
+        "description": "API token. Percentiles are separated by device and require 20 samples. SPA route readiness does not inflate document denominators. Error groups cover at most 500 recent error events; unknown metrics are not passing results.",
         "parameters": [
           {
             "name": "app",

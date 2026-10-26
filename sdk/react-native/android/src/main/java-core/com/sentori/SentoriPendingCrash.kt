@@ -133,7 +133,6 @@ internal object SentoriPendingCrash {
             )
         raw.optJSONObject("device")?.let { payload["device"] = it.toMap() }
         raw.optJSONObject("app")?.let { payload["app"] = it.toMap() }
-        raw.optJSONObject("context")?.let { payload["context"] = it.toMap() }
 
         return mapOf(
             "id" to raw.optString("id", "").ifEmpty { Sentori.newEventId() },
@@ -153,13 +152,11 @@ internal object SentoriPendingCrash {
     }
 
     private fun JSONObject.toMap(): Map<String, Any?> =
-        keys().asSequence().associateWith { k -> jsonValue(get(k)) }
-
-    private fun jsonValue(value: Any?): Any? =
-        when (value) {
-            is JSONObject -> value.toMap()
-            is JSONArray -> (0 until value.length()).map { jsonValue(value.get(it)) }
-            JSONObject.NULL -> null
-            else -> value
+        keys().asSequence().associateWith { k ->
+            when (val v = get(k)) {
+                is JSONObject -> v.toMap()
+                JSONObject.NULL -> null
+                else -> v
+            }
         }
 }

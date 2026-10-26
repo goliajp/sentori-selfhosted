@@ -28,9 +28,10 @@
 //! - **Offset — `u64`, static.** The offset passed to
 //!   [`DwarfModule::resolve`] is `PC - image_base` — the address
 //!   the SDK observed at crash time minus the load address the
-//!   binary was placed at by the kernel (ASLR slide). Callers
-//!   typically read both from the iOS native crash handler and
-//!   subtract before calling us.
+//!   binary was placed at by the kernel. Callers subtract these
+//!   runtime addresses before calling us. The resolver then adds
+//!   the Mach-O `__TEXT.vmaddr` to obtain the linked DWARF address;
+//!   a load address is not itself an ASLR slide.
 //! - **Inlined chain — innermost-first `Vec<Frame>`.** Index 0
 //!   is the deepest-inlined call; the last frame's `is_inlined`
 //!   flag is `false` (it is the lexically-innermost real function

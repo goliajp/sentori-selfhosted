@@ -1,6 +1,13 @@
 # Sentori CHANGELOG
 
-## 5.2.1 — 2026-10-25
+## 5.2.3 — Unreleased
+
+- Resolve native Mach-O stack frames using the uploaded image’s linked `__TEXT.vmaddr`, so iOS executable dSYMs with a nonzero base produce source locations while zero-based frameworks continue to resolve.
+- Reject overflowing address lookups before entering the DWARF parser.
+
+## 5.2.2 — 2026-10-25
+
+Security patch release based on production 5.2.0; unrelated development changes from 5.2.1 are excluded.
 
 - Record trusted request source IPs in Cloud and data-plane audit events, including successful and failed authentication, reset and password-change operations. Forwarded addresses are accepted only from explicitly configured proxy peers.
 - Generate push-signing test keys at runtime instead of committing fixed private keys.

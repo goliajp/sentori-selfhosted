@@ -57,8 +57,40 @@ const FUNCTION_LEN: u64 = 0x80;
 /// one subprogram (`hello` at `src/hello.rs:42`, occupying the
 /// address range `0x1000..0x1080`).
 pub(crate) fn synthetic_macho_with_dwarf() -> Fixture {
-    let dwarf_sections = build_dwarf_sections();
+    let dwarf_sections = build_dwarf_sections(0);
     let bytes = wrap_in_macho(dwarf_sections);
+    Fixture {
+        bytes,
+        known_offset: FUNCTION_LOW_PC,
+        known_function: FUNCTION_NAME,
+        known_file: FILE_NAME,
+        known_line: DECL_LINE,
+    }
+}
+
+/// Give the synthetic image an explicit linked __TEXT address and emit
+/// DWARF PCs in that same address space. object::write emits MH_OBJECT's
+/// unnamed segment; set its name/vmaddr without moving any section bytes.
+pub(crate) fn synthetic_macho_with_image_base(image_base: u64) -> Fixture {
+    let mut bytes = wrap_in_macho(build_dwarf_sections(image_base));
+    assert_eq!(&bytes[..4], &0xfeed_facfu32.to_le_bytes());
+    let commands = u32::from_le_bytes(bytes[16..20].try_into().expect("ncmds"));
+    let mut at = 32;
+    let mut found = false;
+    for _ in 0..commands {
+        let command = u32::from_le_bytes(bytes[at..at + 4].try_into().expect("cmd"));
+        let size = u32::from_le_bytes(bytes[at + 4..at + 8].try_into().expect("size")) as usize;
+        if command == 0x19 {
+            // LC_SEGMENT_64
+            bytes[at + 8..at + 24].fill(0);
+            bytes[at + 8..at + 14].copy_from_slice(b"__TEXT");
+            bytes[at + 24..at + 32].copy_from_slice(&image_base.to_le_bytes());
+            found = true;
+            break;
+        }
+        at += size;
+    }
+    assert!(found, "Mach-O segment missing");
     Fixture {
         bytes,
         known_offset: FUNCTION_LOW_PC,
@@ -72,7 +104,7 @@ pub(crate) fn synthetic_macho_with_dwarf() -> Fixture {
 /// Used by the slicer round-trip tests so a fat header can carry
 /// two distinct slices.
 pub(crate) fn synthetic_macho_x86_64() -> Fixture {
-    let dwarf_sections = build_dwarf_sections();
+    let dwarf_sections = build_dwarf_sections(0);
     let bytes = wrap_in_macho_with_arch(dwarf_sections, Architecture::X86_64);
     Fixture {
         bytes,
@@ -156,7 +188,7 @@ pub(crate) fn synthetic_macho_stripped() -> Vec<u8> {
     obj.write().expect("write stripped macho")
 }
 
-fn build_dwarf_sections() -> gimli::write::Dwarf {
+fn build_dwarf_sections(image_base: u64) -> gimli::write::Dwarf {
     let encoding = Encoding {
         format: Format::Dwarf32,
         version: 4,
@@ -188,7 +220,7 @@ fn build_dwarf_sections() -> gimli::write::Dwarf {
     root_die.set(DW_AT_language, AttributeValue::Language(DW_LANG_Rust));
     root_die.set(
         DW_AT_low_pc,
-        AttributeValue::Address(Address::Constant(FUNCTION_LOW_PC)),
+        AttributeValue::Address(Address::Constant(image_base + FUNCTION_LOW_PC)),
     );
     root_die.set(DW_AT_high_pc, AttributeValue::Udata(FUNCTION_LEN));
 
@@ -198,14 +230,14 @@ fn build_dwarf_sections() -> gimli::write::Dwarf {
     sub_die.set(DW_AT_name, AttributeValue::StringRef(function_name_id));
     sub_die.set(
         DW_AT_low_pc,
-        AttributeValue::Address(Address::Constant(FUNCTION_LOW_PC)),
+        AttributeValue::Address(Address::Constant(image_base + FUNCTION_LOW_PC)),
     );
     sub_die.set(DW_AT_high_pc, AttributeValue::Udata(FUNCTION_LEN));
     sub_die.set(DW_AT_decl_file, AttributeValue::FileIndex(Some(file_id)));
     sub_die.set(DW_AT_decl_line, AttributeValue::Udata(u64::from(DECL_LINE)));
 
     // Emit one line program row covering FUNCTION_LOW_PC → DECL_LINE.
-    emit_line_program_rows(&mut unit, file_id);
+    emit_line_program_rows(&mut unit, file_id, image_base);
 
     let _unit_id = dwarf.units.add(unit);
     dwarf
@@ -228,9 +260,9 @@ fn make_line_program(encoding: Encoding) -> LineProgram {
     )
 }
 
-fn emit_line_program_rows(unit: &mut gimli::write::Unit, file_id: FileId) {
+fn emit_line_program_rows(unit: &mut gimli::write::Unit, file_id: FileId, image_base: u64) {
     let lp = &mut unit.line_program;
-    lp.begin_sequence(Some(Address::Constant(FUNCTION_LOW_PC)));
+    lp.begin_sequence(Some(Address::Constant(image_base + FUNCTION_LOW_PC)));
     lp.row().file = file_id;
     lp.row().line = u64::from(DECL_LINE);
     lp.row().address_offset = 0;

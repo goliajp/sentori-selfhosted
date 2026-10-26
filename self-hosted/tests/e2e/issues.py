@@ -57,39 +57,6 @@ def run(*, base, owner, sql, password, client, request):
     assert listing(context_key='tenant', context_value='B')['total'] == 0
     assert listing(release='missing')['total'] == 0
 
-    # Sort the entire filtered result before paging, independently of impact.
-    sorted_project = call(owner, '/admin/api/projects', 'POST', {'name': 'Issue sorting'}, 201)['id']
-    sort_ids = [str(uuid.uuid4()) for _ in range(7)]
-    display_titles = {issue_id: f'Headline {index}' if index % 2 == 0 else f'Sort {6-index}' for index, issue_id in enumerate(sort_ids)}
-    for index, issue_id in enumerate(sort_ids):
-        sql(f"""INSERT INTO issues(id,project_id,fingerprint,kind,group_title,message_sample,status,first_seen,last_seen,event_count,users_count,max_per_user)
-          VALUES ('{issue_id}','{sorted_project}','sort-{index}','{['error','warn','trace'][index % 3]}',
-          '{'TypeError' if index % 2 == 0 else f'Sort {6-index}'}','{display_titles[issue_id]}','{['open','resolved','ignored'][index % 3]}','2025-01-01T00:00:00Z',
-          '2026-01-01T00:00:00Z'::timestamptz + interval '{index} hours',{20-index},{index % 4},1);""")
-    def sorted_listing(**params):
-        return call(owner, '/admin/api/issues?' + urlencode({'project_id': sorted_project, 'status': 'all', **params}))
-    source = sorted_listing(limit=50)['issues']
-    assert [row['id'] for row in source] == list(reversed(sort_ids)), 'default follows occurrence time, not event count'
-    fields = {'title': 'title', 'kind': 'kind', 'status': 'status', 'events': 'eventCount', 'users': 'usersCount'}
-    for sort, field, descending in [('newest', 'lastSeen', True), ('oldest', 'lastSeen', False)] + [
-            (f'{name}_{direction}', field, direction == 'desc') for name, field in fields.items() for direction in ['asc', 'desc']]:
-        # Secondary recency and UUID order remain descending for equal values.
-        expected = sorted(sorted(source, key=lambda row: (row['lastSeen'], row['id']), reverse=True), key=lambda row: display_titles[row['id']] if field == 'title' else row[field], reverse=descending)
-        actual = [row for offset in range(0, 7, 2) for row in sorted_listing(sort=sort, offset=offset, limit=2)['issues']]
-        assert [row['id'] for row in actual] == [row['id'] for row in expected], sort
-    assert sorted_listing(sort='impact')['issues'][0]['usersCount'] == 3
-    # Filtering changes the aggregate values used for both display and ordering.
-    for index, issue_id in enumerate(sort_ids[:2]):
-        for occurrence in range(index + 1):
-            sql(f"""INSERT INTO events(id,project_id,issue_id,kind,platform,occurred_at,received_at,environment,release,payload)
-              VALUES (gen_random_uuid(),'{sorted_project}','{issue_id}','error','javascript',
-              '2026-02-01T00:00:00Z'::timestamptz - interval '{index} hours',
-              '2026-03-01T00:00:00Z'::timestamptz + interval '{index} hours','sort-qa','1.0','{{}}');""")
-    assert sorted_listing(environment='sort-qa')['issues'][0]['id'] == sort_ids[0], 'device occurrence, not receive time or unfiltered recency'
-    assert sorted_listing(environment='sort-qa', sort='events_desc')['issues'][0]['id'] == sort_ids[1]
-    assert sorted_listing(environment='sort-qa', sort='events_asc')['issues'][0]['id'] == sort_ids[0]
-    print('PASS: default occurrence recency, every column in both directions, full-set pagination, stable ties and filtered aggregates')
-
     account = call(owner, '/admin/api/users', 'POST', {'email': 'issue-member@example.test', 'password': password}, 201)
     member = client()
     call(member, '/auth/login', 'POST', {'email': 'issue-member@example.test', 'password': password})

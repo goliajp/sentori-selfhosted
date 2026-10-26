@@ -1,7 +1,7 @@
 # core/crates/dwarf-resolver — 石头 #7 (per cement-stone).
 #
-# Resolves a static instruction-pointer offset (`PC - image_base`,
-# i.e. the binary's static address after ASLR slide is subtracted)
+# Resolves an image-relative instruction-pointer offset (`PC - image_base`,
+# adding the Mach-O __TEXT.vmaddr to obtain the linked DWARF address)
 # back to its original `(function, file, line[, column])` plus any
 # inlined-call chain, using DWARF debug info embedded in a Mach-O
 # slice. The slice is the contents of a dSYM bundle's inner Mach-O

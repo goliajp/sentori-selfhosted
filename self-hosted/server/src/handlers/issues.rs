@@ -1,7 +1,7 @@
 //! Issue surface — the product's main body.
 //!
 //! Serves both consumers of the issue system:
-//! - the dashboard (cookie session, latest occurrence first)
+//! - the dashboard (cookie session, Inbox ordering = breadth×depth)
 //! - the AI closed loop (Bearer api-scope token: list → bundle →
 //!   note → resolve)
 //!
@@ -130,29 +130,11 @@ fn list_window(q: &ListQuery) -> Result<ListWindow<'_>, (StatusCode, Json<Value>
         None => 100,
     };
     let offset = q.offset.unwrap_or(0);
-    let sort = q.sort.as_deref().unwrap_or("newest");
+    let sort = q.sort.as_deref().unwrap_or("impact");
     let group = q.group.as_deref().unwrap_or("all");
     for (invalid, field) in [
         (offset < 0, "offset"),
-        (
-            ![
-                "impact",
-                "newest",
-                "oldest",
-                "title_asc",
-                "title_desc",
-                "kind_asc",
-                "kind_desc",
-                "status_asc",
-                "status_desc",
-                "events_asc",
-                "events_desc",
-                "users_asc",
-                "users_desc",
-            ]
-            .contains(&sort),
-            "sort",
-        ),
+        (!["impact", "newest"].contains(&sort), "sort"),
         (
             !["all", "open", "regressed", "fresh"].contains(&group),
             "group",
@@ -217,10 +199,7 @@ pub(super) const ISSUE_LIST_SQL: &str = "WITH matching AS MATERIALIZED (
            FROM matching GROUP BY issue_id
          ), filtered AS MATERIALIZED (
            SELECT i.*,s.matched_events,s.matched_users,s.matched_max_per_user,s.matched_last_seen,
-                  s.matched_last_received_at,s.matched_last_release,
-                  CASE WHEN i.group_title ~ '^[A-Z][A-Za-z0-9]*$' AND i.message_sample <> ''
-                         AND i.message_sample <> i.group_title THEN i.message_sample
-                       ELSE i.group_title END AS display_title
+                  s.matched_last_received_at,s.matched_last_release
            FROM issues i LEFT JOIN event_stats s ON s.issue_id=i.id
            WHERE ($1 = 'all' OR i.status = $1)
              AND ($2::uuid IS NULL OR i.project_id = $2)
@@ -247,38 +226,16 @@ pub(super) const ISSUE_LIST_SQL: &str = "WITH matching AS MATERIALIZED (
            ORDER BY CASE WHEN $8 = 'impact' THEN (regressed_at IS NOT NULL AND status = 'open') END DESC,
                     CASE WHEN $8 = 'impact' THEN coalesce(matched_users,users_count) END DESC,
                     CASE WHEN $8 = 'impact' THEN coalesce(matched_max_per_user,max_per_user) END DESC,
-                    CASE WHEN $8 = 'title_asc' THEN display_title END ASC,
-                  CASE WHEN $8 = 'title_desc' THEN display_title END DESC,
-                  CASE WHEN $8 = 'kind_asc' THEN kind END ASC,
-                  CASE WHEN $8 = 'kind_desc' THEN kind END DESC,
-                  CASE WHEN $8 = 'status_asc' THEN status END ASC,
-                  CASE WHEN $8 = 'status_desc' THEN status END DESC,
-                  CASE WHEN $8 = 'events_asc' THEN coalesce(matched_events,event_count) END ASC,
-                  CASE WHEN $8 = 'events_desc' THEN coalesce(matched_events,event_count) END DESC,
-                  CASE WHEN $8 = 'users_asc' THEN coalesce(matched_users,users_count) END ASC,
-                  CASE WHEN $8 = 'users_desc' THEN coalesce(matched_users,users_count) END DESC,
-                  CASE WHEN $8 = 'oldest' THEN coalesce(matched_last_seen,last_seen) END ASC,
-                  coalesce(matched_last_seen,last_seen) DESC, id DESC
+                    coalesce(matched_last_seen,last_seen) DESC, id DESC
            LIMIT $5 OFFSET $10
          ) page ON true
          ORDER BY CASE WHEN $8 = 'impact' THEN (page.regressed_at IS NOT NULL AND page.status = 'open') END DESC,
                   CASE WHEN $8 = 'impact' THEN coalesce(page.matched_users,page.users_count) END DESC,
                   CASE WHEN $8 = 'impact' THEN coalesce(page.matched_max_per_user,page.max_per_user) END DESC,
-                  CASE WHEN $8 = 'title_asc' THEN page.display_title END ASC,
-                  CASE WHEN $8 = 'title_desc' THEN page.display_title END DESC,
-                  CASE WHEN $8 = 'kind_asc' THEN page.kind END ASC,
-                  CASE WHEN $8 = 'kind_desc' THEN page.kind END DESC,
-                  CASE WHEN $8 = 'status_asc' THEN page.status END ASC,
-                  CASE WHEN $8 = 'status_desc' THEN page.status END DESC,
-                  CASE WHEN $8 = 'events_asc' THEN coalesce(page.matched_events,page.event_count) END ASC,
-                  CASE WHEN $8 = 'events_desc' THEN coalesce(page.matched_events,page.event_count) END DESC,
-                  CASE WHEN $8 = 'users_asc' THEN coalesce(page.matched_users,page.users_count) END ASC,
-                  CASE WHEN $8 = 'users_desc' THEN coalesce(page.matched_users,page.users_count) END DESC,
-                  CASE WHEN $8 = 'oldest' THEN coalesce(page.matched_last_seen,page.last_seen) END ASC,
                   coalesce(page.matched_last_seen,page.last_seen) DESC, page.id DESC";
 
-/// Issue list. Sort the full filtered set before pagination; newest occurrence
-/// first by default, with an explicit impact option and stable ID tie-breaks.
+/// Inbox list. Regressed floats above everything, then objective
+/// importance (breadth desc, depth desc), then recency.
 pub async fn list(
     State(state): State<Arc<AppState>>,
     Extension(ctx): Extension<SessionContext>,

@@ -232,8 +232,9 @@ fn rewrite_ios(module: &DwarfModule, frame: &mut Value) -> bool {
     let Ok(frames) = module.resolve(offset) else {
         return false;
     };
-    // Innermost-last convention: the lexical function at the PC is
-    // the most useful headline; inline parents add depth count.
+    // addr2line returns innermost-first. Keep the outer real function
+    // and its call-site location together (a compiler-generated inline
+    // leaf can have line zero); do not pair names with another frame's line.
     let Some(top) = frames.last() else {
         return false;
     };
@@ -364,6 +365,39 @@ mod tests {
         assert!(func.contains("com.example.Pay"));
         assert_eq!(frame["symbolicated"], true);
         assert_eq!(frame["minifiedFunction"], "a.a.b");
+        Ok(())
+    }
+
+    #[cfg(feature = "real-dsym-tests")]
+    #[test]
+    fn ios_linked_executable_real_dsym_locations() -> Result<(), Box<dyn std::error::Error>> {
+        let path = std::env::var("SENTORI_TEST_DSYM")?;
+        let module = DwarfModule::from_bytes(std::fs::read(path)?)?;
+        for (pc, file, line) in [
+            (0x1_0047_0e24u64, "Sentori.swift", 123),
+            (0x1_0040_d42cu64, "Reporting.swift", 54),
+        ] {
+            let mut frame = json!({"addr": pc, "imageBase": 0x1_0033_0000u64,
+                "file": "Insight", "line": 0, "function": "<unresolved>",
+                "imageUuid": "19986e237b5736cc94739eb2678f673c"});
+            assert!(rewrite_ios(&module, &mut frame));
+            assert_eq!(frame["symbolicated"], true);
+            assert_eq!(frame["line"], line);
+            assert!(
+                frame["file"]
+                    .as_str()
+                    .ok_or("file missing")?
+                    .ends_with(file)
+            );
+            assert_ne!(frame["function"], "<unresolved>");
+            // Re-running the operator must not rebase an already resolved frame.
+            let once = frame.clone();
+            assert!(!rewrite_ios(&module, &mut frame));
+            assert_eq!(frame, once);
+            println!("{frame}");
+        }
+        let mut below_base = json!({"addr": 1, "imageBase": 2});
+        assert!(!rewrite_ios(&module, &mut below_base));
         Ok(())
     }
 

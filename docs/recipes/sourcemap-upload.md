@@ -137,25 +137,3 @@ A failed upload can be retried with the same configuration and release. Servers
 reprocess existing events after a late artifact upload. Missing capability,
 wrong token, wrong workspace, quota rejection and unreadable files must be fixed
 before treating verification as complete.
-
-## Function names in Vite 8
-
-Sentori reads the mapped token's `names` entry when present. A map can restore
-file, line and source context while omitting the original function name;
-`sourcesContent` alone is not a function-scope map. A nonempty `names` array
-does not guarantee a name for every stack position.
-
-For Vite 8's Rolldown build, preserve function and class names in future builds:
-
-```ts
-build: {
-  sourcemap: 'hidden',
-  rolldownOptions: { output: { keepNames: true } },
-}
-```
-
-This preserves runtime names rather than reconstructing missing names in an
-old artifact. Upload the new build's maps with exactly the SDK release string;
-keep maps private. `hidden` controls the sourceMappingURL comment, not names.
-See [Vite build options](https://vite.dev/config/build-options) and
-[Rolldown keepNames](https://rolldown.rs/reference/Interface.OutputOptions#keepnames).

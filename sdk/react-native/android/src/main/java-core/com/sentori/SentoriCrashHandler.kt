@@ -34,26 +34,19 @@ object SentoriCrashHandler {
 
     @Volatile private var appCtx: Context? = null
     @Volatile private var previousHandler: Thread.UncaughtExceptionHandler? = null
-    private var installedHandler: Thread.UncaughtExceptionHandler? = null
 
-    @Synchronized
     @JvmStatic
     fun register(context: Context) {
         appCtx = context.applicationContext
-        // Reconfiguring the SDK must not chain this handler to itself.
-        if (installedHandler != null) return
-        val previous = Thread.getDefaultUncaughtExceptionHandler()
-        previousHandler = previous
-        val handler = Thread.UncaughtExceptionHandler { thread, throwable ->
+        previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
                 write(throwable)
             } catch (_: Throwable) {
                 // never throw inside the crash handler
             }
-            previous?.uncaughtException(thread, throwable)
+            previousHandler?.uncaughtException(thread, throwable)
         }
-        installedHandler = handler
-        Thread.setDefaultUncaughtExceptionHandler(handler)
         // Phase 42 sub-F.01: have the screenshot helper track the
         // foreground Activity so it knows which Window to PixelCopy.
         (appCtx as? android.app.Application)?.let {
@@ -76,18 +69,6 @@ object SentoriCrashHandler {
     @JvmStatic
     fun installForTesting(context: Context) {
         appCtx = context.applicationContext
-    }
-
-    @VisibleForTesting
-    @Synchronized
-    internal fun resetForTests() {
-        if (installedHandler != null && Thread.getDefaultUncaughtExceptionHandler() === installedHandler) {
-            Thread.setDefaultUncaughtExceptionHandler(previousHandler)
-        }
-        installedHandler = null
-        previousHandler = null
-        appCtx = null
-        currentConfig = emptyMap()
     }
 
     /**
@@ -146,7 +127,6 @@ object SentoriCrashHandler {
         val cfg = configMap()
         val release = cfg["release"] ?: "unknown"
         val environment = cfg["environment"] ?: "prod"
-        val context = SentoriScope.context
 
         val device = JSONObject().apply {
             put("os", "android")
@@ -178,7 +158,6 @@ object SentoriCrashHandler {
             put("platform", "android")
             put("release", release)
             put("environment", environment)
-            context?.let { put("context", JSONObject(it)) }
             put("device", device)
             put("app", app)
             put("user", JSONObject.NULL)
